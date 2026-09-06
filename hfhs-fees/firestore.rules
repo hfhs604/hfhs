@@ -1,0 +1,116 @@
+rules_version = '2';
+
+// These rules match the role model the app code assumes:
+//   users/{uid}.role         -> "superAdmin" | "admin" | "accountant" | "staff" | "student"
+//   users/{uid}.linkedStudentId -> set for student/parent accounts
+//   users/{uid}.permissions.manageDiscounts -> optional per-user override
+//
+// This is a reasonable starting point, not a substitute for a security
+// review before handling real fee data in production.
+
+function userDoc() {
+  return get(/databases/$(database)/documents/users/$(request.auth.uid));
+}
+function role() {
+  return request.auth != null ? userDoc().data.role : null;
+}
+function isStaffRole() {
+  return role() in ['superAdmin', 'admin', 'accountant', 'staff'];
+}
+function isFinanceRole() {
+  return role() in ['superAdmin', 'admin', 'accountant'];
+}
+function isAdminRole() {
+  return role() in ['superAdmin', 'admin'];
+}
+function isSuperAdmin() {
+  return role() == 'superAdmin';
+}
+function canManageDiscounts() {
+  return isSuperAdmin() || (isAdminRole() && userDoc().data.permissions.manageDiscounts == true);
+}
+function ownsStudentRecord(studentId) {
+  return request.auth != null && userDoc().data.linkedStudentId == studentId;
+}
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // users: everyone can read their own doc (so the client can find its
+    // own role/linkedStudentId); only a Super Admin can write roles.
+    match /users/{uid} {
+      allow read: if request.auth != null && (request.auth.uid == uid || isStaffRole());
+      allow write: if isSuperAdmin();
+    }
+
+    // students: staff roles can read/write; a student/parent account can
+    // only read the one record it's linked to, and never write it.
+    match /students/{studentId} {
+      allow read: if isStaffRole() || ownsStudentRecord(studentId);
+      allow create: if isAdminRole();
+      allow update: if isFinanceRole(); // balances are updated via collectPayment()
+      allow delete: if isSuperAdmin();
+    }
+
+    // feeStructures: any staff role reads; only admins configure them.
+    match /feeStructures/{structureId} {
+      allow read: if isStaffRole();
+      allow write: if isAdminRole();
+    }
+
+    // feeTransactions: append-only ledger. Finance roles can create/void;
+    // a student/parent can read only their own transactions.
+    match /feeTransactions/{txnId} {
+      allow read: if isFinanceRole() ||
+        (request.auth != null && ownsStudentRecord(resource.data.studentId));
+      allow create: if isFinanceRole();
+      allow update: if isFinanceRole(); // only the voided/void* fields, enforced by app logic
+      allow delete: if false; // never hard-deleted, per the design in feeService.js
+    }
+
+    // receipts: same visibility as the transaction they belong to.
+    match /receipts/{receiptId} {
+      allow read: if isFinanceRole() ||
+        (request.auth != null && ownsStudentRecord(resource.data.studentId));
+      allow create: if isFinanceRole();
+      allow update: if false;
+      allow delete: if false;
+    }
+
+    // paymentIdempotency: internal bookkeeping written inside the same
+    // transaction as collectPayment() — staff-only, never read back by the UI.
+    match /paymentIdempotency/{key} {
+      allow read, write: if isFinanceRole();
+    }
+
+    // counters: internal atomic receipt-number counter.
+    match /counters/{counterId} {
+      allow read, write: if isFinanceRole();
+    }
+
+    // discounts: gated by the manageDiscounts permission (or Super Admin),
+    // exactly like the UI-level gate in DiscountManager.jsx — this is the
+    // enforcement that actually matters.
+    match /discounts/{discountId} {
+      allow read: if isFinanceRole();
+      allow create, update: if canManageDiscounts();
+      allow delete: if isSuperAdmin();
+    }
+
+    // academicSessions: any staff role reads; only Super Admin creates new
+    // sessions (matches the Settings tab being superAdmin-only in the UI).
+    match /academicSessions/{sessionId} {
+      allow read: if isStaffRole();
+      allow write: if isSuperAdmin();
+    }
+
+    // auditLogs: append-only trail. Any staff role can write an entry
+    // (writeAuditLog() runs from the client on every money-touching action);
+    // only admins can read the trail back; nothing is ever edited/deleted.
+    match /auditLogs/{logId} {
+      allow read: if isAdminRole();
+      allow create: if isStaffRole();
+      allow update, delete: if false;
+    }
+  }
+}

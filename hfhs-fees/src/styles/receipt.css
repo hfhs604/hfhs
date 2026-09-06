@@ -1,0 +1,198 @@
+/* =========================================================================
+   Receipt print layout — 4 receipts per A4 (2 cols x 2 rows), each
+   ~105mm x 148.5mm (exactly one quarter of 210mm x 297mm), portrait.
+   ========================================================================= */
+
+:root {
+  --receipt-border: 1px dashed #999;
+  --receipt-accent: #1a3d6d;
+  --receipt-text: #1f2430;
+}
+
+/* ---- On-screen preview: mimic the print grid so what you see is what
+   you get, without relying on print preview to check the layout. ---- */
+.receipt-print-root {
+  background: #e9e9ec;
+  padding: 24px 0;
+  min-height: 100vh;
+}
+
+.receipt-toolbar {
+  max-width: 210mm;
+  margin: 0 auto 16px;
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 0 8px;
+}
+.receipt-toolbar button {
+  background: var(--receipt-accent);
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.receipt-toolbar-hint { color: #555; font-size: 13px; }
+
+.a4-page {
+  width: 210mm;
+  height: 297mm;
+  margin: 0 auto 16px;
+  background: #fff;
+  box-shadow: 0 0 6px rgba(0, 0, 0, 0.2);
+  box-sizing: border-box;
+  padding: 0;
+  /* Never let a receipt straddle the boundary between pages */
+  page-break-after: always;
+  break-after: page;
+}
+.a4-page:last-child { page-break-after: auto; break-after: auto; }
+
+.a4-grid {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  grid-template-rows: 1fr 1fr;
+  /* no gap = no unnecessary blank space between receipts, per spec */
+  gap: 0;
+}
+
+.a4-cell {
+  box-sizing: border-box;
+  border: var(--receipt-border); /* thin light cut-guide border */
+  overflow: hidden;
+  page-break-inside: avoid;
+  break-inside: avoid;
+}
+.a4-cell-blank { border: var(--receipt-border); }
+
+/* ---- The receipt itself: sized to fill exactly one quarter-slot ---- */
+.receipt-card {
+  width: 100%;
+  height: 100%;
+  box-sizing: border-box;
+  padding: 3mm 4mm;
+  font-family: "Segoe UI", Arial, sans-serif;
+  font-size: 7.5pt;
+  line-height: 1.25;
+  color: var(--receipt-text);
+  display: flex;
+  flex-direction: column;
+}
+
+.receipt-header {
+  display: flex;
+  align-items: center;
+  gap: 3mm;
+  border-bottom: 1px solid var(--receipt-accent);
+  padding-bottom: 1.5mm;
+  margin-bottom: 1.5mm;
+}
+.receipt-logo {
+  width: 11mm;
+  height: 11mm;
+  object-fit: contain;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.receipt-header-text h3 {
+  margin: 0;
+  font-size: 9.5pt;
+  color: var(--receipt-accent);
+  letter-spacing: 0.3px;
+}
+.receipt-tagline { margin: 0; font-size: 6.5pt; font-style: italic; }
+.receipt-address, .receipt-reg { margin: 0; font-size: 6pt; color: #444; }
+
+.receipt-meta-row, .receipt-student-row, .receipt-balance-row, .receipt-payment-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2mm 4mm;
+  font-size: 6.8pt;
+  margin-bottom: 1mm;
+}
+
+.receipt-table {
+  width: 100%;
+  border-collapse: collapse;
+  margin: 1mm 0;
+  font-size: 6.8pt;
+}
+.receipt-table th, .receipt-table td {
+  border: 0.5px solid #ccc;
+  padding: 0.8mm 1.5mm;
+  text-align: left;
+}
+.receipt-table th:last-child, .receipt-table td:last-child { text-align: right; }
+.receipt-total-row td {
+  font-weight: 700;
+  border-top: 1px solid var(--receipt-accent);
+}
+
+.receipt-balance-row { font-weight: 600; justify-content: space-between; }
+
+.receipt-footer {
+  margin-top: auto; /* pins signature/stamp area to the bottom of the slot */
+  padding-top: 1.5mm;
+  border-top: 0.5px solid #ccc;
+}
+.receipt-sign-area {
+  display: flex;
+  justify-content: space-between;
+  gap: 4mm;
+  margin-bottom: 1mm;
+}
+.receipt-stamp-box, .receipt-signature-box {
+  flex: 1;
+  border-top: 0.5px dotted #888;
+  text-align: center;
+  font-size: 5.8pt;
+  color: #666;
+  padding-top: 0.8mm;
+}
+.receipt-computer-generated {
+  text-align: center;
+  font-size: 5.5pt;
+  color: #888;
+  margin: 0;
+}
+
+/* =========================================================================
+   PRINT RULES
+   ========================================================================= */
+@page {
+  size: A4 portrait;
+  margin: 0;
+}
+
+@media print {
+  html, body { margin: 0; padding: 0; }
+
+  /* Hide site chrome — nav, sidebar, buttons — leaving only the receipts */
+  body * { visibility: hidden; }
+  .receipt-print-root, .receipt-print-root * { visibility: visible; }
+  .receipt-print-root { position: absolute; top: 0; left: 0; background: #fff; padding: 0; }
+
+  .no-print, .receipt-toolbar { display: none !important; }
+
+  .a4-page {
+    box-shadow: none;
+    margin: 0;
+    width: 210mm;
+    height: 297mm;
+  }
+
+  .a4-cell { border: 0.3pt dashed #aaa; } /* light cut-guide survives print */
+}
+
+/* ---- Single-receipt "quarter page" print mode: when only one receipt is
+   selected, it still prints at true quarter-page size (not stretched to
+   fill the sheet) positioned in the top-left slot, matching the 4-per-page
+   scale exactly so re-printing the rest later stays visually consistent. ---- */
+.receipt-print-root[data-single="true"] .a4-grid {
+  grid-template-columns: 105mm 105mm;
+  grid-template-rows: 148.5mm 148.5mm;
+}
