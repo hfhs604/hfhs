@@ -1,4 +1,5 @@
-# Holy Faith High School — Fee Management
+# Holy Faith High School — Fee Management (standalone, GitHub Pages)
+
 This is a self-contained React + Firebase app — no existing website required.
 Push it to GitHub, flip on Pages, and it deploys itself on every push.
 
