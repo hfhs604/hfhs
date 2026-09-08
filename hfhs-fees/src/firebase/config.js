@@ -14,12 +14,12 @@ import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
 
 const firebaseConfig = {
-  apiKey: "AIzaSyAqNCQ1Q_djNvYJ4TSa6kCt66gCXZdWAjA",
-  authDomain: "sms-school-manage-hfhs-siwan.firebaseapp.com",
-  projectId: "school-manage-hfhs-siwan",
-  storageBucket: "sms-school-manage-hfhs-siwan.firebasestorage.app",
-  messagingSenderId: "677398380911",
-  appId: "1:677398380911:web:b7612f2bc094902ee3e89a",
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID,
 };
 
 if (!firebaseConfig.apiKey || !firebaseConfig.projectId) {
