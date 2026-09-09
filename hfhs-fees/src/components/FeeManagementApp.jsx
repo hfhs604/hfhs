@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { auth } from "../firebase/config";
 import {
-  getUserRole,
+  getUserRoleOnce,
   getAcademicSessions,
   createAcademicSession,
 } from "../firebase/feeService";
