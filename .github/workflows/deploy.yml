@@ -1,9 +1,10 @@
-name: Deploy to GitHub Pages
+name: Deploy Vite React App to GitHub Pages
 
 on:
   push:
-    branches: [main]
-  workflow_dispatch: {}
+    branches:
+      - main
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -11,33 +12,31 @@ permissions:
   id-token: write
 
 concurrency:
-  group: "pages"
+  group: pages
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
+    defaults:
+      run:
+        working-directory: ./hfhs-fees
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
 
-      - name: Set up Node
+      - name: Setup Node.js
         uses: actions/setup-node@v5
         with:
           node-version: 24
-        # (No `cache: npm` here since there's no package-lock.json yet — see
-        # note on the install step below. Add it back once you commit one.)
 
       - name: Install dependencies
-        # Using `install` rather than `ci` because this repo doesn't ship a
-        # package-lock.json yet. Once you run `npm install` locally once and
-        # commit the resulting package-lock.json, you can switch this to
-        # `npm ci` for fully reproducible builds.
         run: npm install
 
-      - name: Build
+      - name: Build Vite application
         env:
-          # Makes the built site work at https://<user>.github.io/<repo-name>/
           VITE_BASE_PATH: /${{ github.event.repository.name }}/
           VITE_FIREBASE_API_KEY: ${{ secrets.VITE_FIREBASE_API_KEY }}
           VITE_FIREBASE_AUTH_DOMAIN: ${{ secrets.VITE_FIREBASE_AUTH_DOMAIN }}
@@ -47,18 +46,13 @@ jobs:
           VITE_FIREBASE_APP_ID: ${{ secrets.VITE_FIREBASE_APP_ID }}
         run: npm run build
 
-      - name: Upload build
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload build artifact
         uses: actions/upload-pages-artifact@v3
         with:
           path: ./hfhs-fees/dist
 
-  deploy:
-    needs: build
-    runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    steps:
       - name: Deploy to GitHub Pages
-        id: deployment
         uses: actions/deploy-pages@v4
