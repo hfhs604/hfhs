@@ -24,6 +24,7 @@ import {
   runTransaction,
   serverTimestamp,
   Timestamp,
+  onSnapshot,
 } from "firebase/firestore";
 
 // ---------------------------------------------------------------------------
@@ -459,9 +460,42 @@ export async function setUserRole(uid, role, permissions = {}) {
   await writeAuditLog({ action: "USER_ROLE_SET", newValue: { uid, role, permissions } });
 }
 
-export async function getUserRole(uid) {
-  const snap = await getDoc(doc(db, "users", uid));
-  return snap.exists() ? snap.data() : null;
+/**
+ * One-time, listener-based read of a user's role doc.
+ *
+ * This replaces the old getDoc()-based getUserRole(). getDoc() throws
+ * "client is offline" if Firestore hasn't confirmed connectivity yet and
+ * there's no cached copy — which is exactly what happens when this call
+ * fires on the same tick Auth finishes restoring the session (before
+ * Firestore's own connection/transport probe has completed).
+ *
+ * onSnapshot() doesn't have that failure mode: it just waits quietly until
+ * the connection is live, then fires once with the data. We unsubscribe
+ * immediately after the first callback so this behaves like a one-shot read,
+ * with a timeout as a safety net for genuine connectivity failures.
+ */
+export function getUserRoleOnce(uid, timeoutMs = 15000) {
+  return new Promise((resolve, reject) => {
+    const ref = doc(db, "users", uid);
+    const timer = setTimeout(() => {
+      unsub();
+      reject(new Error("Timed out waiting for user role (check connection)."));
+    }, timeoutMs);
+
+    const unsub = onSnapshot(
+      ref,
+      (snap) => {
+        clearTimeout(timer);
+        unsub();
+        resolve(snap.exists() ? snap.data() : null);
+      },
+      (err) => {
+        clearTimeout(timer);
+        unsub();
+        reject(err);
+      }
+    );
+  });
 }
 
 // ---------------------------------------------------------------------------
