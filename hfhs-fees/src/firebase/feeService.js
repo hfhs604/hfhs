@@ -498,6 +498,15 @@ export function getUserRoleOnce(uid, timeoutMs = 15000) {
   });
 }
 
+/**
+ * Backward-compatible alias. Other call sites (e.g. StudentPortal.jsx)
+ * still import `getUserRole` directly — rather than hunt down and edit
+ * every one of them right now, point the old name at the same
+ * listener-based implementation so the race-condition fix applies
+ * everywhere uniformly. New code should just call getUserRoleOnce directly.
+ */
+export const getUserRole = getUserRoleOnce;
+
 // ---------------------------------------------------------------------------
 // 16. AUDIT LOG (admin-facing read)
 // ---------------------------------------------------------------------------
