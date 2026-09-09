@@ -152,8 +152,7 @@ export default function FeeManagementApp({ onLogout }) {
 
         console.log("Loading user role...");
 
-        const userDoc = await withFirestoreRetry(() =>
-          getUserRole(user.uid)
+        const userDoc = await getUserRoleOnce(user.uid)
         );
 
         console.log("User role document:", userDoc);
