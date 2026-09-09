@@ -73,6 +73,29 @@ const NAV_SECTIONS = [
   },
 ];
 
+/**
+ * Retries a Firestore read a few times with a short backoff when it fails
+ * with a transient "client is offline" error. This happens most often on
+ * a fresh page load, right as the Firestore SDK is still finishing its
+ * connection/transport setup — the read itself is fine, it just needs to
+ * be tried again a moment later instead of surfacing as a hard failure.
+ */
+async function withFirestoreRetry(fn, retries = 3, delayMs = 700) {
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      return await fn();
+    } catch (err) {
+      const isOffline =
+        err?.code === "unavailable" ||
+        err?.message?.includes("client is offline");
+
+      if (!isOffline || attempt === retries - 1) throw err;
+
+      await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+    }
+  }
+}
+
 function defaultSessionLabel() {
   const now = new Date();
 
@@ -129,7 +152,9 @@ export default function FeeManagementApp({ onLogout }) {
 
         console.log("Loading user role...");
 
-        const userDoc = await getUserRole(user.uid);
+        const userDoc = await withFirestoreRetry(() =>
+          getUserRole(user.uid)
+        );
 
         console.log("User role document:", userDoc);
 
@@ -146,7 +171,9 @@ export default function FeeManagementApp({ onLogout }) {
 
         console.log("Loading academic sessions...");
 
-        let sessionList = await getAcademicSessions();
+        let sessionList = await withFirestoreRetry(() =>
+          getAcademicSessions()
+        );
 
         console.log("Academic sessions:", sessionList);
 
@@ -167,7 +194,9 @@ export default function FeeManagementApp({ onLogout }) {
 
           await createAcademicSession(firstSession);
 
-          sessionList = await getAcademicSessions();
+          sessionList = await withFirestoreRetry(() =>
+            getAcademicSessions()
+          );
 
           console.log(
             "Academic sessions after creation:",
