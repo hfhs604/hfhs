@@ -1,5 +1,6 @@
 import React, { useEffect, useState } from "react";
-import { auth } from "../firebase/config";
+import { auth, db } from "../firebase/config";
+import { getDoc, doc } from "firebase/firestore";
 import {
   getUserRoleOnce,
   getAcademicSessions,
@@ -145,6 +146,32 @@ export default function FeeManagementApp({ onLogout }) {
           }
           return;
         }
+
+        // --------------------------------------------------
+        // TEMPORARY DEBUG — remove once we've diagnosed the
+        // "Timed out waiting for user role" issue. This calls
+        // getDoc() directly (bypassing getUserRoleOnce/onSnapshot)
+        // so a real Firestore error/result comes back in seconds
+        // instead of waiting out the 15s listener timeout.
+        // --------------------------------------------------
+        try {
+          const debugSnap = await getDoc(doc(db, "users", user.uid));
+          console.log(
+            "DEBUG getDoc exists:",
+            debugSnap.exists(),
+            "data:",
+            debugSnap.data()
+          );
+        } catch (debugErr) {
+          console.error(
+            "DEBUG getDoc REAL ERROR:",
+            debugErr.code,
+            debugErr.message
+          );
+        }
+        // --------------------------------------------------
+        // END TEMPORARY DEBUG
+        // --------------------------------------------------
 
         // --------------------------------------------------
         // 1. Load user role
