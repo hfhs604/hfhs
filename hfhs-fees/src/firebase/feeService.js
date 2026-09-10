@@ -24,7 +24,6 @@ import {
   runTransaction,
   serverTimestamp,
   Timestamp,
-  onSnapshot,
 } from "firebase/firestore";
 
 // ---------------------------------------------------------------------------
@@ -461,49 +460,42 @@ export async function setUserRole(uid, role, permissions = {}) {
 }
 
 /**
- * One-time, listener-based read of a user's role doc.
+ * One-time read of a user's role doc, with a short retry on transient
+ * "client is offline" errors.
  *
- * This replaces the old getDoc()-based getUserRole(). getDoc() throws
- * "client is offline" if Firestore hasn't confirmed connectivity yet and
- * there's no cached copy — which is exactly what happens when this call
- * fires on the same tick Auth finishes restoring the session (before
- * Firestore's own connection/transport probe has completed).
- *
- * onSnapshot() doesn't have that failure mode: it just waits quietly until
- * the connection is live, then fires once with the data. We unsubscribe
- * immediately after the first callback so this behaves like a one-shot read,
- * with a timeout as a safety net for genuine connectivity failures.
+ * History: this used to be implemented with onSnapshot() to work around
+ * what looked like an Auth/Firestore startup race. That turned out to be
+ * a red herring — the real cause of the original "client is offline"
+ * failures was a misspelled Firestore projectId in the app config, not a
+ * timing race. Once the project id was corrected, plain getDoc() started
+ * working reliably, while onSnapshot() began throwing its own unrelated
+ * "internal error" on first listen. So this is back to a simple getDoc(),
+ * with a small retry purely as a safety net for genuine transient blips.
  */
-export function getUserRoleOnce(uid, timeoutMs = 15000) {
-  return new Promise((resolve, reject) => {
-    const ref = doc(db, "users", uid);
-    const timer = setTimeout(() => {
-      unsub();
-      reject(new Error("Timed out waiting for user role (check connection)."));
-    }, timeoutMs);
+export async function getUserRoleOnce(uid, retries = 3, delayMs = 700) {
+  const ref = doc(db, "users", uid);
 
-    const unsub = onSnapshot(
-      ref,
-      (snap) => {
-        clearTimeout(timer);
-        unsub();
-        resolve(snap.exists() ? snap.data() : null);
-      },
-      (err) => {
-        clearTimeout(timer);
-        unsub();
-        reject(err);
-      }
-    );
-  });
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const snap = await getDoc(ref);
+      return snap.exists() ? snap.data() : null;
+    } catch (err) {
+      const isOffline =
+        err?.code === "unavailable" ||
+        err?.message?.includes("client is offline");
+
+      if (!isOffline || attempt === retries - 1) throw err;
+
+      await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+    }
+  }
 }
 
 /**
  * Backward-compatible alias. Other call sites (e.g. StudentPortal.jsx)
- * still import `getUserRole` directly — rather than hunt down and edit
- * every one of them right now, point the old name at the same
- * listener-based implementation so the race-condition fix applies
- * everywhere uniformly. New code should just call getUserRoleOnce directly.
+ * still import `getUserRole` directly — point the old name at the same
+ * implementation so the fix applies everywhere uniformly. New code should
+ * just call getUserRoleOnce directly.
  */
 export const getUserRole = getUserRoleOnce;
 
