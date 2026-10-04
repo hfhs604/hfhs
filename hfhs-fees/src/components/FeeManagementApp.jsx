@@ -15,6 +15,7 @@ import DueManagement from "./DueManagement";
 import DiscountManager from "./DiscountManager";
 import Reports from "./Reports";
 import AuditLogViewer from "./AuditLogViewer";
+import Settings from "./Settings";
 import StudentPortal from "./StudentPortal";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import schoolLogo from "../assets/school-logo.jpg";
@@ -100,9 +101,7 @@ function defaultSessionLabel() {
   const now = new Date();
 
   const startYear =
-    now.getMonth() < 3
-      ? now.getFullYear() - 1
-      : now.getFullYear();
+    now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
 
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`;
 }
@@ -134,10 +133,7 @@ export default function FeeManagementApp({ onLogout }) {
         console.log("Fee Management initialization started");
         console.log("Firebase user:", user?.email);
         console.log("Firebase UID:", user?.uid);
-        console.log(
-          "Firebase project:",
-          auth.app.options.projectId
-        );
+        console.log("Firebase project:", auth.app.options.projectId);
 
         if (!user) {
           if (!cancelled) {
@@ -179,27 +175,16 @@ export default function FeeManagementApp({ onLogout }) {
         // 3. Create first academic session if required
         // --------------------------------------------------
 
-        if (
-          sessionList.length === 0 &&
-          resolvedRole === "superAdmin"
-        ) {
+        if (sessionList.length === 0 && resolvedRole === "superAdmin") {
           const firstSession = defaultSessionLabel();
 
-          console.log(
-            "No academic session found. Creating:",
-            firstSession
-          );
+          console.log("No academic session found. Creating:", firstSession);
 
           await createAcademicSession(firstSession);
 
-          sessionList = await withFirestoreRetry(() =>
-            getAcademicSessions()
-          );
+          sessionList = await withFirestoreRetry(() => getAcademicSessions());
 
-          console.log(
-            "Academic sessions after creation:",
-            sessionList
-          );
+          console.log("Academic sessions after creation:", sessionList);
         }
 
         if (cancelled) return;
@@ -213,17 +198,11 @@ export default function FeeManagementApp({ onLogout }) {
 
         setSession(activeSession);
 
-        console.log(
-          "Active academic session:",
-          activeSession
-        );
+        console.log("Active academic session:", activeSession);
 
         setLoading(false);
       } catch (err) {
-        console.error(
-          "Fee Management initialization failed:",
-          err
-        );
+        console.error("Fee Management initialization failed:", err);
 
         if (cancelled) return;
 
@@ -247,19 +226,12 @@ export default function FeeManagementApp({ onLogout }) {
     return (
       <div
         className="fm-empty-state"
-        style={{
-          padding: 40,
-          maxWidth: 800,
-          margin: "40px auto",
-        }}
+        style={{ padding: 40, maxWidth: 800, margin: "40px auto" }}
       >
         <div className="fm-card">
           <h2>Unable to load Fee Management</h2>
 
-          <p>
-            The application could not connect to the Firebase
-            database.
-          </p>
+          <p>The application could not connect to the Firebase database.</p>
 
           <div
             style={{
@@ -271,13 +243,7 @@ export default function FeeManagementApp({ onLogout }) {
             }}
           >
             <strong>Error:</strong>
-
-            <pre
-              style={{
-                whiteSpace: "pre-wrap",
-                marginTop: 10,
-              }}
-            >
+            <pre style={{ whiteSpace: "pre-wrap", marginTop: 10 }}>
               {error?.message || String(error)}
             </pre>
           </div>
@@ -298,10 +264,7 @@ export default function FeeManagementApp({ onLogout }) {
             </button>
 
             {onLogout && (
-              <button
-                className="fm-nav-btn"
-                onClick={onLogout}
-              >
+              <button className="fm-nav-btn" onClick={onLogout}>
                 Log Out
               </button>
             )}
@@ -317,10 +280,7 @@ export default function FeeManagementApp({ onLogout }) {
 
   if (loading) {
     return (
-      <div
-        className="fm-empty-state"
-        style={{ padding: 60 }}
-      >
+      <div className="fm-empty-state" style={{ padding: 60 }}>
         Loading Fee Management…
       </div>
     );
@@ -339,10 +299,7 @@ export default function FeeManagementApp({ onLogout }) {
           </h1>
 
           {onLogout && (
-            <button
-              className="fm-nav-btn"
-              onClick={onLogout}
-            >
+            <button className="fm-nav-btn" onClick={onLogout}>
               Log Out
             </button>
           )}
@@ -357,9 +314,7 @@ export default function FeeManagementApp({ onLogout }) {
   // ADMIN NAVIGATION
   // --------------------------------------------------
 
-  const visibleTabs = NAV_SECTIONS.filter((s) =>
-    s.roles.includes(role)
-  );
+  const visibleTabs = NAV_SECTIONS.filter((s) => s.roles.includes(role));
 
   async function handleCreateSession() {
     try {
@@ -369,21 +324,15 @@ export default function FeeManagementApp({ onLogout }) {
 
       await createAcademicSession(label);
 
-      const updatedSessions =
-        await getAcademicSessions();
+      const updatedSessions = await getAcademicSessions();
 
       setSessions(updatedSessions);
       setNewSessionLabel("");
     } catch (err) {
-      console.error(
-        "Failed to create academic session:",
-        err
-      );
+      console.error("Failed to create academic session:", err);
 
       alert(
-        `Unable to create academic session.\n\n${
-          err?.message || err
-        }`
+        `Unable to create academic session.\n\n${err?.message || err}`
       );
     }
   }
@@ -402,32 +351,18 @@ export default function FeeManagementApp({ onLogout }) {
             className="fm-app-logo"
           />
 
-          <h1 className="fm-app-title">
-            Fee Management
-          </h1>
+          <h1 className="fm-app-title">Fee Management</h1>
         </div>
 
-        <div
-          style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 14,
-          }}
-        >
+        <div style={{ display: "flex", alignItems: "center", gap: 14 }}>
           <label className="fm-session-select">
             Session
-
             <select
               value={session || ""}
-              onChange={(e) =>
-                setSession(e.target.value)
-              }
+              onChange={(e) => setSession(e.target.value)}
             >
               {sessions.map((s) => (
-                <option
-                  key={s.label}
-                  value={s.label}
-                >
+                <option key={s.label} value={s.label}>
                   {s.label}
                 </option>
               ))}
@@ -435,10 +370,7 @@ export default function FeeManagementApp({ onLogout }) {
           </label>
 
           {onLogout && (
-            <button
-              className="fm-nav-btn"
-              onClick={onLogout}
-            >
+            <button className="fm-nav-btn" onClick={onLogout}>
               Log Out
             </button>
           )}
@@ -450,9 +382,7 @@ export default function FeeManagementApp({ onLogout }) {
           <button
             key={t.key}
             className={`fm-nav-btn ${
-              activeTab === t.key
-                ? "fm-nav-btn-active"
-                : ""
+              activeTab === t.key ? "fm-nav-btn-active" : ""
             }`}
             onClick={() => setActiveTab(t.key)}
           >
@@ -462,9 +392,7 @@ export default function FeeManagementApp({ onLogout }) {
       </nav>
 
       <main className="fm-main">
-        {activeTab === "dashboard" && (
-          <FeeDashboard session={session} />
-        )}
+        {activeTab === "dashboard" && <FeeDashboard session={session} />}
 
         {activeTab === "students" && (
           <StudentDirectory
@@ -483,10 +411,10 @@ export default function FeeManagementApp({ onLogout }) {
         {activeTab === "collect" && (
           <FeeCollection
             session={session}
-            onReceiptGenerated={(
-              receipt,
-              duplicateBlocked
-            ) => {
+            month={
+              new Date().toISOString().slice(0, 7)
+            }
+            onReceiptGenerated={(receipt, duplicateBlocked) => {
               setLastReceipt(receipt);
 
               if (duplicateBlocked) {
@@ -498,53 +426,42 @@ export default function FeeManagementApp({ onLogout }) {
           />
         )}
 
-        {activeTab === "collect" &&
-          lastReceipt && (
-            <div style={{ marginTop: 20 }}>
-              <h3 style={{ padding: "0 8px" }}>
-                Payment recorded successfully ✓ —
-                Receipt No.:{" "}
-                {lastReceipt.receiptNumber}
-              </h3>
+        {activeTab === "collect" && lastReceipt && (
+          <div style={{ marginTop: 20 }}>
+            <h3 style={{ padding: "0 8px" }}>
+              Payment recorded successfully ✓ — Receipt No.:{" "}
+              {lastReceipt.receiptNumber}
+            </h3>
 
-              <ReceiptPrintSheet
-                receipts={[lastReceipt]}
-              />
-            </div>
-          )}
+            <ReceiptPrintSheet receipts={[lastReceipt]} />
+          </div>
+        )}
 
         {activeTab === "transactions" && (
           <div className="fm-card">
             <h2>Transactions</h2>
 
             <p className="fm-hint">
-              Select a student from Students or Collect
-              Fee to view their full
+              Select a student from Students or Collect Fee to view their full
               transaction/payment history.
             </p>
 
             {selectedStudentId && (
-              <PaymentHistory
-                studentId={selectedStudentId}
-              />
+              <PaymentHistory studentId={selectedStudentId} />
             )}
           </div>
         )}
 
-        {activeTab === "due" && (
-          <DueManagement session={session} />
-        )}
+        {activeTab === "due" && <DueManagement session={session} />}
 
         {activeTab === "advances" && (
           <div className="fm-card">
             <h2>Advances</h2>
 
             <p className="fm-hint">
-              Students carrying an advance balance
-              are flagged 🟢 across the Students, Due
-              Fees, and Reports screens. Advance
-              auto-applies the next time a fee is
-              generated for that student.
+              Students carrying an advance balance are flagged 🟢 across the
+              Students, Due Fees, and Reports screens. Advance auto-applies the
+              next time a fee is generated for that student.
             </p>
           </div>
         )}
@@ -552,55 +469,46 @@ export default function FeeManagementApp({ onLogout }) {
         {activeTab === "discounts" && (
           <DiscountManager
             canManageDiscounts={
-              role === "superAdmin" ||
-              !!permissions.manageDiscounts
+              role === "superAdmin" || !!permissions.manageDiscounts
             }
           />
         )}
 
-        {activeTab === "reports" && (
-          <Reports session={session} />
-        )}
+        {activeTab === "reports" && <Reports session={session} />}
 
         {activeTab === "settings" && (
-          <div className="fm-card">
-            <h2>
-              Settings — Academic Sessions
-            </h2>
+          <div>
+            <div className="fm-card">
+              <h2>Settings — Academic Sessions</h2>
 
-            <div className="fm-search-row">
-              <input
-                placeholder="e.g. 2027-28"
-                value={newSessionLabel}
-                onChange={(e) =>
-                  setNewSessionLabel(
-                    e.target.value
-                  )
-                }
-              />
+              <div className="fm-search-row">
+                <input
+                  placeholder="e.g. 2027-28"
+                  value={newSessionLabel}
+                  onChange={(e) => setNewSessionLabel(e.target.value)}
+                />
+                <button
+                  className="fm-primary-btn"
+                  onClick={handleCreateSession}
+                >
+                  Create Session
+                </button>
+              </div>
 
-              <button
-                className="fm-primary-btn"
-                onClick={handleCreateSession}
-              >
-                Create Session
-              </button>
+              <ul className="fm-result-list">
+                {sessions.map((s) => (
+                  <li key={s.label}>
+                    {s.label} {s.isActive ? "(active)" : ""}
+                  </li>
+                ))}
+              </ul>
+
+              <hr />
+
+              <AuditLogViewer />
             </div>
 
-            <ul className="fm-result-list">
-              {sessions.map((s) => (
-                <li key={s.label}>
-                  {s.label}{" "}
-                  {s.isActive
-                    ? "(active)"
-                    : ""}
-                </li>
-              ))}
-            </ul>
-
-            <hr />
-
-            <AuditLogViewer />
+            <Settings session={session} />
           </div>
         )}
       </main>
