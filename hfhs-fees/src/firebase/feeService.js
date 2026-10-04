@@ -681,3 +681,30 @@ export async function getUserRoleOnce(uid, retries = 3, delayMs = 700) {
   }
 }
 export const getUserRole = getUserRoleOnce;
+
+// ---------------------------------------------------------------------------
+// Admission number auto-increment
+// ---------------------------------------------------------------------------
+export async function peekNextAdmissionNumber() {
+  try {
+    const counterRef = doc(db, COL.counters, "admissionNumber");
+    const snap = await getDoc(counterRef);
+    const current = snap.exists() ? snap.data().value : 0;
+    return current + 1;
+  } catch (err) {
+    console.warn("peekNextAdmissionNumber failed:", err.message);
+    return 1;
+  }
+}
+
+export async function reserveAdmissionNumber() {
+  const counterRef = doc(db, COL.counters, "admissionNumber");
+  const next = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(counterRef);
+    const current = snap.exists() ? snap.data().value : 0;
+    const value = current + 1;
+    tx.set(counterRef, { value }, { merge: true });
+    return value;
+  });
+  return String(next);
+}
