@@ -545,4 +545,139 @@ export async function getDashboardStats(session, month) {
   });
 
   const totalOutstandingDue = bills.reduce((s, b) => s + (b.carriedForward || 0), 0);
-  const studentsWithDue = bills.filter((b) => (b.carriedForward
+  const studentsWithDue = bills.filter((b) => (b.carriedForward || 0) > 0).length;
+  const studentsFullyPaid = bills.filter((b) => (b.carriedForward || 0) === 0).length;
+
+  return {
+    todayCollection, monthCollection, totalCollection,
+    totalOutstandingDue, totalAdvance: 0,
+    studentsWithDue, studentsFullyPaid,
+    paymentMethodBreakdown: byMethod,
+    studentCount: students.length,
+    month: targetMonth,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fee structures (kept for backward compatibility)
+// ---------------------------------------------------------------------------
+export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
+  const id = `${session}_${className}`;
+  await setDoc(
+    doc(db, COL.feeStructures, id),
+    { session, className, categories, lateFeeRule, updatedAt: serverTimestamp() },
+    { merge: true }
+  );
+  await writeAuditLog({
+    action: "FEE_STRUCTURE_UPDATED",
+    newValue: { session, className, categories },
+  });
+}
+
+export async function getFeeStructure(session, className) {
+  const snap = await getDoc(doc(db, COL.feeStructures, `${session}_${className}`));
+  return snap.exists() ? snap.data() : null;
+}
+
+// ---------------------------------------------------------------------------
+// Payment history
+// ---------------------------------------------------------------------------
+export async function getPaymentHistory(studentId) {
+  try {
+    const q = query(
+      collection(db, COL.transactions),
+      where("studentId", "==", studentId),
+      orderBy("createdAt", "desc")
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn("getPaymentHistory: using client-side fallback:", err.message);
+    const snap = await getDocs(collection(db, COL.transactions));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((t) => t.studentId === studentId)
+      .sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0));
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Discounts
+// ---------------------------------------------------------------------------
+export async function applyDiscount({ studentId, amount, type, reason }) {
+  const user = currentUser();
+  const ref = await addDoc(collection(db, COL.discounts), {
+    studentId, amount, type, reason,
+    authorizedBy: user.uid,
+    createdAt: serverTimestamp(),
+  });
+  await writeAuditLog({
+    action: "DISCOUNT_APPLIED", studentId,
+    newValue: { amount, type, reason },
+  });
+  return ref.id;
+}
+
+// ---------------------------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------------------------
+export async function getAuditLogs({ studentId, limitCount = 100 } = {}) {
+  try {
+    let q = collection(db, COL.auditLogs);
+    q = studentId
+      ? query(q, where("studentId", "==", studentId), orderBy("timestamp", "desc"), fsLimit(limitCount))
+      : query(q, orderBy("timestamp", "desc"), fsLimit(limitCount));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn("getAuditLogs: using client-side fallback:", err.message);
+    const snap = await getDocs(collection(db, COL.auditLogs));
+    let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (studentId) rows = rows.filter((r) => r.studentId === studentId);
+    rows.sort((a, b) => (b.timestamp?.toDate?.() || 0) - (a.timestamp?.toDate?.() || 0));
+    return rows.slice(0, limitCount);
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Academic sessions / users
+// ---------------------------------------------------------------------------
+export async function createAcademicSession(sessionLabel) {
+  await setDoc(doc(db, COL.sessions, sessionLabel), {
+    label: sessionLabel, createdAt: serverTimestamp(), isActive: true,
+  });
+  await writeAuditLog({ action: "ACADEMIC_SESSION_CREATED", newValue: { session: sessionLabel } });
+}
+
+export async function getAcademicSessions() {
+  try {
+    const snap = await getDocs(query(collection(db, COL.sessions), orderBy("label", "desc")));
+    return snap.docs.map((d) => d.data());
+  } catch (err) {
+    console.warn("getAcademicSessions: using fallback:", err.message);
+    const snap = await getDocs(collection(db, COL.sessions));
+    return snap.docs
+      .map((d) => d.data())
+      .sort((a, b) => String(b.label).localeCompare(String(a.label)));
+  }
+}
+
+export async function setUserRole(uid, role, permissions = {}) {
+  await setDoc(doc(db, "users", uid), { role, permissions }, { merge: true });
+  await writeAuditLog({ action: "USER_ROLE_SET", newValue: { uid, role, permissions } });
+}
+
+export async function getUserRoleOnce(uid, retries = 3, delayMs = 700) {
+  const ref = doc(db, "users", uid);
+  for (let attempt = 0; attempt < retries; attempt++) {
+    try {
+      const snap = await getDoc(ref);
+      return snap.exists() ? snap.data() : null;
+    } catch (err) {
+      const isOffline = err?.code === "unavailable" || err?.message?.includes("client is offline");
+      if (!isOffline || attempt === retries - 1) throw err;
+      await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+    }
+  }
+}
+export const getUserRole = getUserRoleOnce;
