@@ -1,6 +1,10 @@
 import { initializeApp } from "firebase/app";
 import { initializeFirestore, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
-import { getAuth } from "firebase/auth";
+import {
+  getAuth,
+  setPersistence,
+  browserSessionPersistence,
+} from "firebase/auth";
 
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
@@ -13,22 +17,17 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
-/**
- * Firestore initialization.
- *
- * NOTE: We intentionally do NOT set `experimentalForceLongPolling: true` here.
- * That flag forces Firestore to use HTTP long-polling instead of WebSockets,
- * and on a normal network it causes EVERY Firestore read to fail with
- * `FirebaseError: An internal error occurred.` — which is what was happening
- * before this change.
- *
- * If you ever deploy behind a proxy/firewall that blocks WebSockets, you can
- * re-enable it here, but understand the tradeoff.
- */
 export const db = initializeFirestore(app, {
   cacheSizeBytes: CACHE_SIZE_UNLIMITED,
 });
 
 export const auth = getAuth(app);
+
+// Force re-login whenever the browser session ends (tab/window close).
+// Without this, Firebase defaults to `localPersistence`, which keeps the
+// user signed in indefinitely across browser restarts.
+setPersistence(auth, browserSessionPersistence).catch((err) => {
+  console.error("Failed to set auth persistence:", err);
+});
 
 export default app;
