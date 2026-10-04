@@ -224,3 +224,283 @@
   .fm-dashboard-grid, .fm-summary-grid, .fm-payment-form { grid-template-columns: 1fr; }
   .fm-nav-btn { flex: 1 1 45%; text-align: center; }
 }
+
+/* ===========================================================================
+   Multi-section forms (Add Student) — added for the expanded admission form
+   =========================================================================== */
+.fm-form-section {
+  border-top: 1px solid #e5e7eb;
+  margin-top: 24px;
+  padding-top: 20px;
+}
+
+.fm-form-section h3 {
+  margin: 0 0 4px;
+  font-size: 1em;
+  color: #1a3d6d;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
+.fm-form-section-hint {
+  margin: 0 0 16px;
+  font-size: 0.85em;
+  color: #6b7280;
+}
+
+.fm-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 14px;
+}
+
+.fm-form-grid label {
+  display: flex;
+  flex-direction: column;
+  font-size: 13px;
+  gap: 4px;
+  color: #374151;
+}
+
+.fm-form-grid input,
+.fm-form-grid select,
+.fm-form-grid textarea {
+  padding: 8px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  font-size: 14px;
+  font-family: inherit;
+  background: #fff;
+}
+
+.fm-form-grid textarea {
+  resize: vertical;
+  min-height: 60px;
+}
+
+.fm-form-grid .fm-full-width {
+  grid-column: 1 / -1;
+}
+
+.fm-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 8px;
+  font-size: 14px;
+  color: #374151;
+}
+
+.fm-checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.fm-doc-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.fm-file-label {
+  display: inline-block;
+  padding: 8px 14px;
+  background: #f5f7fa;
+  border: 1px dashed #b0b8c4;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #1a3d6d;
+  text-align: center;
+}
+
+.fm-file-label input[type="file"] {
+  display: none;
+}
+
+.fm-file-label:hover {
+  background: #e9eef5;
+}
+
+.fm-file-preview {
+  margin-top: 8px;
+  max-width: 120px;
+  max-height: 120px;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  display: block;
+}
+
+/* Success message */
+.fm-success {
+  color: #2e7d32;
+  font-weight: 500;
+  margin: 8px 0;
+}
+
+/* ===========================================================================
+   Fee Structure display — read-only reference cards
+   =========================================================================== */
+.fm-fee-cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 14px;
+  margin: 12px 0 24px;
+}
+
+.fm-fee-card {
+  background: #f5f7fa;
+  border-radius: 10px;
+  padding: 16px;
+  border-left: 4px solid #1a3d6d;
+}
+
+.fm-fee-card-label {
+  margin: 0 0 6px;
+  font-size: 0.85em;
+  color: #4b5563;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+}
+
+.fm-fee-card-value {
+  margin: 0 0 6px;
+  font-size: 1.4em;
+  font-weight: 700;
+  color: #1a3d6d;
+}
+
+.fm-fee-card-note {
+  margin: 0;
+  font-size: 0.8em;
+  color: #6b7280;
+}
+
+.fm-fee-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  background: #fff;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.05);
+}
+
+/* Horizontal scroll wrapper for wide tables (Reports) */
+.fm-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 6px;
+  margin-top: 12px;
+}
+
+.fm-table-scroll table {
+  min-width: 900px;
+  margin-top: 0;
+}
+
+.fm-table-scroll td,
+.fm-table-scroll th {
+  white-space: nowrap;
+}
+
+/* Secondary button */
+.fm-secondary-btn {
+  background: #fff;
+  border: 1px solid #ccc;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+}
+.fm-secondary-btn:hover {
+  background: #f5f7fa;
+}
+
+/* Add-on panel */
+.fm-addon-panel {
+  margin-top: 20px;
+  padding: 14px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+.fm-addon-panel h4 { margin: 0 0 6px; font-size: 14px; }
+.fm-addon-row {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px;
+}
+.fm-addon-row button {
+  padding: 7px 12px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+.fm-addon-row button:disabled { opacity: 0.6; cursor: not-allowed; }
+.fm-addon-row input {
+  padding: 7px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  width: 120px;
+  font-size: 13px;
+}
+.fm-addon-msg { margin-top: 10px; font-size: 13px; }
+
+@media (max-width: 640px) {
+  .fm-form-grid { grid-template-columns: 1fr; }
+}
+
+/* ===========================================================================
+   Print styles for reports
+   =========================================================================== */
+@media print {
+  .fm-app-header,
+  .fm-nav,
+  .fm-filter-row,
+  .fm-search-row,
+  .fm-addon-panel,
+  .fm-row-header button,
+  .no-print,
+  button {
+    display: none !important;
+  }
+
+  body { background: #fff !important; margin: 0; }
+
+  .fm-app,
+  .fm-main {
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  .fm-card {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .fm-table {
+    width: 100% !important;
+    font-size: 9.5pt;
+    border-collapse: collapse;
+  }
+
+  .fm-table thead { display: table-header-group; }
+  .fm-table tr { page-break-inside: avoid; }
+  .fm-table th,
+  .fm-table td {
+    border-bottom: 1px solid #ddd;
+    padding: 6px 8px;
+  }
+
+  .fm-table-scroll { overflow: visible !important; }
+  .fm-table-scroll table { min-width: 0 !important; }
+
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+}
