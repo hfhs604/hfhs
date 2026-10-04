@@ -5,24 +5,33 @@ import Login from "./Login";
 import FeeManagementApp from "./components/FeeManagementApp";
 
 export default function App() {
-  const [user, setUser] = useState(undefined); // undefined = "still checking"
-  const [appKey, setAppKey] = useState(0); // bump to force FeeManagementApp to re-fetch role on new login
+  const [user, setUser] = useState(undefined); // undefined = loading
+  const [ready, setReady] = useState(false);
 
   useEffect(() => {
     const unsubscribe = onAuthStateChanged(auth, (u) => {
-      setUser(u);
-      setAppKey((k) => k + 1);
+      setUser(u || null);
+      setReady(true);
     });
-    return unsubscribe;
+    return () => unsubscribe();
   }, []);
 
-  if (user === undefined) {
-    return <div className="fm-empty-state" style={{ padding: 60 }}>Loading…</div>;
+  async function handleLogout() {
+    await signOut(auth);
+    // onAuthStateChanged will fire with user=null
+  }
+
+  if (!ready) {
+    return (
+      <div className="fm-empty-state" style={{ padding: 60 }}>
+        Loading…
+      </div>
+    );
   }
 
   if (!user) {
     return <Login />;
   }
 
-  return <FeeManagementApp key={appKey} onLogout={() => signOut(auth)} />;
+  return <FeeManagementApp onLogout={handleLogout} />;
 }
