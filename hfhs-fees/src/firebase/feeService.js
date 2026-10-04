@@ -30,7 +30,7 @@ const COL = {
   sessions: "academicSessions",
   auditLogs: "auditLogs",
   counters: "counters",
-  monthlyBills: "monthlyBills",   // NEW
+  monthlyBills: "monthlyBills",
 };
 
 // ---------------------------------------------------------------------------
@@ -47,7 +47,7 @@ export const MONTHLY_TUITION = {
   "X": 1500,
 };
 
-export const DEVELOPMENT_FEE = 3150;   // billed once, first month of session
+export const DEVELOPMENT_FEE = 3150;
 export const TRANSPORT_OPTIONS = [800, 1500];
 
 // ---------------------------------------------------------------------------
@@ -154,12 +154,6 @@ export function billDocId(session, month, studentId) {
   return `${session}_${month}_${studentId}`;
 }
 
-/**
- * Start a new month: creates monthlyBills/{session}_{month}_{studentId} for
- * every student. previousDue is pulled from the prior month's carriedForward.
- * Development Fee (3150) is included only in the FIRST month of the session
- * (typically the April bill).
- */
 export async function startNewMonth(session, month, { isFirstMonth = false } = {}) {
   const [startYear, startMonthNum] = month.split("-").map(Number);
   const prevDate = new Date(startYear, startMonthNum - 2, 1);
@@ -172,7 +166,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
   for (const student of students) {
     if (student.session !== session) continue;
 
-    // Previous due: carry forward from last month
     let previousDue = 0;
     if (!isFirstMonth) {
       const prevRef = doc(db, COL.monthlyBills, billDocId(session, prevMonth, student.id));
@@ -182,8 +175,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
 
     const tuitionBilled = MONTHLY_TUITION[student.className] || 0;
     const devFeeThisMonth = isFirstMonth ? DEVELOPMENT_FEE : 0;
-
-    // Transport is opt-in — read from the student's standing preference
     const transportBilled = student.transportOpted ? (student.transportAmount || 0) : 0;
 
     const totalDue = previousDue + tuitionBilled + transportBilled + devFeeThisMonth;
@@ -233,7 +224,7 @@ export async function listBillsForMonth(session, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Payment collection — always tied to a monthlyBill
+// Payment collection
 // ---------------------------------------------------------------------------
 export async function collectPayment({
   studentId, amountReceived,
@@ -320,7 +311,7 @@ export async function collectPayment({
 }
 
 // ---------------------------------------------------------------------------
-// Add-on fees — each updates the current month's bill
+// Add-on fees
 // ---------------------------------------------------------------------------
 async function addLineItem({
   studentId, session, month, amount, field, componentType, feeType, remarks,
@@ -355,7 +346,6 @@ async function addLineItem({
       voided: false,
     });
 
-    // Option A: add-on fees count toward totalPaid
     const newPaid = (bill.totalPaid || 0) + amt;
     const newCarry = newDue - newPaid;
 
@@ -440,7 +430,7 @@ export async function addKitFee({ studentId, amount, session, month, paymentDate
 }
 
 // ---------------------------------------------------------------------------
-// Due list / dashboard / reports
+// Due list (monthly model)
 // ---------------------------------------------------------------------------
 export async function getDueList({ session, month } = {}) {
   const clauses = [];
@@ -454,6 +444,119 @@ export async function getDueList({ session, month } = {}) {
     .sort((a, b) => (b.carriedForward || 0) - (a.carriedForward || 0));
 }
 
+/**
+ * Legacy due-list function (kept for backward compatibility with
+ * DueManagement.jsx until it's rewritten). Reads from monthlyBills
+ * for the given session and current calendar month.
+ */
+export async function getStudentsWithDue({ session, month, className, section } = {}) {
+  const targetMonth = month || monthKey();
+  const bills = await getDueList({ session, month: targetMonth });
+
+  if (!className && !section) return bills;
+
+  // Filter by className if provided (bill docs already carry className)
+  return bills.filter((b) => {
+    if (className && b.className !== className) return false;
+    return true;
+  });
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard stats (monthly model)
+// ---------------------------------------------------------------------------
+export async function getDashboardStats(session, month) {
+  const targetMonth = month || monthKey();
+
+  const studentsSnap = await getDocs(
+    query(collection(db, COL.students), where("session", "==", session))
+  );
+  const students = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+
+  const billsSnap = await getDocs(
+    query(
+      collection(db, COL.monthlyBills),
+      where("session", "==", session),
+      where("month", "==", targetMonth)
+    )
+  );
+  const bills = billsSnap.docs.map((d) => d.data());
+
+  const txnsSnap = await getDocs(
+    query(
+      collection(db, COL.transactions),
+      where("session", "==", session),
+      where("voided", "==", false)
+    )
+  );
+  const txns = txnsSnap.docs.map((d) => d.data());
+
+  const startOfToday = new Date();
+  startOfToday.setHours(0, 0, 0, 0);
+  const startOfMonth = new Date(
+    startOfToday.getFullYear(),
+    startOfToday.getMonth(),
+    1
+  );
+
+  let todayCollection = 0;
+  let monthCollection = 0;
+  let totalCollection = 0;
+  const byMethod = {};
+
+  txns.forEach((t) => {
+    const paidAt = t.paymentDate ? new Date(t.paymentDate) : t.createdAt?.toDate?.();
+    const amt = t.netAmount || 0;
+    totalCollection += amt;
+    if (paidAt && paidAt >= startOfMonth) monthCollection += amt;
+    if (paidAt && paidAt >= startOfToday) todayCollection += amt;
+    if (t.paymentMethod) {
+      byMethod[t.paymentMethod] = (byMethod[t.paymentMethod] || 0) + amt;
+    }
+  });
+
+  const totalOutstandingDue = bills.reduce((s, b) => s + (b.carriedForward || 0), 0);
+  const studentsWithDue = bills.filter((b) => (b.carriedForward || 0) > 0).length;
+  const studentsFullyPaid = bills.filter((b) => (b.carriedForward || 0) === 0).length;
+
+  return {
+    todayCollection,
+    monthCollection,
+    totalCollection,
+    totalOutstandingDue,
+    totalAdvance: 0,
+    studentsWithDue,
+    studentsFullyPaid,
+    paymentMethodBreakdown: byMethod,
+    studentCount: students.length,
+    month: targetMonth,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Fee structures (kept for backward compatibility; not used in monthly model)
+// ---------------------------------------------------------------------------
+export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
+  const id = `${session}_${className}`;
+  await setDoc(
+    doc(db, COL.feeStructures, id),
+    { session, className, categories, lateFeeRule, updatedAt: serverTimestamp() },
+    { merge: true }
+  );
+  await writeAuditLog({
+    action: "FEE_STRUCTURE_UPDATED",
+    newValue: { session, className, categories },
+  });
+}
+
+export async function getFeeStructure(session, className) {
+  const snap = await getDoc(doc(db, COL.feeStructures, `${session}_${className}`));
+  return snap.exists() ? snap.data() : null;
+}
+
+// ---------------------------------------------------------------------------
+// Payment history
+// ---------------------------------------------------------------------------
 export async function getPaymentHistory(studentId) {
   const q = query(
     collection(db, COL.transactions),
@@ -464,6 +567,30 @@ export async function getPaymentHistory(studentId) {
   return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 }
 
+// ---------------------------------------------------------------------------
+// Discounts
+// ---------------------------------------------------------------------------
+export async function applyDiscount({ studentId, amount, type, reason }) {
+  const user = currentUser();
+  const ref = await addDoc(collection(db, COL.discounts), {
+    studentId,
+    amount,
+    type,
+    reason,
+    authorizedBy: user.uid,
+    createdAt: serverTimestamp(),
+  });
+  await writeAuditLog({
+    action: "DISCOUNT_APPLIED",
+    studentId,
+    newValue: { amount, type, reason },
+  });
+  return ref.id;
+}
+
+// ---------------------------------------------------------------------------
+// Audit log
+// ---------------------------------------------------------------------------
 export async function getAuditLogs({ studentId, limitCount = 100 } = {}) {
   let q = collection(db, COL.auditLogs);
   q = studentId
@@ -474,7 +601,7 @@ export async function getAuditLogs({ studentId, limitCount = 100 } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Academic sessions / users (unchanged from prior version)
+// Academic sessions / users
 // ---------------------------------------------------------------------------
 export async function createAcademicSession(sessionLabel) {
   await setDoc(doc(db, COL.sessions, sessionLabel), {
