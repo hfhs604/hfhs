@@ -86,6 +86,135 @@
 
 .fm-chart-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(320px, 1fr)); gap: 16px; margin-top: 16px; }
 
+/* ===========================================================================
+   NEW — Additions for Reports and Receipt screens
+   =========================================================================== */
+
+/* Horizontal scroll wrapper for wide tables (Reports).
+   Prevents columns from squashing and lets the table scroll sideways
+   on narrow screens instead of overflowing the card. */
+.fm-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  border-radius: 6px;
+  margin-top: 12px;
+}
+
+.fm-table-scroll table {
+  min-width: 900px;
+  margin-top: 0;
+}
+
+.fm-table-scroll td,
+.fm-table-scroll th {
+  white-space: nowrap;
+}
+
+/* Secondary button (used by Cancel/Back actions in forms) */
+.fm-secondary-btn {
+  background: #fff;
+  border: 1px solid #ccc;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #333;
+}
+.fm-secondary-btn:hover {
+  background: #f5f7fa;
+}
+
+/* Add-on panel (used by FeeCollection for transport / books / kit) */
+.fm-addon-panel {
+  margin-top: 20px;
+  padding: 14px;
+  background: #f5f7fa;
+  border-radius: 8px;
+}
+.fm-addon-panel h4 { margin: 0 0 6px; font-size: 14px; }
+.fm-addon-row {
+  display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 8px;
+}
+.fm-addon-row button {
+  padding: 7px 12px;
+  border-radius: 6px;
+  border: 1px solid #ccc;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+}
+.fm-addon-row button:disabled { opacity: 0.6; cursor: not-allowed; }
+.fm-addon-row input {
+  padding: 7px 10px;
+  border: 1px solid #ccc;
+  border-radius: 6px;
+  width: 120px;
+  font-size: 13px;
+}
+.fm-addon-msg { margin-top: 10px; font-size: 13px; }
+
+/* Success message */
+.fm-success { color: #2e7d32; font-weight: 500; }
+
+/* ===========================================================================
+   Print styles
+   Reports print one clean landscape page; receipts override in receipt.css.
+   =========================================================================== */
+@media print {
+  /* Hide all interactive chrome */
+  .fm-app-header,
+  .fm-nav,
+  .fm-filter-row,
+  .fm-search-row,
+  .fm-addon-panel,
+  .fm-row-header button,
+  .no-print,
+  button {
+    display: none !important;
+  }
+
+  body { background: #fff !important; margin: 0; }
+
+  .fm-app,
+  .fm-main {
+    padding: 0 !important;
+    background: #fff !important;
+  }
+
+  .fm-card {
+    box-shadow: none !important;
+    border: none !important;
+    padding: 0 !important;
+    margin: 0 !important;
+  }
+
+  .fm-table {
+    width: 100% !important;
+    font-size: 9.5pt;
+    border-collapse: collapse;
+  }
+
+  .fm-table thead { display: table-header-group; }
+  .fm-table tr { page-break-inside: avoid; }
+  .fm-table th,
+  .fm-table td {
+    border-bottom: 1px solid #ddd;
+    padding: 6px 8px;
+  }
+
+  .fm-table-scroll { overflow: visible !important; }
+  .fm-table-scroll table { min-width: 0 !important; }
+
+  /* A4 landscape for reports.
+     ReceiptPrintSheet.css sets A4 portrait at the end of its own file,
+     so this won't conflict with receipts. */
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+}
+
 /* Responsive: stack nav + summary grids on tablet/mobile */
 @media (max-width: 768px) {
   .fm-dashboard-grid, .fm-summary-grid, .fm-payment-form { grid-template-columns: 1fr 1fr; }
