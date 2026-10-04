@@ -1,0 +1,42 @@
+name: Import Students to Firestore
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (preview only, no writes)"
+        required: false
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      session:
+        description: "Academic session (e.g. 2026-27)"
+        required: false
+        default: "2026-27"
+      first_month:
+        description: "First month of session (YYYY-MM)"
+        required: false
+        default: "2026-04"
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install firebase-admin
+
+      - name: Run import
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SESSION: ${{ inputs.session }}
+          FIRST_MONTH: ${{ inputs.first_month }}
+        run: python scripts/import_students.py
