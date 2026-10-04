@@ -1,14 +1,7 @@
 /**
  * feeService.js
  * Fee Management data layer for Holy Faith High School.
- *
- * Billing model:
- *  - Monthly billing (tuition + optional transport + optional ad-hoc fees).
- *  - Development Fee (3150) is billed once, in the first month of the session.
- *  - Admission/Kit fee is optional, addable via button.
- *  - Books fee is optional, addable via button.
- *  - Previous year balance is optional, addable via button.
- *  - Unpaid balance rolls forward month-by-month via monthlyBills.carriedForward.
+ * Monthly billing model with defensive fallbacks when indexes are missing.
  */
 
 import { db, auth } from "../firebase/config";
@@ -18,9 +11,6 @@ import {
   runTransaction, serverTimestamp, Timestamp,
 } from "firebase/firestore";
 
-// ---------------------------------------------------------------------------
-// Collections
-// ---------------------------------------------------------------------------
 const COL = {
   students: "students",
   feeStructures: "feeStructures",
@@ -33,9 +23,6 @@ const COL = {
   monthlyBills: "monthlyBills",
 };
 
-// ---------------------------------------------------------------------------
-// Fee schedule (per class, per month)
-// ---------------------------------------------------------------------------
 export const MONTHLY_TUITION = {
   "Pre-LKG": 800, "LKG": 800, "NUR": 800,
   "UKG": 900,  "I": 900,
@@ -50,9 +37,6 @@ export const MONTHLY_TUITION = {
 export const DEVELOPMENT_FEE = 3150;
 export const TRANSPORT_OPTIONS = [800, 1500];
 
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 function currentUser() {
   const u = auth.currentUser;
   if (!u) throw new Error("Not authenticated");
@@ -64,13 +48,17 @@ function monthKey(date = new Date()) {
 }
 
 async function writeAuditLog({ action, studentId, previousValue, newValue, transactionRef }) {
-  const user = currentUser();
-  await addDoc(collection(db, COL.auditLogs), {
-    userId: user.uid, userEmail: user.email || null, action,
-    studentId: studentId || null, transactionRef: transactionRef || null,
-    previousValue: previousValue ?? null, newValue: newValue ?? null,
-    timestamp: serverTimestamp(),
-  });
+  try {
+    const user = currentUser();
+    await addDoc(collection(db, COL.auditLogs), {
+      userId: user.uid, userEmail: user.email || null, action,
+      studentId: studentId || null, transactionRef: transactionRef || null,
+      previousValue: previousValue ?? null, newValue: newValue ?? null,
+      timestamp: serverTimestamp(),
+    });
+  } catch (err) {
+    console.warn("writeAuditLog failed (non-fatal):", err.message);
+  }
 }
 
 async function generateReceiptNumber(session) {
@@ -105,13 +93,18 @@ export async function createStudent(data) {
 }
 
 export async function updateStudentProfile(studentId, updates) {
-  const before = await getDoc(doc(db, COL.students, studentId));
-  await updateDoc(doc(db, COL.students, studentId), updates);
-  await writeAuditLog({
-    action: "STUDENT_UPDATED", studentId,
-    previousValue: before.exists() ? before.data() : null,
-    newValue: updates,
-  });
+  try {
+    const before = await getDoc(doc(db, COL.students, studentId));
+    await updateDoc(doc(db, COL.students, studentId), updates);
+    await writeAuditLog({
+      action: "STUDENT_UPDATED", studentId,
+      previousValue: before.exists() ? before.data() : null,
+      newValue: updates,
+    });
+  } catch (err) {
+    console.warn("updateStudentProfile failed:", err.message);
+    throw err;
+  }
 }
 
 export async function getStudentFeeProfile(studentId) {
@@ -130,21 +123,31 @@ export function computeBalanceView(student) {
   return { ...student, totalDue: due, totalAdvance: advance, accountStatus: status };
 }
 
+/**
+ * Search students by name or admission number (prefix match).
+ * Uses client-side filtering to avoid needing composite indexes.
+ */
 export async function searchStudents(term) {
-  const results = new Map();
-  const fields = ["name", "admissionNumber"];
-  for (const field of fields) {
-    const q = query(
-      collection(db, COL.students),
-      orderBy(field),
-      where(field, ">=", term),
-      where(field, "<=", term + "\uf8ff"),
-      fsLimit(20)
-    );
-    const snap = await getDocs(q);
-    snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
+  const cleanedTerm = (term || "").trim().toLowerCase();
+  if (!cleanedTerm) return [];
+
+  // Fetch all students, filter client-side. Works for ~1000 students easily.
+  let all = [];
+  try {
+    const snap = await getDocs(collection(db, COL.students));
+    all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn("searchStudents: fetch failed:", err.message);
+    return [];
   }
-  return Array.from(results.values());
+
+  const matches = all.filter((s) => {
+    const name = (s.name || "").toLowerCase();
+    const adm = String(s.admissionNumber || "").toLowerCase();
+    return name.includes(cleanedTerm) || adm.includes(cleanedTerm);
+  });
+
+  return matches.slice(0, 30);
 }
 
 // ---------------------------------------------------------------------------
@@ -159,27 +162,47 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
   const prevDate = new Date(startYear, startMonthNum - 2, 1);
   const prevMonth = monthKey(prevDate);
 
-  const studentsSnap = await getDocs(collection(db, COL.students));
-  const students = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  // Fetch all students (single-field query, no composite index needed).
+  let students = [];
+  try {
+    const snap = await getDocs(collection(db, COL.students));
+    students = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    throw new Error(`Could not read students: ${err.message}`);
+  }
+
+  // Filter by session client-side
+  students = students.filter((s) => s.session === session);
+
+  if (students.length === 0) {
+    throw new Error(
+      `No students found for session "${session}". Import students first, or check the session field.`
+    );
+  }
 
   let created = 0;
   for (const student of students) {
-    if (student.session !== session) continue;
-
     let previousDue = 0;
     if (!isFirstMonth) {
-      const prevRef = doc(db, COL.monthlyBills, billDocId(session, prevMonth, student.id));
-      const prevSnap = await getDoc(prevRef);
-      if (prevSnap.exists()) previousDue = prevSnap.data().carriedForward || 0;
+      try {
+        const prevRef = doc(db, COL.monthlyBills, billDocId(session, prevMonth, student.id));
+        const prevSnap = await getDoc(prevRef);
+        if (prevSnap.exists()) previousDue = prevSnap.data().carriedForward || 0;
+      } catch (err) {
+        console.warn(`Could not read prev month bill for ${student.id}:`, err.message);
+      }
     }
 
     const tuitionBilled = MONTHLY_TUITION[student.className] || 0;
     const devFeeThisMonth = isFirstMonth ? DEVELOPMENT_FEE : 0;
     const transportBilled = student.transportOpted ? (student.transportAmount || 0) : 0;
-
     const totalDue = previousDue + tuitionBilled + transportBilled + devFeeThisMonth;
 
-    const billRef = doc(db, COL.monthlyBills, billDocId(session, month, student.id));
+    // Sanitize the bill document ID to prevent path issues
+    const safeStudentId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
+    const billId = `${session}_${month}_${safeStudentId}`;
+
+    const billRef = doc(db, COL.monthlyBills, billId);
     await setDoc(billRef, {
       session, month, studentId: student.id,
       studentName: student.name,
@@ -208,19 +231,28 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
 }
 
 export async function getMonthlyBill(session, month, studentId) {
-  const ref = doc(db, COL.monthlyBills, billDocId(session, month, studentId));
+  const safeStudentId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+  const ref = doc(db, COL.monthlyBills, `${session}_${month}_${safeStudentId}`);
   const snap = await getDoc(ref);
   return snap.exists() ? { id: snap.id, ...snap.data() } : null;
 }
 
 export async function listBillsForMonth(session, month) {
-  const q = query(
-    collection(db, COL.monthlyBills),
-    where("session", "==", session),
-    where("month", "==", month)
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  try {
+    const q = query(
+      collection(db, COL.monthlyBills),
+      where("session", "==", session),
+      where("month", "==", month)
+    );
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn("listBillsForMonth: using client-side filter:", err.message);
+    const snap = await getDocs(collection(db, COL.monthlyBills));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((b) => b.session === session && b.month === month);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +266,8 @@ export async function collectPayment({
   idempotencyKey,
 }) {
   const user = currentUser();
-  const billRef = doc(db, COL.monthlyBills, billDocId(session, month, studentId));
+  const safeStudentId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+  const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeStudentId}`);
   const idemRef = doc(db, "paymentIdempotency", idempotencyKey);
 
   const result = await runTransaction(db, async (tx) => {
@@ -318,7 +351,8 @@ async function addLineItem({
   paymentMethod = "Cash", paymentDate, idempotencyKey,
 }) {
   const user = currentUser();
-  const billRef = doc(db, COL.monthlyBills, billDocId(session, month, studentId));
+  const safeStudentId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+  const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeStudentId}`);
   const idemRef = doc(db, "paymentIdempotency", idempotencyKey);
 
   const result = await runTransaction(db, async (tx) => {
@@ -430,78 +464,75 @@ export async function addKitFee({ studentId, amount, session, month, paymentDate
 }
 
 // ---------------------------------------------------------------------------
-// Due list (monthly model)
+// Due list
 // ---------------------------------------------------------------------------
 export async function getDueList({ session, month } = {}) {
-  const clauses = [];
-  if (session) clauses.push(where("session", "==", session));
-  if (month) clauses.push(where("month", "==", month));
-  const q = query(collection(db, COL.monthlyBills), ...clauses);
-  const snap = await getDocs(q);
-  return snap.docs
-    .map((d) => ({ id: d.id, ...d.data() }))
-    .filter((b) => (b.carriedForward || 0) > 0)
-    .sort((a, b) => (b.carriedForward || 0) - (a.carriedForward || 0));
+  try {
+    const clauses = [];
+    if (session) clauses.push(where("session", "==", session));
+    if (month) clauses.push(where("month", "==", month));
+    const q = query(collection(db, COL.monthlyBills), ...clauses);
+    const snap = await getDocs(q);
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((b) => (b.carriedForward || 0) > 0)
+      .sort((a, b) => (b.carriedForward || 0) - (a.carriedForward || 0));
+  } catch (err) {
+    console.warn("getDueList: using fallback:", err.message);
+    const snap = await getDocs(collection(db, COL.monthlyBills));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((b) => (!session || b.session === session) && (!month || b.month === month))
+      .filter((b) => (b.carriedForward || 0) > 0)
+      .sort((a, b) => (b.carriedForward || 0) - (a.carriedForward || 0));
+  }
 }
 
-/**
- * Legacy due-list function (kept for backward compatibility with
- * DueManagement.jsx until it's rewritten). Reads from monthlyBills
- * for the given session and current calendar month.
- */
 export async function getStudentsWithDue({ session, month, className, section } = {}) {
   const targetMonth = month || monthKey();
   const bills = await getDueList({ session, month: targetMonth });
-
   if (!className && !section) return bills;
-
-  // Filter by className if provided (bill docs already carry className)
-  return bills.filter((b) => {
-    if (className && b.className !== className) return false;
-    return true;
-  });
+  return bills.filter((b) => !className || b.className === className);
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard stats (monthly model)
+// Dashboard stats
 // ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
 
-  const studentsSnap = await getDocs(
-    query(collection(db, COL.students), where("session", "==", session))
-  );
-  const students = studentsSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  let students = [];
+  try {
+    const snap = await getDocs(collection(db, COL.students));
+    students = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
+      .filter((s) => s.session === session);
+  } catch (err) {
+    console.warn("getDashboardStats: students read failed:", err.message);
+  }
 
-  const billsSnap = await getDocs(
-    query(
-      collection(db, COL.monthlyBills),
-      where("session", "==", session),
-      where("month", "==", targetMonth)
-    )
-  );
-  const bills = billsSnap.docs.map((d) => d.data());
+  let bills = [];
+  try {
+    const snap = await getDocs(collection(db, COL.monthlyBills));
+    bills = snap.docs.map((d) => d.data())
+      .filter((b) => b.session === session && b.month === targetMonth);
+  } catch (err) {
+    console.warn("getDashboardStats: bills read failed:", err.message);
+  }
 
-  const txnsSnap = await getDocs(
-    query(
-      collection(db, COL.transactions),
-      where("session", "==", session),
-      where("voided", "==", false)
-    )
-  );
-  const txns = txnsSnap.docs.map((d) => d.data());
+  let txns = [];
+  try {
+    const snap = await getDocs(collection(db, COL.transactions));
+    txns = snap.docs.map((d) => d.data())
+      .filter((t) => t.session === session && t.voided !== true);
+  } catch (err) {
+    console.warn("getDashboardStats: transactions read failed:", err.message);
+  }
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
-  const startOfMonth = new Date(
-    startOfToday.getFullYear(),
-    startOfToday.getMonth(),
-    1
-  );
+  const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
 
-  let todayCollection = 0;
-  let monthCollection = 0;
-  let totalCollection = 0;
+  let todayCollection = 0, monthCollection = 0, totalCollection = 0;
   const byMethod = {};
 
   txns.forEach((t) => {
@@ -510,127 +541,8 @@ export async function getDashboardStats(session, month) {
     totalCollection += amt;
     if (paidAt && paidAt >= startOfMonth) monthCollection += amt;
     if (paidAt && paidAt >= startOfToday) todayCollection += amt;
-    if (t.paymentMethod) {
-      byMethod[t.paymentMethod] = (byMethod[t.paymentMethod] || 0) + amt;
-    }
+    if (t.paymentMethod) byMethod[t.paymentMethod] = (byMethod[t.paymentMethod] || 0) + amt;
   });
 
   const totalOutstandingDue = bills.reduce((s, b) => s + (b.carriedForward || 0), 0);
-  const studentsWithDue = bills.filter((b) => (b.carriedForward || 0) > 0).length;
-  const studentsFullyPaid = bills.filter((b) => (b.carriedForward || 0) === 0).length;
-
-  return {
-    todayCollection,
-    monthCollection,
-    totalCollection,
-    totalOutstandingDue,
-    totalAdvance: 0,
-    studentsWithDue,
-    studentsFullyPaid,
-    paymentMethodBreakdown: byMethod,
-    studentCount: students.length,
-    month: targetMonth,
-  };
-}
-
-// ---------------------------------------------------------------------------
-// Fee structures (kept for backward compatibility; not used in monthly model)
-// ---------------------------------------------------------------------------
-export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
-  const id = `${session}_${className}`;
-  await setDoc(
-    doc(db, COL.feeStructures, id),
-    { session, className, categories, lateFeeRule, updatedAt: serverTimestamp() },
-    { merge: true }
-  );
-  await writeAuditLog({
-    action: "FEE_STRUCTURE_UPDATED",
-    newValue: { session, className, categories },
-  });
-}
-
-export async function getFeeStructure(session, className) {
-  const snap = await getDoc(doc(db, COL.feeStructures, `${session}_${className}`));
-  return snap.exists() ? snap.data() : null;
-}
-
-// ---------------------------------------------------------------------------
-// Payment history
-// ---------------------------------------------------------------------------
-export async function getPaymentHistory(studentId) {
-  const q = query(
-    collection(db, COL.transactions),
-    where("studentId", "==", studentId),
-    orderBy("createdAt", "desc")
-  );
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-}
-
-// ---------------------------------------------------------------------------
-// Discounts
-// ---------------------------------------------------------------------------
-export async function applyDiscount({ studentId, amount, type, reason }) {
-  const user = currentUser();
-  const ref = await addDoc(collection(db, COL.discounts), {
-    studentId,
-    amount,
-    type,
-    reason,
-    authorizedBy: user.uid,
-    createdAt: serverTimestamp(),
-  });
-  await writeAuditLog({
-    action: "DISCOUNT_APPLIED",
-    studentId,
-    newValue: { amount, type, reason },
-  });
-  return ref.id;
-}
-
-// ---------------------------------------------------------------------------
-// Audit log
-// ---------------------------------------------------------------------------
-export async function getAuditLogs({ studentId, limitCount = 100 } = {}) {
-  let q = collection(db, COL.auditLogs);
-  q = studentId
-    ? query(q, where("studentId", "==", studentId), orderBy("timestamp", "desc"), fsLimit(limitCount))
-    : query(q, orderBy("timestamp", "desc"), fsLimit(limitCount));
-  const snap = await getDocs(q);
-  return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-}
-
-// ---------------------------------------------------------------------------
-// Academic sessions / users
-// ---------------------------------------------------------------------------
-export async function createAcademicSession(sessionLabel) {
-  await setDoc(doc(db, COL.sessions, sessionLabel), {
-    label: sessionLabel, createdAt: serverTimestamp(), isActive: true,
-  });
-  await writeAuditLog({ action: "ACADEMIC_SESSION_CREATED", newValue: { session: sessionLabel } });
-}
-
-export async function getAcademicSessions() {
-  const snap = await getDocs(query(collection(db, COL.sessions), orderBy("label", "desc")));
-  return snap.docs.map((d) => d.data());
-}
-
-export async function setUserRole(uid, role, permissions = {}) {
-  await setDoc(doc(db, "users", uid), { role, permissions }, { merge: true });
-  await writeAuditLog({ action: "USER_ROLE_SET", newValue: { uid, role, permissions } });
-}
-
-export async function getUserRoleOnce(uid, retries = 3, delayMs = 700) {
-  const ref = doc(db, "users", uid);
-  for (let attempt = 0; attempt < retries; attempt++) {
-    try {
-      const snap = await getDoc(ref);
-      return snap.exists() ? snap.data() : null;
-    } catch (err) {
-      const isOffline = err?.code === "unavailable" || err?.message?.includes("client is offline");
-      if (!isOffline || attempt === retries - 1) throw err;
-      await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
-    }
-  }
-}
-export const getUserRole = getUserRoleOnce;
+  const studentsWithDue = bills.filter((b) => (b.carriedForward
