@@ -1,5 +1,5 @@
 import { initializeApp } from "firebase/app";
-import { initializeFirestore } from "firebase/firestore";
+import { initializeFirestore, CACHE_SIZE_UNLIMITED } from "firebase/firestore";
 import { getAuth } from "firebase/auth";
 
 const firebaseConfig = {
@@ -13,9 +13,22 @@ const firebaseConfig = {
 
 const app = initializeApp(firebaseConfig);
 
+/**
+ * Firestore initialization.
+ *
+ * NOTE: We intentionally do NOT set `experimentalForceLongPolling: true` here.
+ * That flag forces Firestore to use HTTP long-polling instead of WebSockets,
+ * and on a normal network it causes EVERY Firestore read to fail with
+ * `FirebaseError: An internal error occurred.` — which is what was happening
+ * before this change.
+ *
+ * If you ever deploy behind a proxy/firewall that blocks WebSockets, you can
+ * re-enable it here, but understand the tradeoff.
+ */
 export const db = initializeFirestore(app, {
-  experimentalForceLongPolling: true,
+  cacheSizeBytes: CACHE_SIZE_UNLIMITED,
 });
 
 export const auth = getAuth(app);
+
 export default app;
