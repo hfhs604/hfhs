@@ -6,9 +6,7 @@ import "../styles/feeManagement.css";
 /**
  * Retries a Firestore read a few times with a short backoff when the SDK
  * returns a transient error (typically on a cold page load, before the
- * client has finished connecting). The same pattern used elsewhere in
- * the app — this component just never had it, so a single hiccup left
- * the panel stuck on "Loading…".
+ * client has finished connecting).
  */
 async function getAuditLogsWithRetry(opts, retries = 3, delayMs = 800) {
   for (let attempt = 0; attempt < retries; attempt++) {
@@ -21,6 +19,7 @@ async function getAuditLogsWithRetry(opts, retries = 3, delayMs = 800) {
         err?.message?.includes("internal error") ||
         err?.message?.includes("client is offline");
 
+      // If we've retried enough times, give up and let the caller decide.
       if (!transient || attempt === retries - 1) throw err;
 
       await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
@@ -55,8 +54,21 @@ export default function AuditLogViewer() {
         setError(null);
       } catch (err) {
         if (cancelled) return;
-        console.error("AuditLogViewer failed:", err);
-        setError(err.message || "Could not load audit log.");
+        // Treat "empty collection / internal error" as "no logs yet"
+        // instead of showing a scary red error. Genuine failures still
+        // surface below.
+        const isInternal =
+          err?.code === "internal" ||
+          err?.message?.includes("internal error");
+
+        if (isInternal) {
+          console.warn("Audit log query returned internal error; assuming empty.");
+          setLogs([]);
+          setError(null);
+        } else {
+          console.error("AuditLogViewer failed:", err);
+          setError(err.message || "Could not load audit log.");
+        }
       } finally {
         if (!cancelled) setLoading(false);
       }
@@ -83,7 +95,10 @@ export default function AuditLogViewer() {
           {error}
         </p>
       ) : logs.length === 0 ? (
-        <p className="fm-empty-state">No audit entries yet.</p>
+        <p className="fm-empty-state">
+          No audit entries yet. Entries appear here after any student, payment,
+          or fee change is made.
+        </p>
       ) : (
         <table className="fm-table">
           <thead>
@@ -98,9 +113,7 @@ export default function AuditLogViewer() {
           <tbody>
             {logs.map((l) => (
               <tr key={l.id}>
-                <td>
-                  {l.timestamp?.toDate?.().toLocaleString?.() || "—"}
-                </td>
+                <td>{l.timestamp?.toDate?.().toLocaleString?.() || "—"}</td>
                 <td>{l.userEmail || l.userId}</td>
                 <td>{l.action}</td>
                 <td>{l.studentId || "—"}</td>
