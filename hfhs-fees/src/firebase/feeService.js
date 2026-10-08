@@ -418,9 +418,12 @@ async function addLineItem({
 }
 
 export async function addTransportFee({ studentId, amount, session, month, paymentDate, paymentMethod, idempotencyKey }) {
-  if (!TRANSPORT_OPTIONS.includes(Number(amount))) throw new Error("Transport must be 800 or 1500.");
+  const amt = Number(amount);
+  if (amt < 800 || amt > 1500) {
+    throw new Error("Transport must be between ₹800 and ₹1500.");
+  }
   return addLineItem({
-    studentId, session, month, amount,
+    studentId, session, month, amount: amt,
     field: "transportBilled", componentType: "transport",
     feeType: "Transport", remarks: "Transport fee",
     paymentDate, paymentMethod, idempotencyKey,
@@ -704,113 +707,11 @@ export async function reserveAdmissionNumber() {
 }
 
 // ---------------------------------------------------------------------------
-// Delete student + all related data (super admin only)
-// ---------------------------------------------------------------------------
-export async function deleteStudentCompletely(studentId, studentName) {
-  const user = currentUser();
-
-  // Verify caller is super admin
-  const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (!userDoc.exists() || userDoc.data().role !== "superAdmin") {
-    throw new Error("Only a Super Admin can delete a student.");
-  }
-
-  const studentRef = doc(db, COL.students, studentId);
-  const studentSnap = await getDoc(studentRef);
-  if (!studentSnap.exists()) throw new Error("Student not found.");
-
-  const student = studentSnap.data();
-  const summary = {
-    studentId,
-    name: student.name || studentName || "Unknown",
-    admissionNumber: student.admissionNumber || null,
-    billsDeleted: 0,
-    transactionsDeleted: 0,
-    receiptsDeleted: 0,
-    discountsDeleted: 0,
-  };
-
-  // 1. Delete student document
-  await deleteDoc(studentRef);
-
-  // 2. Delete monthly bills
-  try {
-    const billsSnap = await getDocs(
-      query(collection(db, COL.monthlyBills), where("studentId", "==", studentId))
-    );
-    for (const d of billsSnap.docs) {
-      await deleteDoc(doc(db, COL.monthlyBills, d.id));
-      summary.billsDeleted++;
-    }
-  } catch (err) {
-    console.warn("Could not delete bills:", err.message);
-  }
-
-  // 3. Delete fee transactions
-  try {
-    const txnsSnap = await getDocs(
-      query(collection(db, COL.transactions), where("studentId", "==", studentId))
-    );
-    for (const d of txnsSnap.docs) {
-      await deleteDoc(doc(db, COL.transactions, d.id));
-      summary.transactionsDeleted++;
-    }
-  } catch (err) {
-    console.warn("Could not delete transactions:", err.message);
-  }
-
-  // 4. Delete receipts
-  try {
-    const receiptsSnap = await getDocs(
-      query(collection(db, COL.receipts), where("studentId", "==", studentId))
-    );
-    for (const d of receiptsSnap.docs) {
-      await deleteDoc(doc(db, COL.receipts, d.id));
-      summary.receiptsDeleted++;
-    }
-  } catch (err) {
-    console.warn("Could not delete receipts:", err.message);
-  }
-
-  // 5. Delete discounts
-  try {
-    const discountsSnap = await getDocs(
-      query(collection(db, COL.discounts), where("studentId", "==", studentId))
-    );
-    for (const d of discountsSnap.docs) {
-      await deleteDoc(doc(db, COL.discounts, d.id));
-      summary.discountsDeleted++;
-    }
-  } catch (err) {
-    console.warn("Could not delete discounts:", err.message);
-  }
-
-  // 6. Write audit log — preserved even after the student is gone
-  await writeAuditLog({
-    action: "STUDENT_DELETED",
-    studentId,
-    previousValue: {
-      name: student.name,
-      admissionNumber: student.admissionNumber,
-      className: student.className,
-      session: student.session,
-    },
-    newValue: {
-      deletedBy: user.email || user.uid,
-      deletedAt: new Date().toISOString(),
-      summary,
-    },
-  });
-
-  return summary;
-}
-// ---------------------------------------------------------------------------
 // Full student update (admin / accountant)
 // ---------------------------------------------------------------------------
 export async function updateStudentFull(studentId, updates) {
   const user = currentUser();
 
-  // Only superAdmin, admin, accountant can update
   const userDoc = await getDoc(doc(db, "users", user.uid));
   const role = userDoc.exists() ? userDoc.data().role : null;
   if (!["superAdmin", "admin", "accountant"].includes(role)) {
@@ -836,3 +737,122 @@ export async function updateStudentFull(studentId, updates) {
 
   return true;
 }
+
+// ---------------------------------------------------------------------------
+// Delete student + all related data (super admin only)
+// ---------------------------------------------------------------------------
+export async function deleteStudentCompletely(studentId, studentName) {
+  const user = currentUser();
+
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  if (!userDoc.exists() || userDoc.data().role !== "superAdmin") {
+    throw new Error("Only a Super Admin can delete a student.");
+  }
+
+  const studentRef = doc(db, COL.students, studentId);
+  const studentSnap = await getDoc(studentRef);
+  if (!studentSnap.exists()) throw new Error("Student not found.");
+
+  const student = studentSnap.data();
+  const summary = {
+    studentId,
+    name: student.name || studentName || "Unknown",
+    admissionNumber: student.admissionNumber || null,
+    billsDeleted: 0,
+    transactionsDeleted: 0,
+    receiptsDeleted: 0,
+    discountsDeleted: 0,
+  };
+
+  await deleteDoc(studentRef);
+
+  try {
+    const billsSnap = await getDocs(
+      query(collection(db, COL.monthlyBills), where("studentId", "==", studentId))
+    );
+    for (const d of billsSnap.docs) {
+      await deleteDoc(doc(db, COL.monthlyBills, d.id));
+      summary.billsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete bills:", err.message);
+  }
+
+  try {
+    const txnsSnap = await getDocs(
+      query(collection(db, COL.transactions), where("studentId", "==", studentId))
+    );
+    for (const d of txnsSnap.docs) {
+      await deleteDoc(doc(db, COL.transactions, d.id));
+      summary.transactionsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete transactions:", err.message);
+  }
+
+  try {
+    const receiptsSnap = await getDocs(
+      query(collection(db, COL.receipts), where("studentId", "==", studentId))
+    );
+    for (const d of receiptsSnap.docs) {
+      await deleteDoc(doc(db, COL.receipts, d.id));
+      summary.receiptsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete receipts:", err.message);
+  }
+
+  try {
+    const discountsSnap = await getDocs(
+      query(collection(db, COL.discounts), where("studentId", "==", studentId))
+    );
+    for (const d of discountsSnap.docs) {
+      await deleteDoc(doc(db, COL.discounts, d.id));
+      summary.discountsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete discounts:", err.message);
+  }
+
+  await writeAuditLog({
+    action: "STUDENT_DELETED",
+    studentId,
+    previousValue: {
+      name: student.name,
+      admissionNumber: student.admissionNumber,
+      className: student.className,
+      session: student.session,
+    },
+    newValue: {
+      deletedBy: user.email || user.uid,
+      deletedAt: new Date().toISOString(),
+      summary,
+    },
+  });
+
+  return summary;
+}
+
+// ---------------------------------------------------------------------------
+// Transport fee management (persistent per-student setting)
+// ---------------------------------------------------------------------------
+/**
+ * Set (or update) the standing monthly transport amount for a student.
+ * Accepts 0 (off) or any value between 800 and 1500 (inclusive).
+ * Super admin only.
+ */
+export async function setStudentTransport(studentId, amount) {
+  const user = currentUser();
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  const role = userDoc.exists() ? userDoc.data().role : null;
+  if (role !== "superAdmin") {
+    throw new Error("Only a Super Admin can change transport settings.");
+  }
+
+  const amt = Number(amount);
+  if (amt !== 0 && (amt < 800 || amt > 1500)) {
+    throw new Error("Transport must be 0 (off) or between ₹800 and ₹1500.");
+  }
+
+  const studentRef = doc(db, COL.students, studentId);
+  const before = await
