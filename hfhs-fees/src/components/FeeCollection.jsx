@@ -4,18 +4,17 @@ import {
   searchStudents,
   collectPayment,
   getMonthlyBill,
-  addTransportFee,
   addBooksFee,
   addPreviousYearBalance,
   addKitFee,
   MONTHLY_TUITION,
-  setStudentTransport,
 } from "../firebase/feeService";
+import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
-export default function FeeCollection({ session, month, onReceiptGenerated, role }) {
+export default function FeeCollection({ session, month, onReceiptGenerated }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [results, setResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -31,11 +30,12 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
   const [promptSlot, setPromptSlot] = useState(null);
   const [promptValue, setPromptValue] = useState("");
 
-  const [transportEditOpen, setTransportEditOpen] = useState(false);
+  // Transport toggle inside the form
+  const [transportEnabled, setTransportEnabled] = useState(false);
   const [transportValue, setTransportValue] = useState(800);
-  const [transportBusy, setTransportBusy] = useState(false);
 
-  const isSuperAdmin = role === "superAdmin";
+  // Receipt popup
+  const [receiptPopup, setReceiptPopup] = useState(null);
 
   const [form, setForm] = useState({
     amountReceived: "",
@@ -53,10 +53,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     try {
       const b = await getMonthlyBill(session, month, studentId);
       setBill(b);
-      if (b) {
-        const current = b.transportBilled || 0;
-        setTransportValue(current > 0 ? current : 800);
-      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -77,25 +73,51 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     setIdempotencyKey(uuidv4());
     setError(null);
     setAddonMsg("");
-    setTransportEditOpen(false);
+    setTransportEnabled(false);
+    setTransportValue(800);
     await refreshBill(student.id);
+  }
+
+  function showFlash(msg) {
+    setFlash(msg);
+    setTimeout(() => setFlash(""), 1000);
   }
 
   async function handleSubmit(e) {
     e.preventDefault();
     if (submitting || !selectedStudent) return;
+
+    // Validate transport value
+    if (transportEnabled) {
+      const t = Number(transportValue);
+      if (t < 800 || t > 1500) {
+        setError("Transport must be between ₹800 and ₹1500.");
+        return;
+      }
+    }
+
     setSubmitting(true);
     setError(null);
     try {
+      const totalReceived =
+        Number(form.amountReceived || 0) +
+        (transportEnabled ? Number(transportValue) : 0);
+
       const { receipt, duplicateBlocked } = await collectPayment({
         studentId: selectedStudent.id,
         session,
         month,
         idempotencyKey,
         ...form,
+        amountReceived: totalReceived,
+        remarks:
+          (form.remarks || "") +
+          (transportEnabled ? ` [Transport ₹${transportValue} included]` : ""),
       });
+
       onReceiptGenerated?.(receipt, duplicateBlocked);
       showFlash("✅ Payment Successful");
+      setReceiptPopup(receipt);
       setIdempotencyKey(uuidv4());
       setForm((f) => ({
         ...f,
@@ -105,17 +127,14 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
         lateFee: 0,
         remarks: "",
       }));
+      setTransportEnabled(false);
+      setTransportValue(800);
       await refreshBill(selectedStudent.id);
     } catch (err) {
       setError(err.message || "Payment could not be recorded.");
     } finally {
       setSubmitting(false);
     }
-  }
-
-  function showFlash(msg) {
-    setFlash(msg);
-    setTimeout(() => setFlash(""), 1000);
   }
 
   async function handleAddon(fn, amount, label) {
@@ -159,30 +178,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     else if (promptSlot === "previousYear") handleAddon(addPreviousYearBalance, amt, "Previous Year Balance");
     else if (promptSlot === "kit") handleAddon(addKitFee, amt, "Admission / Kit");
     setPromptSlot(null);
-  }
-
-  async function saveTransport() {
-    const amt = Number(transportValue);
-    if (amt !== 0 && (amt < 800 || amt > 1500)) {
-      setAddonMsg("Transport must be 0 (off) or between ₹800 and ₹1500.");
-      return;
-    }
-    setTransportBusy(true);
-    setAddonMsg("");
-    try {
-      await setStudentTransport(selectedStudent.id, amt);
-      showFlash("✅ Transport updated");
-      await refreshBill(selectedStudent.id);
-      setTransportEditOpen(false);
-    } catch (e) {
-      setAddonMsg(`❌ ${e.message}`);
-    } finally {
-      setTransportBusy(false);
-    }
-  }
-
-  function clearTransport() {
-    setTransportValue(0);
   }
 
   return (
@@ -239,92 +234,16 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                     <td>Tuition (this month)</td>
                     <td align="right">₹{bill.tuitionBilled || 0}</td>
                   </tr>
-                  <tr>
-                    <td style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                      Transport
-                      {isSuperAdmin && (
-                        <button
-                          type="button"
-                          className="fm-link-btn"
-                          onClick={() => setTransportEditOpen((v) => !v)}
-                          style={{ fontSize: 12 }}
-                        >
-                          {transportEditOpen ? "Cancel" : "✏ Edit"}
-                        </button>
-                      )}
-                    </td>
-                    <td align="right">₹{bill.transportBilled || 0}</td>
-                  </tr>
-
-                  {transportEditOpen && (
-                    <tr>
-                      <td colSpan={2} style={{ paddingTop: 10 }}>
-                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-                          <label style={{ fontSize: 12, color: "#4b5563" }}>
-                            Monthly transport amount (₹800–₹1500, or 0 to turn off)
-                          </label>
-
-                          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
-                            <input
-                              type="range"
-                              min="800"
-                              max="1500"
-                              step="50"
-                              value={transportValue || 800}
-                              onChange={(e) => setTransportValue(Number(e.target.value))}
-                              disabled={transportBusy || transportValue === 0}
-                              style={{ flex: 1 }}
-                            />
-                            <input
-                              type="number"
-                              min="0"
-                              max="1500"
-                              step="50"
-                              value={transportValue}
-                              onChange={(e) => setTransportValue(Number(e.target.value))}
-                              disabled={transportBusy}
-                              style={{
-                                width: 90,
-                                padding: "6px 8px",
-                                border: "1px solid #cbd5e1",
-                                borderRadius: 6,
-                                fontSize: 13,
-                              }}
-                            />
-                          </div>
-
-                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
-                            <button
-                              type="button"
-                              className="fm-secondary-btn"
-                              onClick={clearTransport}
-                              disabled={transportBusy}
-                              style={{ padding: "6px 12px", fontSize: 13 }}
-                            >
-                              Turn off
-                            </button>
-                            <button
-                              type="button"
-                              className="fm-primary-btn"
-                              onClick={saveTransport}
-                              disabled={transportBusy}
-                              style={{ padding: "6px 12px", fontSize: 13 }}
-                            >
-                              {transportBusy ? "Saving…" : "Save"}
-                            </button>
-                            <span style={{ fontSize: 11, color: "#6b7280" }}>
-                              Applies to every future month automatically.
-                            </span>
-                          </div>
-                        </div>
-                      </td>
-                    </tr>
-                  )}
-
                   {bill.devFeeBilled > 0 && (
                     <tr>
                       <td>Development Fee</td>
                       <td align="right">₹{bill.devFeeBilled}</td>
+                    </tr>
+                  )}
+                  {bill.transportBilled > 0 && (
+                    <tr>
+                      <td>Transport (already on bill)</td>
+                      <td align="right">₹{bill.transportBilled}</td>
                     </tr>
                   )}
                   {bill.booksBilled > 0 && (
@@ -362,6 +281,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             </div>
           )}
 
+          {/* ---------------- Payment form ---------------- */}
           <form onSubmit={handleSubmit} className="fm-payment-form">
             <label>
               Fee Type
@@ -378,6 +298,33 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
               <input type="number" required min="0" value={form.amountReceived}
                 onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
             </label>
+
+            {/* Transport row */}
+            <label style={{ gridColumn: "1 / -1" }}>
+              <span style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 500 }}>
+                <input
+                  type="checkbox"
+                  checked={transportEnabled}
+                  onChange={(e) => setTransportEnabled(e.target.checked)}
+                  style={{ width: 16, height: 16 }}
+                />
+                Include Transport Fee
+              </span>
+            </label>
+
+            {transportEnabled && (
+              <label style={{ gridColumn: "1 / -1" }}>
+                Transport Amount (₹800–₹1500)
+                <input
+                  type="number"
+                  min="800"
+                  max="1500"
+                  step="50"
+                  value={transportValue}
+                  onChange={(e) => setTransportValue(Number(e.target.value))}
+                />
+              </label>
+            )}
 
             <label>
               Payment Date
@@ -424,19 +371,12 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             </button>
           </form>
 
+          {/* ---------------- Add-on Fees (no transport) ---------------- */}
           <div className="fm-addon-panel">
             <h4>Add-on Fees</h4>
-            <p className="fm-subtle">These add to the current month's bill and count as paid.</p>
+            <p className="fm-subtle">One-time fees added to this month's bill.</p>
 
             <div className="fm-addon-row-buttons">
-              <button type="button" className="fm-addon-btn" disabled={addonBusy}
-                onClick={() => handleAddon(addTransportFee, 800, "Transport ₹800")}>
-                🚌 + ₹800 Transport
-              </button>
-              <button type="button" className="fm-addon-btn" disabled={addonBusy}
-                onClick={() => handleAddon(addTransportFee, 1500, "Transport ₹1500")}>
-                🚌 + ₹1500 Transport
-              </button>
               <button type="button" className="fm-addon-btn" disabled={addonBusy}
                 onClick={() => promptForAmount("books")}>
                 📚 + Books
@@ -462,13 +402,15 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
               setSearchTerm("");
               setError(null);
               setAddonMsg("");
-              setTransportEditOpen(false);
+              setTransportEnabled(false);
+              setTransportValue(800);
             }}>
             ← Back to search
           </button>
         </>
       )}
 
+      {/* Amount prompt for Books / Prev Year / Kit */}
       {promptSlot && (
         <div className="fm-modal-overlay">
           <div className="fm-modal" style={{ maxWidth: 380 }}>
@@ -487,23 +429,49 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
               value={promptValue}
               onChange={(e) => setPromptValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && confirmPrompt()}
-              style={{
-                width: "100%",
-                padding: 10,
-                border: "1px solid #ccc",
-                borderRadius: 6,
-                fontSize: 15,
-              }}
+              style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15 }}
             />
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
               <button type="button" className="fm-secondary-btn"
-                onClick={() => setPromptSlot(null)}>
-                Cancel
-              </button>
+                onClick={() => setPromptSlot(null)}>Cancel</button>
               <button type="button" className="fm-primary-btn"
-                onClick={confirmPrompt}>
-                Add
+                onClick={confirmPrompt}>Add</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Receipt popup */}
+      {receiptPopup && (
+        <div className="fm-modal-overlay" style={{ zIndex: 9500 }}>
+          <div style={{
+            background: "#fff",
+            borderRadius: 10,
+            padding: 20,
+            maxWidth: 700,
+            width: "95%",
+            maxHeight: "90vh",
+            overflowY: "auto",
+            position: "relative",
+          }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, color: "#1a3d6d" }}>Payment Receipt</h3>
+              <button
+                type="button"
+                onClick={() => setReceiptPopup(null)}
+                style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#6b7280" }}
+              >
+                ×
               </button>
+            </div>
+
+            <ReceiptPrintSheet receipts={[receiptPopup]} />
+
+            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+              <button type="button" className="fm-secondary-btn"
+                onClick={() => setReceiptPopup(null)}>Close</button>
+              <button type="button" className="fm-primary-btn"
+                onClick={() => window.print()}>🖨 Print</button>
             </div>
           </div>
         </div>
