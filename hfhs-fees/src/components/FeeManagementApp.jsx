@@ -30,7 +30,7 @@ const NAV_SECTIONS = [
   {
     key: "students",
     label: "Students",
-    roles: ["superAdmin", "admin"],
+    roles: ["superAdmin", "admin", "accountant"],
   },
   {
     key: "structure",
@@ -74,6 +74,13 @@ const NAV_SECTIONS = [
   },
 ];
 
+/**
+ * Retries a Firestore read a few times with a short backoff when it fails
+ * with a transient "client is offline" error. This happens most often on
+ * a fresh page load, right as the Firestore SDK is still finishing its
+ * connection/transport setup — the read itself is fine, it just needs to
+ * be tried again a moment later instead of surfacing as a hard failure.
+ */
 async function withFirestoreRetry(fn, retries = 3, delayMs = 700) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -135,6 +142,10 @@ export default function FeeManagementApp({ onLogout }) {
           return;
         }
 
+        // --------------------------------------------------
+        // 1. Load user role
+        // --------------------------------------------------
+
         console.log("Loading user role...");
 
         const userDoc = await getUserRoleOnce(user.uid);
@@ -148,6 +159,10 @@ export default function FeeManagementApp({ onLogout }) {
         setRole(resolvedRole);
         setPermissions(userDoc?.permissions || {});
 
+        // --------------------------------------------------
+        // 2. Load academic sessions
+        // --------------------------------------------------
+
         console.log("Loading academic sessions...");
 
         let sessionList = await withFirestoreRetry(() =>
@@ -155,6 +170,10 @@ export default function FeeManagementApp({ onLogout }) {
         );
 
         console.log("Academic sessions:", sessionList);
+
+        // --------------------------------------------------
+        // 3. Create first academic session if required
+        // --------------------------------------------------
 
         if (sessionList.length === 0 && resolvedRole === "superAdmin") {
           const firstSession = defaultSessionLabel();
@@ -198,6 +217,10 @@ export default function FeeManagementApp({ onLogout }) {
       cancelled = true;
     };
   }, []);
+
+  // --------------------------------------------------
+  // ERROR SCREEN
+  // --------------------------------------------------
 
   if (error) {
     return (
@@ -251,6 +274,10 @@ export default function FeeManagementApp({ onLogout }) {
     );
   }
 
+  // --------------------------------------------------
+  // LOADING
+  // --------------------------------------------------
+
   if (loading) {
     return (
       <div className="fm-empty-state" style={{ padding: 60 }}>
@@ -258,6 +285,10 @@ export default function FeeManagementApp({ onLogout }) {
       </div>
     );
   }
+
+  // --------------------------------------------------
+  // STUDENT PORTAL
+  // --------------------------------------------------
 
   if (role === "student") {
     return (
@@ -278,6 +309,10 @@ export default function FeeManagementApp({ onLogout }) {
       </div>
     );
   }
+
+  // --------------------------------------------------
+  // ADMIN NAVIGATION
+  // --------------------------------------------------
 
   const visibleTabs = NAV_SECTIONS.filter((s) => s.roles.includes(role));
 
@@ -301,6 +336,10 @@ export default function FeeManagementApp({ onLogout }) {
       );
     }
   }
+
+  // --------------------------------------------------
+  // MAIN APPLICATION
+  // --------------------------------------------------
 
   return (
     <div className="fm-app">
@@ -373,7 +412,9 @@ export default function FeeManagementApp({ onLogout }) {
         {activeTab === "collect" && (
           <FeeCollection
             session={session}
-            month={new Date().toISOString().slice(0, 7)}
+            month={
+              new Date().toISOString().slice(0, 7)
+            }
             onReceiptGenerated={(receipt, duplicateBlocked) => {
               setLastReceipt(receipt);
 
