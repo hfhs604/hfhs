@@ -698,3 +698,83 @@
   padding: 0 6px;
 }
 .fm-modal-close:hover { color: #1f2937; }
+/* Flash message — 1-second toast */
+.fm-flash {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: #2e7d32;
+  color: #fff;
+  padding: 12px 24px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 15px;
+  z-index: 99999;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+  animation: fm-flash-in 0.2s ease-out;
+}
+
+@keyframes fm-flash-in {
+  from { opacity: 0; transform: translate(-50%, -12px); }
+  to { opacity: 1; transform: translate(-50%, 0); }
+}
+
+/* Add-on Fees — single row of buttons */
+.fm-addon-row-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 10px;
+}
+.fm-addon-btn {
+  padding: 8px 14px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  cursor: pointer;
+  font-size: 13px;
+  font-family: inherit;
+  white-space: nowrap;
+  transition: background 0.15s;
+}
+.fm-addon-btn:hover:not(:disabled) {
+  background: #eef3fa;
+  border-color: #1a3d6d;
+}
+.fm-addon-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Range slider for transport */
+input[type="range"] {
+  -webkit-appearance: none;
+  appearance: none;
+  height: 6px;
+  background: #e5e7eb;
+  border-radius: 3px;
+  outline: none;
+}
+input[type="range"]::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  background: #1a3d6d;
+  border-radius: 50%;
+  cursor: pointer;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.2);
+}
+input[type="range"]::-moz-range-thumb {
+  width: 18px;
+  height: 18px;
+  background: #1a3d6d;
+  border: none;
+  border-radius: 50%;
+  cursor: pointer;
+}
+input[type="range"]:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
