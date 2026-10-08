@@ -30,11 +30,9 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
   const [promptSlot, setPromptSlot] = useState(null);
   const [promptValue, setPromptValue] = useState("");
 
-  // Transport toggle inside the form
   const [transportEnabled, setTransportEnabled] = useState(false);
   const [transportValue, setTransportValue] = useState(800);
 
-  // Receipt popup
   const [receiptPopup, setReceiptPopup] = useState(null);
 
   const [form, setForm] = useState({
@@ -83,11 +81,21 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
     setTimeout(() => setFlash(""), 1000);
   }
 
+  // Live preview values
+  const transportAdd = transportEnabled ? Number(transportValue || 0) : 0;
+  const amountAdd = Number(form.amountReceived || 0);
+  const discountAdd = Number(form.discount || 0);
+  const lateAdd = Number(form.lateFee || 0);
+  const netThisPayment = amountAdd + transportAdd + lateAdd - discountAdd;
+  const projectedTotalDue = bill ? (bill.totalDue || 0) + transportAdd : 0;
+  const projectedBalance = bill
+    ? Math.max((bill.totalDue || 0) + transportAdd - (bill.totalPaid || 0) - netThisPayment, 0)
+    : 0;
+
   async function handleSubmit(e) {
     e.preventDefault();
     if (submitting || !selectedStudent) return;
 
-    // Validate transport value
     if (transportEnabled) {
       const t = Number(transportValue);
       if (t < 800 || t > 1500) {
@@ -99,9 +107,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
     setSubmitting(true);
     setError(null);
     try {
-      const totalReceived =
-        Number(form.amountReceived || 0) +
-        (transportEnabled ? Number(transportValue) : 0);
+      const totalReceived = amountAdd + transportAdd;
 
       const { receipt, duplicateBlocked } = await collectPayment({
         studentId: selectedStudent.id,
@@ -112,12 +118,18 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
         amountReceived: totalReceived,
         remarks:
           (form.remarks || "") +
-          (transportEnabled ? ` [Transport ₹${transportValue} included]` : ""),
+          (transportEnabled ? ` [Transport ₹${transportValue}]` : ""),
       });
 
-      onReceiptGenerated?.(receipt, duplicateBlocked);
+      const enrichedReceipt = {
+        ...receipt,
+        transportFee: transportAdd,
+        tuitionFee: Number(form.amountReceived || 0),
+      };
+
+      onReceiptGenerated?.(enrichedReceipt, duplicateBlocked);
       showFlash("✅ Payment Successful");
-      setReceiptPopup(receipt);
+      setReceiptPopup(enrichedReceipt);
       setIdempotencyKey(uuidv4());
       setForm((f) => ({
         ...f,
@@ -155,6 +167,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
           ? "This entry was already recorded."
           : `Added ${label}. Receipt: ${res.receipt.receiptNumber}`
       );
+      setReceiptPopup(res.receipt);
       await refreshBill(selectedStudent.id);
     } catch (e) {
       setAddonMsg(`❌ ${e.message}`);
@@ -235,54 +248,50 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
                     <td align="right">₹{bill.tuitionBilled || 0}</td>
                   </tr>
                   {bill.devFeeBilled > 0 && (
-                    <tr>
-                      <td>Development Fee</td>
-                      <td align="right">₹{bill.devFeeBilled}</td>
-                    </tr>
+                    <tr><td>Development Fee</td><td align="right">₹{bill.devFeeBilled}</td></tr>
                   )}
-                  {bill.transportBilled > 0 && (
+                  {(bill.transportBilled > 0 || transportAdd > 0) && (
                     <tr>
-                      <td>Transport (already on bill)</td>
-                      <td align="right">₹{bill.transportBilled}</td>
+                      <td>Transport {transportAdd > 0 && bill.transportBilled === 0 ? "(adding now)" : ""}</td>
+                      <td align="right">₹{(bill.transportBilled || 0) + (bill.transportBilled === 0 ? transportAdd : 0)}</td>
                     </tr>
                   )}
                   {bill.booksBilled > 0 && (
-                    <tr>
-                      <td>Books</td>
-                      <td align="right">₹{bill.booksBilled}</td>
-                    </tr>
+                    <tr><td>Books</td><td align="right">₹{bill.booksBilled}</td></tr>
                   )}
                   {bill.previousYearBilled > 0 && (
-                    <tr>
-                      <td>Previous Year Balance</td>
-                      <td align="right">₹{bill.previousYearBilled}</td>
-                    </tr>
+                    <tr><td>Previous Year Balance</td><td align="right">₹{bill.previousYearBilled}</td></tr>
                   )}
                   {bill.kitFeeBilled > 0 && (
-                    <tr>
-                      <td>Admission / Kit Fee</td>
-                      <td align="right">₹{bill.kitFeeBilled}</td>
-                    </tr>
+                    <tr><td>Admission / Kit Fee</td><td align="right">₹{bill.kitFeeBilled}</td></tr>
                   )}
+
                   <tr className="fm-row-total">
                     <td><strong>Total Due</strong></td>
-                    <td align="right"><strong>₹{bill.totalDue}</strong></td>
+                    <td align="right">
+                      <strong>₹{projectedTotalDue}</strong>
+                      {transportAdd > 0 && (
+                        <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 6 }}>
+                          (was ₹{bill.totalDue})
+                        </span>
+                      )}
+                    </td>
                   </tr>
                   <tr>
                     <td>Total Paid</td>
-                    <td align="right">₹{bill.totalPaid}</td>
+                    <td align="right">₹{(bill.totalPaid || 0) + netThisPayment}</td>
                   </tr>
                   <tr className="fm-row-balance">
                     <td><strong>Balance</strong></td>
-                    <td align="right"><strong>₹{bill.carriedForward}</strong></td>
+                    <td align="right"><strong>₹{projectedBalance}</strong></td>
                   </tr>
                 </tbody>
               </table>
             </div>
           )}
 
-          {/* ---------------- Payment form ---------------- */}
           <form onSubmit={handleSubmit} className="fm-payment-form">
+            {/* Row 1: Fee Type | Transport checkbox */}
             <label>
               Fee Type
               <select value={form.feeType}
@@ -294,26 +303,21 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
             </label>
 
             <label>
-              Amount Received (₹)
-              <input type="number" required min="0" value={form.amountReceived}
-                onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
-            </label>
-
-            {/* Transport row */}
-            <label style={{ gridColumn: "1 / -1" }}>
-              <span style={{ display: "flex", alignItems: "center", gap: 10, fontWeight: 500 }}>
+              <span style={{ visibility: "hidden" }}>_</span>
+              <span style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", fontSize: 14 }}>
                 <input
                   type="checkbox"
                   checked={transportEnabled}
                   onChange={(e) => setTransportEnabled(e.target.checked)}
-                  style={{ width: 16, height: 16 }}
+                  style={{ width: 16, height: 16, cursor: "pointer" }}
                 />
                 Include Transport Fee
               </span>
             </label>
 
+            {/* Row 2: Transport amount (only when ticked) */}
             {transportEnabled && (
-              <label style={{ gridColumn: "1 / -1" }}>
+              <label>
                 Transport Amount (₹800–₹1500)
                 <input
                   type="number"
@@ -326,6 +330,20 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
               </label>
             )}
 
+            {/* Row 3: Amount Received | Transaction/Reference */}
+            <label>
+              Amount Received (₹)
+              <input type="number" required min="0" value={form.amountReceived}
+                onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
+            </label>
+
+            <label>
+              Transaction / Reference No.
+              <input type="text" value={form.referenceNumber}
+                onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
+            </label>
+
+            {/* Row 4: Payment Date | Payment Method */}
             <label>
               Payment Date
               <input type="date" value={form.paymentDate}
@@ -340,12 +358,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
               </select>
             </label>
 
-            <label>
-              Transaction / Reference No.
-              <input type="text" value={form.referenceNumber}
-                onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
-            </label>
-
+            {/* Row 5: Discount | Late Fee */}
             <label>
               Discount (₹)
               <input type="number" min="0" value={form.discount}
@@ -371,7 +384,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
             </button>
           </form>
 
-          {/* ---------------- Add-on Fees (no transport) ---------------- */}
           <div className="fm-addon-panel">
             <h4>Add-on Fees</h4>
             <p className="fm-subtle">One-time fees added to this month's bill.</p>
@@ -410,7 +422,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
         </>
       )}
 
-      {/* Amount prompt for Books / Prev Year / Kit */}
       {promptSlot && (
         <div className="fm-modal-overlay">
           <div className="fm-modal" style={{ maxWidth: 380 }}>
@@ -441,18 +452,16 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
         </div>
       )}
 
-      {/* Receipt popup */}
       {receiptPopup && (
         <div className="fm-modal-overlay" style={{ zIndex: 9500 }}>
           <div style={{
             background: "#fff",
             borderRadius: 10,
             padding: 20,
-            maxWidth: 700,
+            maxWidth: 800,
             width: "95%",
             maxHeight: "90vh",
             overflowY: "auto",
-            position: "relative",
           }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <h3 style={{ margin: 0, color: "#1a3d6d" }}>Payment Receipt</h3>
