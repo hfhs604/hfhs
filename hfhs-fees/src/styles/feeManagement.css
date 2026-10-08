@@ -662,3 +662,39 @@
   display: block;
   background: #fafafa;
 }
+/* Edit button */
+.fm-btn-edit {
+  color: #1a3d6d;
+  border-color: #c3d0e3;
+}
+.fm-btn-edit:hover:not(:disabled) {
+  background: #eef3fa;
+}
+
+/* Wider modal for the Edit form */
+.fm-modal-wide {
+  max-width: 820px;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.fm-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+.fm-modal-header h3 { margin: 0; }
+
+.fm-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0 6px;
+}
+.fm-modal-close:hover { color: #1f2937; }
