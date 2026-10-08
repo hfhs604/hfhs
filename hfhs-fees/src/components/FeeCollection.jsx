@@ -138,6 +138,10 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     try {
       const totalReceived = amountAdd + transportAdd;
 
+      // ---- Snapshot the balance BEFORE this payment ----
+      // This is what the receipt should show as "Total Amount".
+      const balanceBefore = bill ? (bill.carriedForward || 0) : 0;
+
       const { receipt, duplicateBlocked } = await collectPayment({
         studentId: selectedStudent.id,
         session,
@@ -153,13 +157,16 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
       const freshBill = await refreshBill(selectedStudent.id);
       const particulars = buildParticularsFromBill(freshBill || bill, form.feeType);
 
+      // Total Amount on this receipt = balance before this payment.
+      // Balance after this payment = freshBill.carriedForward.
       const enrichedReceipt = {
         ...receipt,
         particulars,
         amountReceivedThisTransaction: totalReceived,
         transportFee: transportAdd,
-        totalDue: freshBill?.totalDue || 0,
-        remainingDue: freshBill?.carriedForward || 0,
+        // Override so the receipt shows the running-ledger view
+        totalDue: balanceBefore,                          // was the previous balance
+        remainingDue: freshBill?.carriedForward || 0,     // new balance
         previousDue: freshBill?.previousDue || 0,
       };
 
