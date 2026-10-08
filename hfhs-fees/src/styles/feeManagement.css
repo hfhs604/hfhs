@@ -551,3 +551,76 @@
   display: block;
   background: #fafafa;
 }
+/* ---------------------------------------------------------------------------
+   Small action buttons (Print / Delete in Students table)
+   --------------------------------------------------------------------------- */
+.fm-btn-sm {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #cbd5e1;
+  background: #fff;
+  font-size: 12px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: background 0.15s;
+}
+.fm-btn-sm:hover:not(:disabled) { background: #f5f7fa; }
+.fm-btn-sm:disabled { opacity: 0.5; cursor: not-allowed; }
+
+.fm-btn-print {
+  color: #1a3d6d;
+  border-color: #c3d0e3;
+}
+.fm-btn-print:hover:not(:disabled) {
+  background: #eef3fa;
+}
+
+.fm-btn-danger {
+  color: #c62828;
+  border-color: #f2c9c9;
+}
+.fm-btn-danger:hover:not(:disabled) {
+  background: #fdecec;
+}
+
+/* ---------------------------------------------------------------------------
+   Modal (Create Student confirmation)
+   --------------------------------------------------------------------------- */
+.fm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.5);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.fm-modal {
+  background: #fff;
+  border-radius: 10px;
+  padding: 24px;
+  max-width: 440px;
+  width: 100%;
+  box-shadow: 0 10px 40px rgba(0, 0, 0, 0.25);
+  font-family: "Segoe UI", Arial, sans-serif;
+}
+
+.fm-modal h3 {
+  margin: 0 0 8px;
+  font-size: 1.15em;
+  color: #1a3d6d;
+}
+
+.fm-modal table td {
+  padding: 4px 8px 4px 0;
+  border-bottom: 1px solid #f0f0f0;
+}
+.fm-modal table td:first-child {
+  color: #6b7280;
+  width: 42%;
+}
