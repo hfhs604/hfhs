@@ -337,7 +337,7 @@ export async function collectPayment({
 }
 
 // ---------------------------------------------------------------------------
-// Add-on fees
+// Add-on fees — these INCREASE the bill, they are NOT payments
 // ---------------------------------------------------------------------------
 async function addLineItem({
   studentId, session, month, amount, field, componentType, feeType, remarks,
@@ -373,7 +373,8 @@ async function addLineItem({
       voided: false,
     });
 
-    const newPaid = (bill.totalPaid || 0) + amt;
+    // ✅ Add-ons increase the bill only. totalPaid stays the same.
+    const newPaid = bill.totalPaid || 0;
     const newCarry = newDue - newPaid;
 
     tx.update(billRef, {
@@ -833,13 +834,8 @@ export async function deleteStudentCompletely(studentId, studentName) {
 }
 
 // ---------------------------------------------------------------------------
-// Transport fee management (persistent per-student setting)
+// Transport fee management
 // ---------------------------------------------------------------------------
-/**
- * Set (or update) the standing monthly transport amount for a student.
- * Accepts 0 (off) or any value between 800 and 1500 (inclusive).
- * Super Admin only.
- */
 export async function setStudentTransport(studentId, amount) {
   const user = currentUser();
   const userDoc = await getDoc(doc(db, "users", user.uid));
@@ -862,7 +858,6 @@ export async function setStudentTransport(studentId, amount) {
     transportAmount: amt,
   });
 
-  // If a bill for the current month exists and is unpaid, adjust it
   const month = monthKey();
   const session = before.data().session;
   if (session) {
