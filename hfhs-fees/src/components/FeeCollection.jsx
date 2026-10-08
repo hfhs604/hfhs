@@ -9,12 +9,13 @@ import {
   addPreviousYearBalance,
   addKitFee,
   MONTHLY_TUITION,
+  setStudentTransport,
 } from "../firebase/feeService";
 import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
-export default function FeeCollection({ session, month, onReceiptGenerated }) {
+export default function FeeCollection({ session, month, onReceiptGenerated, role }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [results, setResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -23,16 +24,18 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [idempotencyKey, setIdempotencyKey] = useState(null);
+  const [flash, setFlash] = useState("");
 
-  // Add-on panel state
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonMsg, setAddonMsg] = useState("");
-  const [booksAmt, setBooksAmt] = useState("");
-  const [pyAmt, setPyAmt] = useState("");
-  const [kitAmt, setKitAmt] = useState("");
-  const [showBooks, setShowBooks] = useState(false);
-  const [showPy, setShowPy] = useState(false);
-  const [showKit, setShowKit] = useState(false);
+  const [promptSlot, setPromptSlot] = useState(null);
+  const [promptValue, setPromptValue] = useState("");
+
+  const [transportEditOpen, setTransportEditOpen] = useState(false);
+  const [transportValue, setTransportValue] = useState(800);
+  const [transportBusy, setTransportBusy] = useState(false);
+
+  const isSuperAdmin = role === "superAdmin";
 
   const [form, setForm] = useState({
     amountReceived: "",
@@ -50,6 +53,10 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
     try {
       const b = await getMonthlyBill(session, month, studentId);
       setBill(b);
+      if (b) {
+        const current = b.transportBilled || 0;
+        setTransportValue(current > 0 ? current : 800);
+      }
     } catch (e) {
       setError(e.message);
     } finally {
@@ -70,6 +77,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
     setIdempotencyKey(uuidv4());
     setError(null);
     setAddonMsg("");
+    setTransportEditOpen(false);
     await refreshBill(student.id);
   }
 
@@ -87,6 +95,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
         ...form,
       });
       onReceiptGenerated?.(receipt, duplicateBlocked);
+      showFlash("✅ Payment Successful");
       setIdempotencyKey(uuidv4());
       setForm((f) => ({
         ...f,
@@ -104,7 +113,12 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
     }
   }
 
-  async function handleAddon(fn, amount) {
+  function showFlash(msg) {
+    setFlash(msg);
+    setTimeout(() => setFlash(""), 1000);
+  }
+
+  async function handleAddon(fn, amount, label) {
     setAddonBusy(true);
     setAddonMsg("");
     try {
@@ -116,10 +130,11 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
         paymentDate: new Date().toISOString(),
         idempotencyKey: uuidv4(),
       });
+      showFlash(`✅ ${label} added`);
       setAddonMsg(
         res.duplicateBlocked
           ? "This entry was already recorded."
-          : `✅ Added. Receipt: ${res.receipt.receiptNumber}`
+          : `Added ${label}. Receipt: ${res.receipt.receiptNumber}`
       );
       await refreshBill(selectedStudent.id);
     } catch (e) {
@@ -129,16 +144,54 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
     }
   }
 
-  const monthlyTuition = selectedStudent
-    ? MONTHLY_TUITION[selectedStudent.className] || 0
-    : 0;
+  function promptForAmount(slot) {
+    setPromptSlot(slot);
+    setPromptValue("");
+  }
+
+  function confirmPrompt() {
+    const amt = Number(promptValue);
+    if (!amt || amt <= 0) {
+      setAddonMsg("Please enter a valid amount.");
+      return;
+    }
+    if (promptSlot === "books") handleAddon(addBooksFee, amt, "Books");
+    else if (promptSlot === "previousYear") handleAddon(addPreviousYearBalance, amt, "Previous Year Balance");
+    else if (promptSlot === "kit") handleAddon(addKitFee, amt, "Admission / Kit");
+    setPromptSlot(null);
+  }
+
+  async function saveTransport() {
+    const amt = Number(transportValue);
+    if (amt !== 0 && (amt < 800 || amt > 1500)) {
+      setAddonMsg("Transport must be 0 (off) or between ₹800 and ₹1500.");
+      return;
+    }
+    setTransportBusy(true);
+    setAddonMsg("");
+    try {
+      await setStudentTransport(selectedStudent.id, amt);
+      showFlash("✅ Transport updated");
+      await refreshBill(selectedStudent.id);
+      setTransportEditOpen(false);
+    } catch (e) {
+      setAddonMsg(`❌ ${e.message}`);
+    } finally {
+      setTransportBusy(false);
+    }
+  }
+
+  function clearTransport() {
+    setTransportValue(0);
+  }
 
   return (
     <div className="fm-card">
       <h2>Collect Fee</h2>
       <p className="fm-subtle">Billing month: <strong>{month}</strong></p>
 
-      {/* Search */}
+      {flash && <div className="fm-flash">{flash}</div>}
+
       <form onSubmit={handleSearch} className="fm-search-row">
         <input
           type="text"
@@ -154,11 +207,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
           {results.map((s) => (
             <li key={s.id} onClick={() => selectStudent(s)}>
               <strong>{s.name}</strong> — Adm# {s.admissionNumber} — Class {s.className}
-              {bill && bill.studentId === s.id && (
-                <span className={`fm-badge fm-badge-${(bill.status || "").toLowerCase()}`}>
-                  {bill.status}
-                </span>
-              )}
             </li>
           ))}
         </ul>
@@ -191,12 +239,88 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
                     <td>Tuition (this month)</td>
                     <td align="right">₹{bill.tuitionBilled || 0}</td>
                   </tr>
-                  {bill.transportBilled > 0 && (
+                  <tr>
+                    <td style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      Transport
+                      {isSuperAdmin && (
+                        <button
+                          type="button"
+                          className="fm-link-btn"
+                          onClick={() => setTransportEditOpen((v) => !v)}
+                          style={{ fontSize: 12 }}
+                        >
+                          {transportEditOpen ? "Cancel" : "✏ Edit"}
+                        </button>
+                      )}
+                    </td>
+                    <td align="right">₹{bill.transportBilled || 0}</td>
+                  </tr>
+
+                  {transportEditOpen && (
                     <tr>
-                      <td>Transport</td>
-                      <td align="right">₹{bill.transportBilled}</td>
+                      <td colSpan={2} style={{ paddingTop: 10 }}>
+                        <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+                          <label style={{ fontSize: 12, color: "#4b5563" }}>
+                            Monthly transport amount (₹800–₹1500, or 0 to turn off)
+                          </label>
+
+                          <div style={{ display: "flex", gap: 10, alignItems: "center" }}>
+                            <input
+                              type="range"
+                              min="800"
+                              max="1500"
+                              step="50"
+                              value={transportValue || 800}
+                              onChange={(e) => setTransportValue(Number(e.target.value))}
+                              disabled={transportBusy || transportValue === 0}
+                              style={{ flex: 1 }}
+                            />
+                            <input
+                              type="number"
+                              min="0"
+                              max="1500"
+                              step="50"
+                              value={transportValue}
+                              onChange={(e) => setTransportValue(Number(e.target.value))}
+                              disabled={transportBusy}
+                              style={{
+                                width: 90,
+                                padding: "6px 8px",
+                                border: "1px solid #cbd5e1",
+                                borderRadius: 6,
+                                fontSize: 13,
+                              }}
+                            />
+                          </div>
+
+                          <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                            <button
+                              type="button"
+                              className="fm-secondary-btn"
+                              onClick={clearTransport}
+                              disabled={transportBusy}
+                              style={{ padding: "6px 12px", fontSize: 13 }}
+                            >
+                              Turn off
+                            </button>
+                            <button
+                              type="button"
+                              className="fm-primary-btn"
+                              onClick={saveTransport}
+                              disabled={transportBusy}
+                              style={{ padding: "6px 12px", fontSize: 13 }}
+                            >
+                              {transportBusy ? "Saving…" : "Save"}
+                            </button>
+                            <span style={{ fontSize: 11, color: "#6b7280" }}>
+                              Applies to every future month automatically.
+                            </span>
+                          </div>
+                        </div>
+                      </td>
                     </tr>
                   )}
+
                   {bill.devFeeBilled > 0 && (
                     <tr>
                       <td>Development Fee</td>
@@ -238,22 +362,12 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
             </div>
           )}
 
-          {/* Payment form */}
           <form onSubmit={handleSubmit} className="fm-payment-form">
             <label>
               Fee Type
-              <select
-                value={form.feeType}
-                onChange={(e) => setForm({ ...form, feeType: e.target.value })}
-              >
-                {[
-                  "Tuition Fee",
-                  "Examination Fee",
-                  "Computer Fee",
-                  "Library Fee",
-                  "Activity Fee",
-                  "Other Charges",
-                ].map((c) => (
+              <select value={form.feeType}
+                onChange={(e) => setForm({ ...form, feeType: e.target.value })}>
+                {["Tuition Fee", "Examination Fee", "Computer Fee", "Library Fee", "Activity Fee", "Other Charges"].map((c) => (
                   <option key={c}>{c}</option>
                 ))}
               </select>
@@ -261,193 +375,86 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
 
             <label>
               Amount Received (₹)
-              <input
-                type="number"
-                required
-                min="0"
-                value={form.amountReceived}
-                onChange={(e) => setForm({ ...form, amountReceived: e.target.value })}
-              />
+              <input type="number" required min="0" value={form.amountReceived}
+                onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
             </label>
 
             <label>
               Payment Date
-              <input
-                type="date"
-                value={form.paymentDate}
-                onChange={(e) => setForm({ ...form, paymentDate: e.target.value })}
-              />
+              <input type="date" value={form.paymentDate}
+                onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} />
             </label>
 
             <label>
               Payment Method
-              <select
-                value={form.paymentMethod}
-                onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}
-              >
+              <select value={form.paymentMethod}
+                onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
                 {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
               </select>
             </label>
 
             <label>
               Transaction / Reference No.
-              <input
-                type="text"
-                value={form.referenceNumber}
-                onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })}
-              />
+              <input type="text" value={form.referenceNumber}
+                onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
             </label>
 
             <label>
               Discount (₹)
-              <input
-                type="number"
-                min="0"
-                value={form.discount}
-                onChange={(e) => setForm({ ...form, discount: e.target.value })}
-              />
+              <input type="number" min="0" value={form.discount}
+                onChange={(e) => setForm({ ...form, discount: e.target.value })} />
             </label>
 
             <label>
               Late Fee (₹)
-              <input
-                type="number"
-                min="0"
-                value={form.lateFee}
-                onChange={(e) => setForm({ ...form, lateFee: e.target.value })}
-              />
+              <input type="number" min="0" value={form.lateFee}
+                onChange={(e) => setForm({ ...form, lateFee: e.target.value })} />
             </label>
 
             <label className="fm-full-width">
               Remarks
-              <textarea
-                value={form.remarks}
-                onChange={(e) => setForm({ ...form, remarks: e.target.value })}
-              />
+              <textarea value={form.remarks}
+                onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
             </label>
 
             {error && <p className="fm-error">{error}</p>}
 
-            <button type="submit" disabled={submitting} className="fm-primary-btn">
+            <button type="submit" disabled={submitting} className="fm-primary-btn fm-full-width">
               {submitting ? "Recording payment…" : "Record Payment"}
             </button>
           </form>
 
-          {/* Add-on panel */}
           <div className="fm-addon-panel">
             <h4>Add-on Fees</h4>
             <p className="fm-subtle">These add to the current month's bill and count as paid.</p>
 
-            <div className="fm-addon-row">
-              <button
-                type="button"
-                disabled={addonBusy}
-                onClick={() => handleAddon(addTransportFee, 800)}
-              >
+            <div className="fm-addon-row-buttons">
+              <button type="button" className="fm-addon-btn" disabled={addonBusy}
+                onClick={() => handleAddon(addTransportFee, 800, "Transport ₹800")}>
                 🚌 + ₹800 Transport
               </button>
-              <button
-                type="button"
-                disabled={addonBusy}
-                onClick={() => handleAddon(addTransportFee, 1500)}
-              >
+              <button type="button" className="fm-addon-btn" disabled={addonBusy}
+                onClick={() => handleAddon(addTransportFee, 1500, "Transport ₹1500")}>
                 🚌 + ₹1500 Transport
               </button>
-            </div>
-
-            <div className="fm-addon-row">
-              {!showBooks ? (
-                <button type="button" disabled={addonBusy} onClick={() => setShowBooks(true)}>
-                  📚 + Books Fee
-                </button>
-              ) : (
-                <>
-                  <input
-                    type="number"
-                    placeholder="Amount ₹"
-                    value={booksAmt}
-                    onChange={(e) => setBooksAmt(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    disabled={addonBusy || !booksAmt}
-                    onClick={async () => {
-                      await handleAddon(addBooksFee, Number(booksAmt));
-                      setBooksAmt("");
-                      setShowBooks(false);
-                    }}
-                  >
-                    Add
-                  </button>
-                  <button type="button" onClick={() => setShowBooks(false)}>Cancel</button>
-                </>
-              )}
-            </div>
-
-            <div className="fm-addon-row">
-              {!showPy ? (
-                <button type="button" disabled={addonBusy} onClick={() => setShowPy(true)}>
-                  📜 + Previous Year Balance
-                </button>
-              ) : (
-                <>
-                  <input
-                    type="number"
-                    placeholder="Amount ₹"
-                    value={pyAmt}
-                    onChange={(e) => setPyAmt(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    disabled={addonBusy || !pyAmt}
-                    onClick={async () => {
-                      await handleAddon(addPreviousYearBalance, Number(pyAmt));
-                      setPyAmt("");
-                      setShowPy(false);
-                    }}
-                  >
-                    Add
-                  </button>
-                  <button type="button" onClick={() => setShowPy(false)}>Cancel</button>
-                </>
-              )}
-            </div>
-
-            <div className="fm-addon-row">
-              {!showKit ? (
-                <button type="button" disabled={addonBusy} onClick={() => setShowKit(true)}>
-                  👕 + Admission / Kit Fee
-                </button>
-              ) : (
-                <>
-                  <input
-                    type="number"
-                    placeholder="Amount ₹"
-                    value={kitAmt}
-                    onChange={(e) => setKitAmt(e.target.value)}
-                  />
-                  <button
-                    type="button"
-                    disabled={addonBusy || !kitAmt}
-                    onClick={async () => {
-                      await handleAddon(addKitFee, Number(kitAmt));
-                      setKitAmt("");
-                      setShowKit(false);
-                    }}
-                  >
-                    Add
-                  </button>
-                  <button type="button" onClick={() => setShowKit(false)}>Cancel</button>
-                </>
-              )}
+              <button type="button" className="fm-addon-btn" disabled={addonBusy}
+                onClick={() => promptForAmount("books")}>
+                📚 + Books
+              </button>
+              <button type="button" className="fm-addon-btn" disabled={addonBusy}
+                onClick={() => promptForAmount("previousYear")}>
+                📜 + Prev Year
+              </button>
+              <button type="button" className="fm-addon-btn" disabled={addonBusy}
+                onClick={() => promptForAmount("kit")}>
+                👕 + Admission / Kit
+              </button>
             </div>
 
             {addonMsg && <p className="fm-addon-msg">{addonMsg}</p>}
           </div>
 
-          <button
-            type="button"
-            className="fm-secondary-btn"
+          <button type="button" className="fm-secondary-btn"
             onClick={() => {
               setSelectedStudent(null);
               setBill(null);
@@ -455,11 +462,51 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
               setSearchTerm("");
               setError(null);
               setAddonMsg("");
-            }}
-          >
+              setTransportEditOpen(false);
+            }}>
             ← Back to search
           </button>
         </>
+      )}
+
+      {promptSlot && (
+        <div className="fm-modal-overlay">
+          <div className="fm-modal" style={{ maxWidth: 380 }}>
+            <h3>
+              {promptSlot === "books" && "Add Books Fee"}
+              {promptSlot === "previousYear" && "Add Previous Year Balance"}
+              {promptSlot === "kit" && "Add Admission / Kit Fee"}
+            </h3>
+            <p style={{ margin: "12px 0", fontSize: 14, color: "#4b5563" }}>
+              Enter the amount in ₹
+            </p>
+            <input
+              type="number"
+              min="1"
+              autoFocus
+              value={promptValue}
+              onChange={(e) => setPromptValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && confirmPrompt()}
+              style={{
+                width: "100%",
+                padding: 10,
+                border: "1px solid #ccc",
+                borderRadius: 6,
+                fontSize: 15,
+              }}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
+              <button type="button" className="fm-secondary-btn"
+                onClick={() => setPromptSlot(null)}>
+                Cancel
+              </button>
+              <button type="button" className="fm-primary-btn"
+                onClick={confirmPrompt}>
+                Add
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   );
