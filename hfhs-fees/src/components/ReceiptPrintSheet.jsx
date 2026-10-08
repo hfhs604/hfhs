@@ -11,8 +11,11 @@ const SCHOOL = {
   logoUrl: schoolLogo,
 };
 
+/**
+ * ReceiptPrintSheet — 8 receipts per A4 page, landscape (4 columns × 2 rows).
+ */
 export default function ReceiptPrintSheet({ receipts }) {
-  const pages = chunk(receipts, 6);
+  const pages = chunk(receipts, 8);
 
   return (
     <div className="receipt-print-root">
@@ -20,20 +23,20 @@ export default function ReceiptPrintSheet({ receipts }) {
         <button onClick={() => window.print()}>Print</button>
         <span className="receipt-toolbar-hint">
           {receipts.length} receipt{receipts.length !== 1 ? "s" : ""} ·{" "}
-          {pages.length} A4 page{pages.length !== 1 ? "s" : ""} (6 per page)
+          {pages.length} A4 page{pages.length !== 1 ? "s" : ""} (8 per page, landscape)
         </span>
       </div>
 
       {pages.map((pageReceipts, pageIndex) => (
-        <div className="a4-page" key={pageIndex}>
-          <div className="a4-grid-6">
+        <div className="a4-page-landscape" key={pageIndex}>
+          <div className="a4-grid-8">
             {pageReceipts.map((r) => (
-              <div className="a4-cell-6" key={r.receiptId || r.receiptNumber}>
+              <div className="a4-cell-8" key={r.receiptId || r.receiptNumber}>
                 <ReceiptCard receipt={r} school={SCHOOL} />
               </div>
             ))}
-            {Array.from({ length: 6 - pageReceipts.length }).map((_, i) => (
-              <div className="a4-cell-6 a4-cell-blank" key={`blank-${i}`} />
+            {Array.from({ length: 8 - pageReceipts.length }).map((_, i) => (
+              <div className="a4-cell-8 a4-cell-blank" key={`blank-${i}`} />
             ))}
           </div>
         </div>
