@@ -7,6 +7,7 @@
 import { db, auth } from "../firebase/config";
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, setDoc,
+  deleteDoc,
   query, where, orderBy, limit as fsLimit,
   runTransaction, serverTimestamp, Timestamp,
 } from "firebase/firestore";
@@ -123,15 +124,10 @@ export function computeBalanceView(student) {
   return { ...student, totalDue: due, totalAdvance: advance, accountStatus: status };
 }
 
-/**
- * Search students by name or admission number (prefix match).
- * Uses client-side filtering to avoid needing composite indexes.
- */
 export async function searchStudents(term) {
   const cleanedTerm = (term || "").trim().toLowerCase();
   if (!cleanedTerm) return [];
 
-  // Fetch all students, filter client-side. Works for ~1000 students easily.
   let all = [];
   try {
     const snap = await getDocs(collection(db, COL.students));
@@ -162,7 +158,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
   const prevDate = new Date(startYear, startMonthNum - 2, 1);
   const prevMonth = monthKey(prevDate);
 
-  // Fetch all students (single-field query, no composite index needed).
   let students = [];
   try {
     const snap = await getDocs(collection(db, COL.students));
@@ -171,7 +166,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     throw new Error(`Could not read students: ${err.message}`);
   }
 
-  // Filter by session client-side
   students = students.filter((s) => s.session === session);
 
   if (students.length === 0) {
@@ -185,7 +179,8 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     let previousDue = 0;
     if (!isFirstMonth) {
       try {
-        const prevRef = doc(db, COL.monthlyBills, billDocId(session, prevMonth, student.id));
+        const safePrevId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
+        const prevRef = doc(db, COL.monthlyBills, `${session}_${prevMonth}_${safePrevId}`);
         const prevSnap = await getDoc(prevRef);
         if (prevSnap.exists()) previousDue = prevSnap.data().carriedForward || 0;
       } catch (err) {
@@ -198,7 +193,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     const transportBilled = student.transportOpted ? (student.transportAmount || 0) : 0;
     const totalDue = previousDue + tuitionBilled + transportBilled + devFeeThisMonth;
 
-    // Sanitize the bill document ID to prevent path issues
     const safeStudentId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
     const billId = `${session}_${month}_${safeStudentId}`;
 
@@ -707,4 +701,106 @@ export async function reserveAdmissionNumber() {
     return value;
   });
   return String(next);
+}
+
+// ---------------------------------------------------------------------------
+// Delete student + all related data (super admin only)
+// ---------------------------------------------------------------------------
+export async function deleteStudentCompletely(studentId, studentName) {
+  const user = currentUser();
+
+  // Verify caller is super admin
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  if (!userDoc.exists() || userDoc.data().role !== "superAdmin") {
+    throw new Error("Only a Super Admin can delete a student.");
+  }
+
+  const studentRef = doc(db, COL.students, studentId);
+  const studentSnap = await getDoc(studentRef);
+  if (!studentSnap.exists()) throw new Error("Student not found.");
+
+  const student = studentSnap.data();
+  const summary = {
+    studentId,
+    name: student.name || studentName || "Unknown",
+    admissionNumber: student.admissionNumber || null,
+    billsDeleted: 0,
+    transactionsDeleted: 0,
+    receiptsDeleted: 0,
+    discountsDeleted: 0,
+  };
+
+  // 1. Delete student document
+  await deleteDoc(studentRef);
+
+  // 2. Delete monthly bills
+  try {
+    const billsSnap = await getDocs(
+      query(collection(db, COL.monthlyBills), where("studentId", "==", studentId))
+    );
+    for (const d of billsSnap.docs) {
+      await deleteDoc(doc(db, COL.monthlyBills, d.id));
+      summary.billsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete bills:", err.message);
+  }
+
+  // 3. Delete fee transactions
+  try {
+    const txnsSnap = await getDocs(
+      query(collection(db, COL.transactions), where("studentId", "==", studentId))
+    );
+    for (const d of txnsSnap.docs) {
+      await deleteDoc(doc(db, COL.transactions, d.id));
+      summary.transactionsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete transactions:", err.message);
+  }
+
+  // 4. Delete receipts
+  try {
+    const receiptsSnap = await getDocs(
+      query(collection(db, COL.receipts), where("studentId", "==", studentId))
+    );
+    for (const d of receiptsSnap.docs) {
+      await deleteDoc(doc(db, COL.receipts, d.id));
+      summary.receiptsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete receipts:", err.message);
+  }
+
+  // 5. Delete discounts
+  try {
+    const discountsSnap = await getDocs(
+      query(collection(db, COL.discounts), where("studentId", "==", studentId))
+    );
+    for (const d of discountsSnap.docs) {
+      await deleteDoc(doc(db, COL.discounts, d.id));
+      summary.discountsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete discounts:", err.message);
+  }
+
+  // 6. Write audit log — preserved even after the student is gone
+  await writeAuditLog({
+    action: "STUDENT_DELETED",
+    studentId,
+    previousValue: {
+      name: student.name,
+      admissionNumber: student.admissionNumber,
+      className: student.className,
+      session: student.session,
+    },
+    newValue: {
+      deletedBy: user.email || user.uid,
+      deletedAt: new Date().toISOString(),
+      summary,
+    },
+  });
+
+  return summary;
 }
