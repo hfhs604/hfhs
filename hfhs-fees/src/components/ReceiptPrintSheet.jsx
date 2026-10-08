@@ -11,9 +11,6 @@ const SCHOOL = {
   logoUrl: schoolLogo,
 };
 
-/**
- * ReceiptPrintSheet — 8 receipts per A4 page, landscape (4 columns × 2 rows).
- */
 export default function ReceiptPrintSheet({ receipts }) {
   const pages = chunk(receipts, 8);
 
