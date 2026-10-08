@@ -76,10 +76,7 @@ const NAV_SECTIONS = [
 
 /**
  * Retries a Firestore read a few times with a short backoff when it fails
- * with a transient "client is offline" error. This happens most often on
- * a fresh page load, right as the Firestore SDK is still finishing its
- * connection/transport setup — the read itself is fine, it just needs to
- * be tried again a moment later instead of surfacing as a hard failure.
+ * with a transient "client is offline" error.
  */
 async function withFirestoreRetry(fn, retries = 3, delayMs = 700) {
   for (let attempt = 0; attempt < retries; attempt++) {
@@ -412,9 +409,8 @@ export default function FeeManagementApp({ onLogout }) {
         {activeTab === "collect" && (
           <FeeCollection
             session={session}
-            month={
-              new Date().toISOString().slice(0, 7)
-            }
+            month={new Date().toISOString().slice(0, 7)}
+            role={role}
             onReceiptGenerated={(receipt, duplicateBlocked) => {
               setLastReceipt(receipt);
 
