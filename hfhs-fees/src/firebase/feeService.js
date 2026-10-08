@@ -804,3 +804,35 @@ export async function deleteStudentCompletely(studentId, studentName) {
 
   return summary;
 }
+// ---------------------------------------------------------------------------
+// Full student update (admin / accountant)
+// ---------------------------------------------------------------------------
+export async function updateStudentFull(studentId, updates) {
+  const user = currentUser();
+
+  // Only superAdmin, admin, accountant can update
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  const role = userDoc.exists() ? userDoc.data().role : null;
+  if (!["superAdmin", "admin", "accountant"].includes(role)) {
+    throw new Error("You don't have permission to edit students.");
+  }
+
+  const ref = doc(db, COL.students, studentId);
+  const before = await getDoc(ref);
+  if (!before.exists()) throw new Error("Student not found.");
+
+  await updateDoc(ref, {
+    ...updates,
+    updatedBy: user.uid,
+    updatedAt: serverTimestamp(),
+  });
+
+  await writeAuditLog({
+    action: "STUDENT_UPDATED",
+    studentId,
+    previousValue: before.data(),
+    newValue: updates,
+  });
+
+  return true;
+}
