@@ -1,0 +1,41 @@
+name: Set User Role
+
+on:
+  workflow_dispatch:
+    inputs:
+      email:
+        description: "User email (e.g. holyfaithsiwan604@gmail.com)"
+        required: true
+        type: string
+      role:
+        description: "Role"
+        required: true
+        type: choice
+        options:
+          - superAdmin
+          - admin
+          - accountant
+          - staff
+          - student
+
+jobs:
+  set-role:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install firebase-admin
+        run: npm install firebase-admin
+
+      - name: Set custom claim
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          SET_USER_EMAIL: ${{ inputs.email }}
+          SET_USER_ROLE: ${{ inputs.role }}
+        run: node scripts/set-role.js
