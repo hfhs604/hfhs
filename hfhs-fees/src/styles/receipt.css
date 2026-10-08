@@ -1,11 +1,8 @@
 /* ===========================================================================
-   Receipt printing — 6 receipts per A4 page (3 columns × 2 rows)
+   Receipt printing — 8 receipts per A4 page, landscape (4 cols × 2 rows)
    =========================================================================== */
 
-.receipt-print-root {
-  padding: 16px;
-  background: #f5f6f8;
-}
+.receipt-print-root { padding: 16px; background: #f5f6f8; }
 
 .receipt-toolbar {
   display: flex;
@@ -22,47 +19,40 @@
   cursor: pointer;
   font-size: 14px;
 }
-.receipt-toolbar-hint {
-  color: #6b7280;
-  font-size: 13px;
-}
+.receipt-toolbar-hint { color: #6b7280; font-size: 13px; }
 
-/* ---- A4 page setup ---- */
-.a4-page {
+/* A4 landscape page */
+.a4-page-landscape {
   background: #fff;
-  width: 210mm;
-  height: 297mm;
-  padding: 6mm;
+  width: 297mm;
+  height: 210mm;
+  padding: 5mm;
   margin: 0 auto 16px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
   box-sizing: border-box;
   page-break-after: always;
 }
-.a4-page:last-child {
-  page-break-after: auto;
-}
+.a4-page-landscape:last-child { page-break-after: auto; }
 
-/* 3 columns × 2 rows = 6 slots */
-.a4-grid-6 {
+/* 4 columns × 2 rows = 8 slots */
+.a4-grid-8 {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(4, 1fr);
   grid-template-rows: repeat(2, 1fr);
-  gap: 4mm;
+  gap: 3mm;
   height: 100%;
 }
-.a4-cell-6 {
+.a4-cell-8 {
   border: 1px dashed #cbd5e1;
   border-radius: 3px;
-  padding: 3mm;
+  padding: 2mm;
   overflow: hidden;
-  font-size: 9px;
+  font-size: 8px;
   box-sizing: border-box;
 }
-.a4-cell-blank {
-  border-color: transparent;
-}
+.a4-cell-blank { border-color: transparent; }
 
-/* ---- Receipt card ---- */
+/* Receipt card */
 .receipt-card {
   display: flex;
   flex-direction: column;
@@ -73,110 +63,95 @@
 .receipt-header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: 5px;
   border-bottom: 1px solid #1a3d6d;
-  padding-bottom: 4px;
-  margin-bottom: 4px;
+  padding-bottom: 3px;
+  margin-bottom: 3px;
 }
-.receipt-logo {
-  width: 26px;
-  height: 26px;
-  object-fit: contain;
-  flex-shrink: 0;
-}
+.receipt-logo { width: 22px; height: 22px; object-fit: contain; flex-shrink: 0; }
 .receipt-header-text { flex: 1; }
 .receipt-header-text h3 {
   margin: 0;
-  font-size: 9px;
+  font-size: 8px;
   color: #1a3d6d;
   font-weight: 700;
   line-height: 1.1;
 }
-.receipt-tagline { margin: 0; font-size: 6px; color: #6b7280; }
-.receipt-address { margin: 0; font-size: 6px; color: #4b5563; }
-.receipt-reg { margin: 0; font-size: 5.5px; color: #6b7280; }
+.receipt-tagline { margin: 0; font-size: 5.5px; color: #6b7280; }
+.receipt-address { margin: 0; font-size: 5.5px; color: #4b5563; }
+.receipt-reg { margin: 0; font-size: 5px; color: #6b7280; }
 
 .receipt-meta-row {
   display: flex;
   justify-content: space-between;
-  font-size: 7px;
-  margin-bottom: 3px;
+  font-size: 6.5px;
+  margin-bottom: 2px;
 }
 .receipt-student-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1px 6px;
-  font-size: 7px;
-  margin-bottom: 4px;
+  gap: 1px 5px;
+  font-size: 6.5px;
+  margin-bottom: 3px;
 }
 .receipt-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 7px;
+  font-size: 6.5px;
   margin-bottom: 3px;
 }
 .receipt-table th,
 .receipt-table td {
   border: 1px solid #cbd5e1;
-  padding: 2px 4px;
+  padding: 1px 3px;
   text-align: left;
 }
-.receipt-table th {
-  background: #f5f7fa;
-  font-weight: 600;
-}
-.receipt-total-row td {
-  font-weight: 700;
-  background: #f5f7fa;
-}
+.receipt-table th { background: #f5f7fa; font-weight: 600; }
+.receipt-total-row td { font-weight: 700; background: #f5f7fa; }
 .receipt-balance-row {
   display: flex;
   justify-content: space-between;
-  font-size: 6.5px;
+  font-size: 6px;
   margin-bottom: 2px;
 }
-.receipt-payment-row {
-  font-size: 6.5px;
-  color: #4b5563;
-  margin-bottom: 6px;
-}
+.receipt-payment-row { font-size: 6px; color: #4b5563; margin-bottom: 4px; }
 .receipt-footer { margin-top: auto; }
 .receipt-sign-area {
   display: flex;
   justify-content: space-between;
   align-items: flex-end;
-  gap: 8px;
+  gap: 6px;
   margin-bottom: 2px;
 }
 .receipt-stamp-box,
 .receipt-signature-box {
-  font-size: 6px;
+  font-size: 5.5px;
   color: #6b7280;
   border-top: 1px solid #94a3b8;
-  padding-top: 2px;
+  padding-top: 1px;
   text-align: center;
   flex: 1;
 }
 .receipt-computer-generated {
-  font-size: 5.5px;
+  font-size: 5px;
   color: #9ca3af;
   text-align: center;
   margin: 0;
 }
 
-/* ---- Print rules ---- */
+/* Print rules */
 @media print {
   .receipt-print-root { padding: 0; background: #fff; }
   .receipt-toolbar { display: none !important; }
-  .a4-page {
+  .a4-page-landscape {
     box-shadow: none;
     margin: 0;
-    padding: 6mm;
-    width: 210mm;
-    height: 297mm;
+    padding: 5mm;
+    width: 297mm;
+    height: 210mm;
   }
   @page {
-    size: A4 portrait;
+    size: A4 landscape;
     margin: 0;
   }
 }
