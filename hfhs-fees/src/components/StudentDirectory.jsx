@@ -33,10 +33,10 @@ const emptyForm = {
 };
 
 const IMAGE_SLOTS = [
-  { slot: "photo",           field: "photoUrl",                label: "Student Photo" },
-  { slot: "aadhaar-student", field: "aadhaarStudentPhotoUrl",  label: "Aadhaar — Student" },
-  { slot: "aadhaar-father",  field: "aadhaarFatherPhotoUrl",   label: "Aadhaar — Father" },
-  { slot: "aadhaar-mother",  field: "aadhaarMotherPhotoUrl",   label: "Aadhaar — Mother" },
+  { slot: "photo",           field: "photoUrl",                label: "Student Photo",     camera: true  },
+  { slot: "aadhaar-student", field: "aadhaarStudentPhotoUrl",  label: "Aadhaar — Student", camera: false },
+  { slot: "aadhaar-father",  field: "aadhaarFatherPhotoUrl",   label: "Aadhaar — Father",  camera: false },
+  { slot: "aadhaar-mother",  field: "aadhaarMotherPhotoUrl",   label: "Aadhaar — Mother",  camera: false },
 ];
 
 export default function StudentDirectory({ session, onSelectStudent }) {
@@ -52,6 +52,7 @@ export default function StudentDirectory({ session, onSelectStudent }) {
   const [printStudent, setPrintStudent] = useState(null);
   const [deleteBusy, setDeleteBusy] = useState(null);
   const [deleteMsg, setDeleteMsg] = useState("");
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const [images, setImages] = useState({
     photo: { file: null, preview: null },
@@ -133,8 +134,17 @@ export default function StudentDirectory({ session, onSelectStudent }) {
     });
   }
 
-  async function handleCreate(e) {
+  function handleSubmit(e) {
     e.preventDefault();
+    if (!form.name.trim() || !form.className || !form.admissionNumber.trim()) {
+      setError("Please fill Name, Class, and Admission Number.");
+      return;
+    }
+    setShowConfirm(true);
+  }
+
+  async function confirmCreate() {
+    setShowConfirm(false);
     setSaving(true);
     setError(null);
     setSuccess("");
@@ -269,6 +279,128 @@ export default function StudentDirectory({ session, onSelectStudent }) {
     }
   }
 
+  function printBlankForm() {
+    // Opens a print-ready blank admission form in a new window
+    const win = window.open("", "_blank");
+    if (!win) {
+      alert("Please allow pop-ups to print the blank form.");
+      return;
+    }
+
+    const cell = (label, span = 1, height = 30) =>
+      `<tr><th>${label}</th><td colspan="${span}" style="height:${height}px"></td></tr>`;
+
+    const twoCell = (l1, l2, h = 30) =>
+      `<tr><th>${l1}</th><td style="height:${h}px"></td><th>${l2}</th><td style="height:${h}px"></td></tr>`;
+
+    win.document.write(`
+      <html>
+      <head>
+        <title>Admission Form</title>
+        <style>
+          body { font-family: Arial, sans-serif; padding: 14mm; color: #1f2937; }
+          header { display: flex; align-items: center; gap: 14px;
+                   border-bottom: 2px solid #1a3d6d; padding-bottom: 10px; margin-bottom: 16px; }
+          header img { width: 60px; height: 60px; object-fit: contain; }
+          header h1 { margin: 0; color: #1a3d6d; font-size: 20px; }
+          header p { margin: 2px 0; font-size: 11px; color: #4b5563; }
+          h2 { font-size: 12px; color: #1a3d6d; text-transform: uppercase;
+               letter-spacing: 0.06em; margin: 18px 0 6px; padding-bottom: 3px;
+               border-bottom: 1px solid #e5e7eb; }
+          table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
+          th, td { border: 1px solid #cbd5e1; padding: 5px 8px; font-size: 11px; text-align: left; }
+          th { background: #f5f7fa; width: 22%; font-weight: 600; color: #374151; }
+          .title-bar { text-align: center; background: #1a3d6d; color: #fff;
+                       padding: 6px 0; border-radius: 4px; font-size: 12px;
+                       letter-spacing: 0.1em; font-weight: 600; margin-bottom: 16px; }
+          .checkbox { display: inline-block; width: 14px; height: 14px;
+                      border: 1px solid #64748b; border-radius: 2px; margin-right: 6px;
+                      vertical-align: -2px; }
+          .doc-row { font-size: 12px; margin: 6px 0; }
+          .footer { display: flex; justify-content: space-between; margin-top: 60px; gap: 60px; }
+          .sig { flex: 1; text-align: center; }
+          .sig-line { border-top: 1px solid #1f2937; margin-bottom: 4px; }
+          .sig p { margin: 0; font-size: 10px; color: #4b5563; }
+          @media print { @page { size: A4 portrait; margin: 12mm; } }
+        </style>
+      </head>
+      <body>
+        <header>
+          <img src="${window.location.origin}/hfhs/assets/school-logo.jpg" alt="" />
+          <div>
+            <h1>HOLY FAITH HIGH SCHOOL</h1>
+            <p>Tarwara More, Siwan, Bihar – 841227</p>
+            <p>Reg. No.: 21812302021829794631 | holyfaithsiwan604@gmail.com | +91-9934723574</p>
+          </div>
+          <div style="width:90px;height:110px;border:1px dashed #94a3b8;
+                      display:flex;align-items:center;justify-content:center;
+                      color:#94a3b8;font-size:10px;text-align:center;">
+            Paste<br/>Photo
+          </div>
+        </header>
+
+        <div class="title-bar">ADMISSION FORM</div>
+
+        <p style="font-size:12px;">
+          <strong>Admission No.:</strong> __________________
+          &nbsp;&nbsp;&nbsp;&nbsp;
+          <strong>Date:</strong> ____ / ____ / ________
+        </p>
+
+        <h2>Basic Details</h2>
+        <table>
+          ${twoCell("Student Name", "Date of Birth")}
+          ${twoCell("Class Applied For", "Gender")}
+          ${twoCell("Blood Group", "PEN No. (if any)")}
+        </table>
+
+        <h2>Family Details</h2>
+        <table>
+          ${twoCell("Father's Name", "Mother's Name")}
+          ${twoCell("Father's Occupation", "Mother's Occupation")}
+          ${twoCell("Father's Mobile", "Mother's Mobile")}
+          ${cell("Guardian (if different)", 3, 28)}
+          ${cell("Present Address", 3, 50)}
+          ${cell("Permanent Address", 3, 50)}
+        </table>
+
+        <h2>Aadhaar &amp; Identity</h2>
+        <table>
+          ${twoCell("Student's Aadhaar", "Father's Aadhaar")}
+          ${twoCell("Mother's Aadhaar", "Nationality")}
+          ${twoCell("Category", "Religion")}
+          ${cell("Last Institution Attended", 3, 28)}
+        </table>
+
+        <h2>Documents Submitted</h2>
+        <div class="doc-row"><span class="checkbox"></span> Aadhaar — Student</div>
+        <div class="doc-row"><span class="checkbox"></span> Aadhaar — Father</div>
+        <div class="doc-row"><span class="checkbox"></span> Aadhaar — Mother</div>
+        <div class="doc-row"><span class="checkbox"></span> Photo</div>
+        <div class="doc-row"><span class="checkbox"></span> Transfer Certificate</div>
+        <div class="doc-row"><span class="checkbox"></span> Birth Certificate</div>
+
+        <h2>Additional Notes</h2>
+        <div style="border:1px solid #cbd5e1; height:80px; border-radius:4px;"></div>
+
+        <div class="footer">
+          <div class="sig">
+            <div class="sig-line"></div>
+            <p>Parent / Guardian Signature</p>
+          </div>
+          <div class="sig">
+            <div class="sig-line"></div>
+            <p>Principal / Authorised Signature</p>
+          </div>
+        </div>
+
+        <script>window.onload = () => window.print();</script>
+      </body>
+      </html>
+    `);
+    win.document.close();
+  }
+
   return (
     <div className="fm-card">
       <div className="fm-row-header">
@@ -307,7 +439,28 @@ export default function StudentDirectory({ session, onSelectStudent }) {
       )}
 
       {showForm && (
-        <form onSubmit={handleCreate}>
+        <form onSubmit={handleSubmit}>
+          {/* ---- FORM HEADER with Print Blank Form button ---- */}
+          <div
+            style={{
+              display: "flex",
+              justifyContent: "space-between",
+              alignItems: "center",
+              marginBottom: 12,
+              paddingBottom: 12,
+              borderBottom: "1px solid #e5e7eb",
+            }}
+          >
+            <h3 style={{ margin: 0, color: "#1a3d6d" }}>Add New Student</h3>
+            <button
+              type="button"
+              className="fm-secondary-btn"
+              onClick={printBlankForm}
+            >
+              🖨 Print Blank Form
+            </button>
+          </div>
+
           <div className="fm-form-section" style={{ borderTop: "none", marginTop: 0, paddingTop: 0 }}>
             <h3>Basic Details</h3>
             <p className="fm-form-section-hint">
@@ -468,15 +621,19 @@ export default function StudentDirectory({ session, onSelectStudent }) {
           <div className="fm-form-section">
             <h3>Photos &amp; Aadhaar Scans</h3>
             <p className="fm-form-section-hint">
-              All uploads are optional. Recommended: JPG/PNG under 5 MB.
+              All uploads are optional. On mobile, tapping Student Photo opens the camera directly.
             </p>
             <div className="fm-upload-grid">
-              {IMAGE_SLOTS.map(({ slot, label }) => (
+              {IMAGE_SLOTS.map(({ slot, label, camera }) => (
                 <div key={slot} className="fm-upload-cell">
                   <label className="fm-file-label">
                     📷 {label}
-                    <input type="file" accept="image/*"
-                      onChange={(e) => handleImage(slot, e.target.files?.[0])} />
+                    <input
+                      type="file"
+                      accept="image/*"
+                      {...(camera ? { capture: "environment" } : {})}
+                      onChange={(e) => handleImage(slot, e.target.files?.[0])}
+                    />
                   </label>
                   {images[slot]?.preview && (
                     <img src={images[slot].preview} alt={label} className="fm-file-preview" />
@@ -543,6 +700,45 @@ export default function StudentDirectory({ session, onSelectStudent }) {
         </form>
       )}
 
+      {/* ---- CREATE CONFIRMATION MODAL ---- */}
+      {showConfirm && (
+        <div className="fm-modal-overlay">
+          <div className="fm-modal">
+            <h3>Create this student?</h3>
+            <p style={{ margin: "12px 0" }}>You are about to add:</p>
+            <table style={{ width: "100%", marginBottom: 16, fontSize: 14 }}>
+              <tbody>
+                <tr><td><strong>Name</strong></td><td>{form.name || "—"}</td></tr>
+                <tr><td><strong>Admission No.</strong></td><td>{form.admissionNumber || "—"}</td></tr>
+                <tr><td><strong>Class</strong></td><td>{form.className || "—"}</td></tr>
+                <tr><td><strong>Father's Name</strong></td><td>{form.fatherName || "—"}</td></tr>
+                <tr><td><strong>Mobile</strong></td><td>{form.mobileNumber || form.fatherMobile || "—"}</td></tr>
+              </tbody>
+            </table>
+            <p style={{ fontSize: 13, color: "#6b7280" }}>
+              This will create a new student record. You can undo this later with Delete.
+            </p>
+            <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
+              <button
+                type="button"
+                className="fm-secondary-btn"
+                onClick={() => setShowConfirm(false)}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="fm-primary-btn"
+                onClick={confirmCreate}
+              >
+                Yes, Create Student
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ---- STUDENT LIST TABLE ---- */}
       <form onSubmit={handleSearch} className="fm-search-row" style={{ marginTop: 24 }}>
         <input placeholder="Search by name or admission no."
           value={searchTerm}
@@ -566,7 +762,7 @@ export default function StudentDirectory({ session, onSelectStudent }) {
               <th>Guardian</th>
               <th>Mobile</th>
               <th>Status</th>
-              <th></th>
+              <th>Actions</th>
             </tr>
           </thead>
           <tbody>
@@ -598,16 +794,21 @@ export default function StudentDirectory({ session, onSelectStudent }) {
                   </span>
                 </td>
                 <td style={{ whiteSpace: "nowrap" }}>
-                  <button type="button" className="fm-link-btn"
+                  <button
+                    type="button"
+                    className="fm-btn-sm fm-btn-print"
                     onClick={() => setPrintStudent(s)}
-                    style={{ marginRight: 10 }}>
-                    Print
+                    style={{ marginRight: 6 }}
+                  >
+                    🖨 Print
                   </button>
-                  <button type="button" className="fm-link-btn fm-danger-link"
+                  <button
+                    type="button"
+                    className="fm-btn-sm fm-btn-danger"
                     onClick={() => handleDelete(s)}
                     disabled={deleteBusy === s.id}
-                    style={{ color: "#c62828", textDecorationColor: "#c62828" }}>
-                    {deleteBusy === s.id ? "Deleting…" : "Delete"}
+                  >
+                    {deleteBusy === s.id ? "…" : "🗑 Delete"}
                   </button>
                 </td>
               </tr>
