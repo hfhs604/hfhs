@@ -504,3 +504,50 @@
     margin: 10mm;
   }
 }
+/* Danger link (Delete button) */
+.fm-danger-link {
+  color: #c62828;
+  text-decoration-color: #c62828;
+}
+.fm-danger-link:hover {
+  color: #991b1b;
+}
+.fm-danger-link:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* Upload grid */
+.fm-upload-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 16px;
+  margin-top: 8px;
+}
+.fm-upload-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.fm-file-label {
+  display: inline-block;
+  padding: 10px 14px;
+  background: #f5f7fa;
+  border: 1px dashed #b0b8c4;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: #1a3d6d;
+  text-align: center;
+}
+.fm-file-label input[type="file"] { display: none; }
+.fm-file-label:hover { background: #e9eef5; }
+.fm-file-preview {
+  width: 100%;
+  max-height: 180px;
+  object-fit: cover;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  display: block;
+  background: #fafafa;
+}
