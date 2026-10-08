@@ -5,32 +5,36 @@ export default function ReceiptCard({ receipt, school }) {
     receiptNumber, paymentDate, session, studentName, admissionNumber,
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, previousDue, remainingDue, paymentMethod, referenceNumber,
-    transportFee, componentType, totalDue,
+    componentType, totalDue,
+    particulars: passedParticulars,
+    amountReceivedThisTransaction,
   } = receipt;
 
-  const transport = Number(transportFee || 0);
-  const tuition = Number(amountReceived || 0) - transport;
   const disc = Number(discount || 0);
   const late = Number(lateFee || 0);
   const prevDue = Number(previousDue || 0);
-  const totalReceived = Number(amountReceived || 0) + late - disc;
-  const totalDueAmount = Number(totalDue || 0) || (prevDue + totalReceived);
-  const totalPaidAmount = totalReceived;
-  const balanceAmount = Number(remainingDue || 0);
+  const balance = Number(remainingDue || 0);
+  const thisAmount = Number(amountReceivedThisTransaction ?? amountReceived ?? 0);
+  const totalReceivedThis = thisAmount + late - disc;
 
-  const rows = [];
+  const monthTotal = Number(totalDue || 0) || (prevDue + totalReceivedThis);
 
-  if (componentType === "books") {
-    rows.push({ label: "Books Fee", amount: Number(amountReceived || 0) });
-  } else if (componentType === "previousYear") {
-    rows.push({ label: "Previous Year Balance", amount: Number(amountReceived || 0) });
-  } else if (componentType === "kit") {
-    rows.push({ label: "Admission / Kit Fee", amount: Number(amountReceived || 0) });
-  } else if (componentType === "transport") {
-    rows.push({ label: "Transport Fee", amount: Number(amountReceived || 0) });
-  } else {
-    if (tuition > 0) rows.push({ label: feeType || "Tuition Fee", amount: tuition });
-    if (transport > 0) rows.push({ label: "Transport Fee", amount: transport });
+  let rows = Array.isArray(passedParticulars) && passedParticulars.length > 0
+    ? passedParticulars.map((p) => ({ ...p }))
+    : [];
+
+  if (rows.length === 0) {
+    if (componentType === "books") {
+      rows.push({ label: "Books Fee", amount: thisAmount });
+    } else if (componentType === "previousYear") {
+      rows.push({ label: "Previous Year Balance", amount: thisAmount });
+    } else if (componentType === "kit") {
+      rows.push({ label: "Admission / Kit Fee", amount: thisAmount });
+    } else if (componentType === "transport") {
+      rows.push({ label: "Transport Fee", amount: thisAmount });
+    } else if (thisAmount > 0) {
+      rows.push({ label: feeType || "Tuition Fee", amount: thisAmount });
+    }
   }
 
   if (late > 0) rows.push({ label: "Late Fee", amount: late });
@@ -79,7 +83,9 @@ export default function ReceiptCard({ receipt, school }) {
             <tr key={i}>
               <td>{p.label}</td>
               <td align="right">
-                {p.isDiscount ? `-${Math.abs(p.amount).toFixed(2)}` : p.amount.toFixed(2)}
+                {p.isDiscount
+                  ? `-${Math.abs(p.amount).toFixed(2)}`
+                  : Number(p.amount).toFixed(2)}
               </td>
             </tr>
           ))}
@@ -89,15 +95,15 @@ export default function ReceiptCard({ receipt, school }) {
       <div className="receipt-summary-block">
         <div className="receipt-summary-line">
           <span>Total Amount</span>
-          <span>₹{totalDueAmount.toFixed(0)}</span>
+          <span>₹{monthTotal.toFixed(0)}</span>
         </div>
         <div className="receipt-summary-line">
           <span>Amount Received</span>
-          <span>₹{totalPaidAmount.toFixed(0)}</span>
+          <span>₹{totalReceivedThis.toFixed(0)}</span>
         </div>
         <div className="receipt-summary-line receipt-summary-balance">
           <span>Balance</span>
-          <span>₹{balanceAmount.toFixed(0)}</span>
+          <span>₹{balance.toFixed(0)}</span>
         </div>
       </div>
 
