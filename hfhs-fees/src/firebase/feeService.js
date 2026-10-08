@@ -1,7 +1,6 @@
 /**
  * feeService.js
  * Fee Management data layer for Holy Faith High School.
- * Monthly billing model with defensive fallbacks when indexes are missing.
  */
 
 import { db, auth } from "../firebase/config";
@@ -839,7 +838,7 @@ export async function deleteStudentCompletely(studentId, studentName) {
 /**
  * Set (or update) the standing monthly transport amount for a student.
  * Accepts 0 (off) or any value between 800 and 1500 (inclusive).
- * Super admin only.
+ * Super Admin only.
  */
 export async function setStudentTransport(studentId, amount) {
   const user = currentUser();
@@ -855,4 +854,45 @@ export async function setStudentTransport(studentId, amount) {
   }
 
   const studentRef = doc(db, COL.students, studentId);
-  const before = await
+  const before = await getDoc(studentRef);
+  if (!before.exists()) throw new Error("Student not found.");
+
+  await updateDoc(studentRef, {
+    transportOpted: amt > 0,
+    transportAmount: amt,
+  });
+
+  // If a bill for the current month exists and is unpaid, adjust it
+  const month = monthKey();
+  const session = before.data().session;
+  if (session) {
+    const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+    const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId}`);
+    const billSnap = await getDoc(billRef);
+    if (billSnap.exists()) {
+      const bill = billSnap.data();
+      const oldTransport = bill.transportBilled || 0;
+      if ((bill.totalPaid || 0) === 0) {
+        const newTotalDue = (bill.totalDue || 0) - oldTransport + amt;
+        const newCarry = newTotalDue - (bill.totalPaid || 0);
+        await updateDoc(billRef, {
+          transportBilled: amt,
+          totalDue: newTotalDue,
+          carriedForward: Math.max(newCarry, 0),
+        });
+      }
+    }
+  }
+
+  await writeAuditLog({
+    action: "TRANSPORT_UPDATED",
+    studentId,
+    previousValue: {
+      transportOpted: before.data().transportOpted,
+      transportAmount: before.data().transportAmount,
+    },
+    newValue: { transportOpted: amt > 0, transportAmount: amt },
+  });
+
+  return { transportOpted: amt > 0, transportAmount: amt };
+}
