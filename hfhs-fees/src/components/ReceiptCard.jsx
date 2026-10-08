@@ -5,44 +5,43 @@ export default function ReceiptCard({ receipt, school }) {
     receiptNumber, paymentDate, session, studentName, admissionNumber,
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, previousDue, remainingDue, paymentMethod, referenceNumber,
-    transportFee, componentType,
+    transportFee, componentType, totalDue,
   } = receipt;
 
   const transport = Number(transportFee || 0);
   const tuition = Number(amountReceived || 0) - transport;
   const disc = Number(discount || 0);
   const late = Number(lateFee || 0);
-  const total = Number(amountReceived || 0) + late - disc;
+  const prevDue = Number(previousDue || 0);
+  const totalReceived = Number(amountReceived || 0) + late - disc;
+  const totalDueAmount = Number(totalDue || 0) || (prevDue + totalReceived);
+  const totalPaidAmount = totalReceived;
+  const balanceAmount = Number(remainingDue || 0);
 
-  // Build the list of particulars that actually appear in this transaction.
-  const particulars = [];
+  const rows = [];
 
   if (componentType === "books") {
-    particulars.push({ label: "Books Fee", amount: Number(amountReceived || 0) });
+    rows.push({ label: "Books Fee", amount: Number(amountReceived || 0) });
   } else if (componentType === "previousYear") {
-    particulars.push({ label: "Previous Year Balance", amount: Number(amountReceived || 0) });
+    rows.push({ label: "Previous Year Balance", amount: Number(amountReceived || 0) });
   } else if (componentType === "kit") {
-    particulars.push({ label: "Admission / Kit Fee", amount: Number(amountReceived || 0) });
+    rows.push({ label: "Admission / Kit Fee", amount: Number(amountReceived || 0) });
   } else if (componentType === "transport") {
-    particulars.push({ label: "Transport Fee", amount: Number(amountReceived || 0) });
+    rows.push({ label: "Transport Fee", amount: Number(amountReceived || 0) });
   } else {
-    if (tuition > 0) {
-      particulars.push({ label: feeType || "Tuition Fee", amount: tuition });
-    }
-    if (transport > 0) {
-      particulars.push({ label: "Transport Fee", amount: transport });
-    }
+    if (tuition > 0) rows.push({ label: feeType || "Tuition Fee", amount: tuition });
+    if (transport > 0) rows.push({ label: "Transport Fee", amount: transport });
   }
 
-  if (late > 0) particulars.push({ label: "Late Fee", amount: late });
-  if (disc > 0) particulars.push({ label: "Discount", amount: -disc, isDiscount: true });
+  if (late > 0) rows.push({ label: "Late Fee", amount: late });
+  if (disc > 0) rows.push({ label: "Discount", amount: -disc, isDiscount: true });
 
   return (
     <div className="receipt-card">
       <header className="receipt-header">
-        {school.logoUrl && <img src={school.logoUrl} alt="" className="receipt-logo" />}
+        <img src={school.logoUrl} alt="" className="receipt-logo" />
         <div className="receipt-header-text">
-          <h3>{school.name}</h3>
+          <h2 className="receipt-school-name">{school.name}</h2>
           <p className="receipt-tagline">{school.tagline}</p>
           <p className="receipt-address">{school.address}</p>
           <p className="receipt-reg">Reg. No.: {school.registrationNumber}</p>
@@ -70,7 +69,13 @@ export default function ReceiptCard({ receipt, school }) {
           </tr>
         </thead>
         <tbody>
-          {particulars.map((p, i) => (
+          {prevDue > 0 && (
+            <tr>
+              <td>Previous Due</td>
+              <td align="right">{prevDue.toFixed(2)}</td>
+            </tr>
+          )}
+          {rows.map((p, i) => (
             <tr key={i}>
               <td>{p.label}</td>
               <td align="right">
@@ -78,21 +83,21 @@ export default function ReceiptCard({ receipt, school }) {
               </td>
             </tr>
           ))}
-          <tr className="receipt-total-row">
-            <td>Total Received</td>
-            <td align="right">{total.toFixed(2)}</td>
-          </tr>
         </tbody>
       </table>
 
-      <div className="receipt-balance-block">
-        <div className="receipt-balance-line">
-          <span>Previous Due</span>
-          <span className="receipt-balance-value">₹{Number(previousDue || 0).toFixed(0)}</span>
+      <div className="receipt-summary-block">
+        <div className="receipt-summary-line">
+          <span>Total Amount</span>
+          <span>₹{totalDueAmount.toFixed(0)}</span>
         </div>
-        <div className="receipt-balance-line receipt-balance-highlight">
-          <span>Remaining Due</span>
-          <span className="receipt-balance-value">₹{Number(remainingDue || 0).toFixed(0)}</span>
+        <div className="receipt-summary-line">
+          <span>Amount Received</span>
+          <span>₹{totalPaidAmount.toFixed(0)}</span>
+        </div>
+        <div className="receipt-summary-line receipt-summary-balance">
+          <span>Balance</span>
+          <span>₹{balanceAmount.toFixed(0)}</span>
         </div>
       </div>
 
@@ -105,7 +110,6 @@ export default function ReceiptCard({ receipt, school }) {
 
       <footer className="receipt-footer">
         <div className="receipt-sign-area">
-          <div className="receipt-stamp-box">School Stamp</div>
           <div className="receipt-signature-box">Authorised Signature</div>
         </div>
         <p className="receipt-computer-generated">This is a computer-generated receipt.</p>
