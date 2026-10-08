@@ -10,6 +10,7 @@ import {
 import { getAllStudents } from "../firebase/reportsService";
 import { uploadStudentImage } from "../firebase/photoService";
 import StudentPrintPage from "./StudentPrintPage";
+import CameraCapture from "./CameraCapture";
 import "../styles/feeManagement.css";
 
 const CLASS_OPTIONS = [
@@ -34,9 +35,9 @@ const emptyForm = {
 
 const IMAGE_SLOTS = [
   { slot: "photo",           field: "photoUrl",                label: "Student Photo",     camera: true  },
-  { slot: "aadhaar-student", field: "aadhaarStudentPhotoUrl",  label: "Aadhaar — Student", camera: false },
-  { slot: "aadhaar-father",  field: "aadhaarFatherPhotoUrl",   label: "Aadhaar — Father",  camera: false },
-  { slot: "aadhaar-mother",  field: "aadhaarMotherPhotoUrl",   label: "Aadhaar — Mother",  camera: false },
+  { slot: "aadhaar-student", field: "aadhaarStudentPhotoUrl",  label: "Aadhaar — Student", camera: true  },
+  { slot: "aadhaar-father",  field: "aadhaarFatherPhotoUrl",   label: "Aadhaar — Father",  camera: true  },
+  { slot: "aadhaar-mother",  field: "aadhaarMotherPhotoUrl",   label: "Aadhaar — Mother",  camera: true  },
 ];
 
 export default function StudentDirectory({ session, onSelectStudent }) {
@@ -53,6 +54,7 @@ export default function StudentDirectory({ session, onSelectStudent }) {
   const [deleteBusy, setDeleteBusy] = useState(null);
   const [deleteMsg, setDeleteMsg] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
+  const [cameraSlot, setCameraSlot] = useState(null);
 
   const [images, setImages] = useState({
     photo: { file: null, preview: null },
@@ -112,7 +114,7 @@ export default function StudentDirectory({ session, onSelectStudent }) {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  function handleImage(slot, file) {
+  function setImageForSlot(slot, file) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) =>
@@ -121,6 +123,10 @@ export default function StudentDirectory({ session, onSelectStudent }) {
         [slot]: { file, preview: ev.target.result },
       }));
     reader.readAsDataURL(file);
+  }
+
+  function handleImageInput(slot, file) {
+    setImageForSlot(slot, file);
   }
 
   function resetForm() {
@@ -280,7 +286,6 @@ export default function StudentDirectory({ session, onSelectStudent }) {
   }
 
   function printBlankForm() {
-    // Opens a print-ready blank admission form in a new window
     const win = window.open("", "_blank");
     if (!win) {
       alert("Please allow pop-ups to print the blank form.");
@@ -289,7 +294,6 @@ export default function StudentDirectory({ session, onSelectStudent }) {
 
     const cell = (label, span = 1, height = 30) =>
       `<tr><th>${label}</th><td colspan="${span}" style="height:${height}px"></td></tr>`;
-
     const twoCell = (l1, l2, h = 30) =>
       `<tr><th>${l1}</th><td style="height:${h}px"></td><th>${l2}</th><td style="height:${h}px"></td></tr>`;
 
@@ -438,9 +442,16 @@ export default function StudentDirectory({ session, onSelectStudent }) {
         />
       )}
 
+      {cameraSlot && (
+        <CameraCapture
+          label={IMAGE_SLOTS.find((s) => s.slot === cameraSlot)?.label || "Photo"}
+          onCapture={(file) => setImageForSlot(cameraSlot, file)}
+          onClose={() => setCameraSlot(null)}
+        />
+      )}
+
       {showForm && (
         <form onSubmit={handleSubmit}>
-          {/* ---- FORM HEADER with Print Blank Form button ---- */}
           <div
             style={{
               display: "flex",
@@ -621,20 +632,27 @@ export default function StudentDirectory({ session, onSelectStudent }) {
           <div className="fm-form-section">
             <h3>Photos &amp; Aadhaar Scans</h3>
             <p className="fm-form-section-hint">
-              All uploads are optional. On mobile, tapping Student Photo opens the camera directly.
+              Each upload lets you use the camera or pick a file. Works on desktop and mobile.
             </p>
             <div className="fm-upload-grid">
-              {IMAGE_SLOTS.map(({ slot, label, camera }) => (
+              {IMAGE_SLOTS.map(({ slot, label }) => (
                 <div key={slot} className="fm-upload-cell">
-                  <label className="fm-file-label">
+                  <button
+                    type="button"
+                    className="fm-file-label"
+                    onClick={() => setCameraSlot(slot)}
+                    style={{ border: "1px dashed #b0b8c4", background: "#f5f7fa", cursor: "pointer", padding: "10px 14px" }}
+                  >
                     📷 {label}
-                    <input
-                      type="file"
-                      accept="image/*"
-                      {...(camera ? { capture: "environment" } : {})}
-                      onChange={(e) => handleImage(slot, e.target.files?.[0])}
-                    />
-                  </label>
+                  </button>
+                  {/* Hidden file input for quick file selection on desktop */}
+                  <input
+                    type="file"
+                    accept="image/*"
+                    style={{ display: "none" }}
+                    id={`file-${slot}`}
+                    onChange={(e) => handleImageInput(slot, e.target.files?.[0])}
+                  />
                   {images[slot]?.preview && (
                     <img src={images[slot].preview} alt={label} className="fm-file-preview" />
                   )}
@@ -700,7 +718,6 @@ export default function StudentDirectory({ session, onSelectStudent }) {
         </form>
       )}
 
-      {/* ---- CREATE CONFIRMATION MODAL ---- */}
       {showConfirm && (
         <div className="fm-modal-overlay">
           <div className="fm-modal">
@@ -738,7 +755,6 @@ export default function StudentDirectory({ session, onSelectStudent }) {
         </div>
       )}
 
-      {/* ---- STUDENT LIST TABLE ---- */}
       <form onSubmit={handleSearch} className="fm-search-row" style={{ marginTop: 24 }}>
         <input placeholder="Search by name or admission no."
           value={searchTerm}
