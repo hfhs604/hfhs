@@ -6,6 +6,7 @@ import {
   reserveAdmissionNumber,
   updateStudentProfile,
   deleteStudentCompletely,
+  updateStudentFull,
 } from "../firebase/feeService";
 import { getAllStudents } from "../firebase/reportsService";
 import { uploadStudentImage } from "../firebase/photoService";
@@ -40,7 +41,10 @@ const IMAGE_SLOTS = [
   { slot: "aadhaar-mother",  field: "aadhaarMotherPhotoUrl",   label: "Aadhaar — Mother",  camera: true  },
 ];
 
-export default function StudentDirectory({ session, onSelectStudent }) {
+const EDIT_ROLES = ["superAdmin", "admin", "accountant"];
+const DELETE_ROLES = ["superAdmin"];
+
+export default function StudentDirectory({ session, onSelectStudent, role }) {
   const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
@@ -55,6 +59,23 @@ export default function StudentDirectory({ session, onSelectStudent }) {
   const [deleteMsg, setDeleteMsg] = useState("");
   const [showConfirm, setShowConfirm] = useState(false);
   const [cameraSlot, setCameraSlot] = useState(null);
+
+  // ---- EDIT MODE ----
+  const [editStudent, setEditStudent] = useState(null);
+  const [editForm, setEditForm] = useState(emptyForm);
+  const [editSameAsPresent, setEditSameAsPresent] = useState(false);
+  const [editSaving, setEditSaving] = useState(false);
+  const [editError, setEditError] = useState(null);
+  const [editImages, setEditImages] = useState({
+    photo: { file: null, preview: null },
+    "aadhaar-student": { file: null, preview: null },
+    "aadhaar-father": { file: null, preview: null },
+    "aadhaar-mother": { file: null, preview: null },
+  });
+  const [editCameraSlot, setEditCameraSlot] = useState(null);
+
+  const canEdit = EDIT_ROLES.includes(role);
+  const canDelete = DELETE_ROLES.includes(role);
 
   const [images, setImages] = useState({
     photo: { file: null, preview: null },
@@ -99,6 +120,11 @@ export default function StudentDirectory({ session, onSelectStudent }) {
     setForm((f) => ({ ...f, addressPermanent: f.addressPresent }));
   }, [sameAsPresent, form.addressPresent]);
 
+  useEffect(() => {
+    if (!editSameAsPresent) return;
+    setEditForm((f) => ({ ...f, addressPermanent: f.addressPresent }));
+  }, [editSameAsPresent, editForm.addressPresent]);
+
   async function handleSearch(e) {
     e.preventDefault();
     if (!searchTerm.trim()) return loadStudents();
@@ -114,19 +140,27 @@ export default function StudentDirectory({ session, onSelectStudent }) {
     setForm((f) => ({ ...f, [field]: value }));
   }
 
-  function setImageForSlot(slot, file) {
-    if (!file) return;
-    const reader = new FileReader();
-    reader.onload = (ev) =>
-      setImages((prev) => ({
-        ...prev,
-        [slot]: { file, preview: ev.target.result },
-      }));
-    reader.readAsDataURL(file);
+  function updateEdit(field, value) {
+    setEditForm((f) => ({ ...f, [field]: value }));
   }
 
-  function handleImageInput(slot, file) {
-    setImageForSlot(slot, file);
+  function setImageForSlot(slot, file, mode = "add") {
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (ev) => {
+      if (mode === "edit") {
+        setEditImages((prev) => ({
+          ...prev,
+          [slot]: { file, preview: ev.target.result },
+        }));
+      } else {
+        setImages((prev) => ({
+          ...prev,
+          [slot]: { file, preview: ev.target.result },
+        }));
+      }
+    };
+    reader.readAsDataURL(file);
   }
 
   function resetForm() {
@@ -138,6 +172,141 @@ export default function StudentDirectory({ session, onSelectStudent }) {
       "aadhaar-father": { file: null, preview: null },
       "aadhaar-mother": { file: null, preview: null },
     });
+  }
+
+  function openEdit(student) {
+    if (!canEdit) return;
+    setEditStudent(student);
+    setEditError(null);
+
+    // Populate form from existing values, filling blanks with empty strings
+    const populated = {};
+    Object.keys(emptyForm).forEach((k) => {
+      const v = student[k];
+      if (k.startsWith("doc") && typeof v === "boolean") {
+        populated[k] = v;
+      } else if (Array.isArray(v)) {
+        populated[k] = v;
+      } else {
+        populated[k] = v ?? "";
+      }
+    });
+    // If checkboxes were stored as strings in a documentsSubmitted array, rehydrate
+    if (Array.isArray(student.documentsSubmitted)) {
+      populated.docAadhaarStudent = student.documentsSubmitted.includes("Aadhaar - Student");
+      populated.docAadhaarFather = student.documentsSubmitted.includes("Aadhaar - Father");
+      populated.docAadhaarMother = student.documentsSubmitted.includes("Aadhaar - Mother");
+      populated.docPhoto = student.documentsSubmitted.includes("Photo");
+      populated.docTransferCertificate = student.documentsSubmitted.includes("Transfer Certificate");
+      populated.docBirthCertificate = student.documentsSubmitted.includes("Birth Certificate");
+    }
+
+    setEditForm(populated);
+    setEditSameAsPresent(
+      !!student.addressPresent &&
+      student.addressPresent === student.addressPermanent
+    );
+    // Seed image previews from existing URLs
+    setEditImages({
+      photo: { file: null, preview: student.photoUrl || null },
+      "aadhaar-student": { file: null, preview: student.aadhaarStudentPhotoUrl || null },
+      "aadhaar-father": { file: null, preview: student.aadhaarFatherPhotoUrl || null },
+      "aadhaar-mother": { file: null, preview: student.aadhaarMotherPhotoUrl || null },
+    });
+  }
+
+  function closeEdit() {
+    setEditStudent(null);
+    setEditForm(emptyForm);
+    setEditSameAsPresent(false);
+    setEditImages({
+      photo: { file: null, preview: null },
+      "aadhaar-student": { file: null, preview: null },
+      "aadhaar-father": { file: null, preview: null },
+      "aadhaar-mother": { file: null, preview: null },
+    });
+  }
+
+  async function saveEdit(e) {
+    e.preventDefault();
+    setEditSaving(true);
+    setEditError(null);
+    try {
+      const documentsSubmitted = [];
+      if (editForm.docAadhaarStudent) documentsSubmitted.push("Aadhaar - Student");
+      if (editForm.docAadhaarFather) documentsSubmitted.push("Aadhaar - Father");
+      if (editForm.docAadhaarMother) documentsSubmitted.push("Aadhaar - Mother");
+      if (editForm.docPhoto) documentsSubmitted.push("Photo");
+      if (editForm.docTransferCertificate) documentsSubmitted.push("Transfer Certificate");
+      if (editForm.docBirthCertificate) documentsSubmitted.push("Birth Certificate");
+
+      const updates = {
+        admissionNumber: editForm.admissionNumber.trim(),
+        rollNumber: editForm.rollNumber ? Number(editForm.rollNumber) : null,
+        name: editForm.name.trim(),
+        className: editForm.className,
+        section: editForm.section.trim(),
+        dateOfAdmission: editForm.dateOfAdmission || null,
+        dateOfBirth: editForm.dateOfBirth || null,
+        gender: editForm.gender || null,
+        bloodGroup: editForm.bloodGroup.trim() || null,
+        penNumber: editForm.penNumber.trim() || null,
+        fatherName: editForm.fatherName.trim(),
+        motherName: editForm.motherName.trim(),
+        guardianName: editForm.guardianName.trim() || editForm.fatherName.trim(),
+        fatherOccupation: editForm.fatherOccupation.trim() || null,
+        motherOccupation: editForm.motherOccupation.trim() || null,
+        fatherMobile: editForm.fatherMobile.trim() || null,
+        motherMobile: editForm.motherMobile.trim() || null,
+        mobileNumber: editForm.mobileNumber.trim() || editForm.fatherMobile.trim() || "",
+        addressPresent: editForm.addressPresent.trim() || null,
+        addressPermanent: editForm.addressPermanent.trim() || null,
+        aadhaarStudent: editForm.aadhaarStudent.trim() || null,
+        aadhaarFather: editForm.aadhaarFather.trim() || null,
+        aadhaarMother: editForm.aadhaarMother.trim() || null,
+        nationality: editForm.nationality.trim() || "Indian",
+        category: editForm.category || null,
+        religion: editForm.religion.trim() || null,
+        lastInstitution: editForm.lastInstitution.trim() || null,
+        docAadhaarStudent: editForm.docAadhaarStudent,
+        docAadhaarFather: editForm.docAadhaarFather,
+        docAadhaarMother: editForm.docAadhaarMother,
+        docPhoto: editForm.docPhoto,
+        docTransferCertificate: editForm.docTransferCertificate,
+        docBirthCertificate: editForm.docBirthCertificate,
+        documentsSubmitted,
+        remarks: editForm.remarks.trim() || null,
+      };
+
+      // Upload any new images
+      const uploadErrors = [];
+      for (const { slot, field, label } of IMAGE_SLOTS) {
+        const f = editImages[slot]?.file;
+        if (!f) continue;
+        try {
+          const url = await uploadStudentImage(editStudent.id, slot, f);
+          updates[field] = url;
+        } catch (uploadErr) {
+          console.warn(`${label} upload failed:`, uploadErr.message);
+          uploadErrors.push(`${label}: ${uploadErr.message}`);
+        }
+      }
+
+      await updateStudentFull(editStudent.id, updates);
+
+      let msg = `Student "${updates.name}" updated.`;
+      if (uploadErrors.length) {
+        msg += ` Some images failed: ${uploadErrors.join("; ")}`;
+      }
+      setSuccess(msg);
+      closeEdit();
+      await loadStudents();
+      setTimeout(() => setSuccess(""), 8000);
+    } catch (err) {
+      setEditError(err.message || "Could not update student.");
+    } finally {
+      setEditSaving(false);
+    }
   }
 
   function handleSubmit(e) {
@@ -285,124 +454,209 @@ export default function StudentDirectory({ session, onSelectStudent }) {
     }
   }
 
-  function printBlankForm() {
-    const win = window.open("", "_blank");
-    if (!win) {
-      alert("Please allow pop-ups to print the blank form.");
-      return;
-    }
-
-    const cell = (label, span = 1, height = 30) =>
-      `<tr><th>${label}</th><td colspan="${span}" style="height:${height}px"></td></tr>`;
-    const twoCell = (l1, l2, h = 30) =>
-      `<tr><th>${l1}</th><td style="height:${h}px"></td><th>${l2}</th><td style="height:${h}px"></td></tr>`;
-
-    win.document.write(`
-      <html>
-      <head>
-        <title>Admission Form</title>
-        <style>
-          body { font-family: Arial, sans-serif; padding: 14mm; color: #1f2937; }
-          header { display: flex; align-items: center; gap: 14px;
-                   border-bottom: 2px solid #1a3d6d; padding-bottom: 10px; margin-bottom: 16px; }
-          header img { width: 60px; height: 60px; object-fit: contain; }
-          header h1 { margin: 0; color: #1a3d6d; font-size: 20px; }
-          header p { margin: 2px 0; font-size: 11px; color: #4b5563; }
-          h2 { font-size: 12px; color: #1a3d6d; text-transform: uppercase;
-               letter-spacing: 0.06em; margin: 18px 0 6px; padding-bottom: 3px;
-               border-bottom: 1px solid #e5e7eb; }
-          table { width: 100%; border-collapse: collapse; margin-bottom: 12px; }
-          th, td { border: 1px solid #cbd5e1; padding: 5px 8px; font-size: 11px; text-align: left; }
-          th { background: #f5f7fa; width: 22%; font-weight: 600; color: #374151; }
-          .title-bar { text-align: center; background: #1a3d6d; color: #fff;
-                       padding: 6px 0; border-radius: 4px; font-size: 12px;
-                       letter-spacing: 0.1em; font-weight: 600; margin-bottom: 16px; }
-          .checkbox { display: inline-block; width: 14px; height: 14px;
-                      border: 1px solid #64748b; border-radius: 2px; margin-right: 6px;
-                      vertical-align: -2px; }
-          .doc-row { font-size: 12px; margin: 6px 0; }
-          .footer { display: flex; justify-content: space-between; margin-top: 60px; gap: 60px; }
-          .sig { flex: 1; text-align: center; }
-          .sig-line { border-top: 1px solid #1f2937; margin-bottom: 4px; }
-          .sig p { margin: 0; font-size: 10px; color: #4b5563; }
-          @media print { @page { size: A4 portrait; margin: 12mm; } }
-        </style>
-      </head>
-      <body>
-        <header>
-          <img src="${window.location.origin}/hfhs/assets/school-logo.jpg" alt="" />
-          <div>
-            <h1>HOLY FAITH HIGH SCHOOL</h1>
-            <p>Tarwara More, Siwan, Bihar – 841227</p>
-            <p>Reg. No.: 21812302021829794631 | holyfaithsiwan604@gmail.com | +91-9934723574</p>
-          </div>
-          <div style="width:90px;height:110px;border:1px dashed #94a3b8;
-                      display:flex;align-items:center;justify-content:center;
-                      color:#94a3b8;font-size:10px;text-align:center;">
-            Paste<br/>Photo
-          </div>
-        </header>
-
-        <div class="title-bar">ADMISSION FORM</div>
-
-        <p style="font-size:12px;">
-          <strong>Admission No.:</strong> __________________
-          &nbsp;&nbsp;&nbsp;&nbsp;
-          <strong>Date:</strong> ____ / ____ / ________
-        </p>
-
-        <h2>Basic Details</h2>
-        <table>
-          ${twoCell("Student Name", "Date of Birth")}
-          ${twoCell("Class Applied For", "Gender")}
-          ${twoCell("Blood Group", "PEN No. (if any)")}
-        </table>
-
-        <h2>Family Details</h2>
-        <table>
-          ${twoCell("Father's Name", "Mother's Name")}
-          ${twoCell("Father's Occupation", "Mother's Occupation")}
-          ${twoCell("Father's Mobile", "Mother's Mobile")}
-          ${cell("Guardian (if different)", 3, 28)}
-          ${cell("Present Address", 3, 50)}
-          ${cell("Permanent Address", 3, 50)}
-        </table>
-
-        <h2>Aadhaar &amp; Identity</h2>
-        <table>
-          ${twoCell("Student's Aadhaar", "Father's Aadhaar")}
-          ${twoCell("Mother's Aadhaar", "Nationality")}
-          ${twoCell("Category", "Religion")}
-          ${cell("Last Institution Attended", 3, 28)}
-        </table>
-
-        <h2>Documents Submitted</h2>
-        <div class="doc-row"><span class="checkbox"></span> Aadhaar — Student</div>
-        <div class="doc-row"><span class="checkbox"></span> Aadhaar — Father</div>
-        <div class="doc-row"><span class="checkbox"></span> Aadhaar — Mother</div>
-        <div class="doc-row"><span class="checkbox"></span> Photo</div>
-        <div class="doc-row"><span class="checkbox"></span> Transfer Certificate</div>
-        <div class="doc-row"><span class="checkbox"></span> Birth Certificate</div>
-
-        <h2>Additional Notes</h2>
-        <div style="border:1px solid #cbd5e1; height:80px; border-radius:4px;"></div>
-
-        <div class="footer">
-          <div class="sig">
-            <div class="sig-line"></div>
-            <p>Parent / Guardian Signature</p>
-          </div>
-          <div class="sig">
-            <div class="sig-line"></div>
-            <p>Principal / Authorised Signature</p>
+  // ---- Shared renderer for the multi-section form fields ----
+  function renderFormFields(f, setF, sameAs, setSameAs, imagesObj, setCamera, mode) {
+    return (
+      <>
+        <div className="fm-form-section" style={{ borderTop: "none", marginTop: 0, paddingTop: 0 }}>
+          <h3>Basic Details</h3>
+          <div className="fm-form-grid">
+            <label>Admission Number *
+              <input required value={f.admissionNumber}
+                onChange={(e) => setF("admissionNumber", e.target.value)} /></label>
+            <label>Roll No
+              <input type="number" min="0" value={f.rollNumber}
+                onChange={(e) => setF("rollNumber", e.target.value)} /></label>
+            <label>Student Name *
+              <input required value={f.name}
+                onChange={(e) => setF("name", e.target.value)} /></label>
+            <label>Class *
+              <select required value={f.className}
+                onChange={(e) => setF("className", e.target.value)}>
+                <option value="">Select class…</option>
+                {CLASS_OPTIONS.map((c) => <option key={c}>{c}</option>)}
+              </select></label>
+            <label>Section
+              <input value={f.section}
+                onChange={(e) => setF("section", e.target.value)} /></label>
+            <label>Date of Admission
+              <input type="date" value={f.dateOfAdmission}
+                onChange={(e) => setF("dateOfAdmission", e.target.value)} /></label>
+            <label>Date of Birth
+              <input type="date" value={f.dateOfBirth}
+                onChange={(e) => setF("dateOfBirth", e.target.value)} /></label>
+            <label>Gender
+              <select value={f.gender}
+                onChange={(e) => setF("gender", e.target.value)}>
+                <option value="">—</option>
+                <option>Male</option>
+                <option>Female</option>
+                <option>Other</option>
+              </select></label>
+            <label>Blood Group
+              <input value={f.bloodGroup}
+                onChange={(e) => setF("bloodGroup", e.target.value)} /></label>
+            <label>PEN No
+              <input value={f.penNumber}
+                onChange={(e) => setF("penNumber", e.target.value)} /></label>
           </div>
         </div>
 
-        <script>window.onload = () => window.print();</script>
-      </body>
-      </html>
-    `);
-    win.document.close();
+        <div className="fm-form-section">
+          <h3>Family Details</h3>
+          <div className="fm-form-grid">
+            <label>Father's Name
+              <input value={f.fatherName}
+                onChange={(e) => setF("fatherName", e.target.value)} /></label>
+            <label>Mother's Name
+              <input value={f.motherName}
+                onChange={(e) => setF("motherName", e.target.value)} /></label>
+            <label>Guardian Name
+              <input value={f.guardianName}
+                onChange={(e) => setF("guardianName", e.target.value)} /></label>
+            <label>Father's Occupation
+              <input value={f.fatherOccupation}
+                onChange={(e) => setF("fatherOccupation", e.target.value)} /></label>
+            <label>Mother's Occupation
+              <input value={f.motherOccupation}
+                onChange={(e) => setF("motherOccupation", e.target.value)} /></label>
+            <label>Father's Mobile
+              <input value={f.fatherMobile}
+                onChange={(e) => setF("fatherMobile", e.target.value)} /></label>
+            <label>Mother's Mobile
+              <input value={f.motherMobile}
+                onChange={(e) => setF("motherMobile", e.target.value)} /></label>
+            <label>Primary Mobile
+              <input value={f.mobileNumber}
+                onChange={(e) => setF("mobileNumber", e.target.value)} /></label>
+
+            <label className="fm-full-width">Present Address
+              <textarea value={f.addressPresent}
+                onChange={(e) => setF("addressPresent", e.target.value)} /></label>
+
+            <div className="fm-full-width" style={{ marginTop: -6 }}>
+              <label className="fm-checkbox-row" style={{ marginBottom: 6 }}>
+                <input type="checkbox" checked={sameAs}
+                  onChange={(e) => {
+                    setSameAs(e.target.checked);
+                    if (!e.target.checked) setF("addressPermanent", "");
+                  }} />
+                Permanent address is the same as Present address
+              </label>
+            </div>
+
+            <label className="fm-full-width">Permanent Address
+              <textarea value={f.addressPermanent}
+                onChange={(e) => setF("addressPermanent", e.target.value)}
+                disabled={sameAs}
+                style={sameAs ? { background: "#f5f7fa", cursor: "not-allowed" } : undefined} /></label>
+          </div>
+        </div>
+
+        <div className="fm-form-section">
+          <h3>Aadhaar &amp; Identity</h3>
+          <div className="fm-form-grid">
+            <label>Student's Aadhaar
+              <input value={f.aadhaarStudent} maxLength={12}
+                onChange={(e) => setF("aadhaarStudent", e.target.value.replace(/\D/g, ""))} /></label>
+            <label>Father's Aadhaar
+              <input value={f.aadhaarFather} maxLength={12}
+                onChange={(e) => setF("aadhaarFather", e.target.value.replace(/\D/g, ""))} /></label>
+            <label>Mother's Aadhaar
+              <input value={f.aadhaarMother} maxLength={12}
+                onChange={(e) => setF("aadhaarMother", e.target.value.replace(/\D/g, ""))} /></label>
+            <label>Nationality
+              <input value={f.nationality}
+                onChange={(e) => setF("nationality", e.target.value)} /></label>
+            <label>Category
+              <select value={f.category}
+                onChange={(e) => setF("category", e.target.value)}>
+                <option value="">—</option>
+                <option>General</option>
+                <option>OBC</option>
+                <option>SC</option>
+                <option>ST</option>
+                <option>EWS</option>
+                <option>Other</option>
+              </select></label>
+            <label>Religion
+              <input value={f.religion}
+                onChange={(e) => setF("religion", e.target.value)} /></label>
+            <label className="fm-full-width">Last Institution Attended
+              <input value={f.lastInstitution}
+                onChange={(e) => setF("lastInstitution", e.target.value)} /></label>
+          </div>
+        </div>
+
+        <div className="fm-form-section">
+          <h3>Photos &amp; Aadhaar Scans</h3>
+          <p className="fm-form-section-hint">
+            Click any slot to take a photo with the camera or pick a file.
+          </p>
+          <div className="fm-upload-grid">
+            {IMAGE_SLOTS.map(({ slot, label }) => (
+              <div key={slot} className="fm-upload-cell">
+                <button
+                  type="button"
+                  className="fm-file-label"
+                  onClick={() => setCamera(slot)}
+                >
+                  📷 {label}
+                </button>
+                {imagesObj[slot]?.preview && (
+                  <img src={imagesObj[slot].preview} alt={label} className="fm-file-preview" />
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="fm-form-section">
+          <h3>Documents Submitted</h3>
+          <div className="fm-doc-checkbox-grid">
+            <label className="fm-checkbox-row">
+              <input type="checkbox" checked={f.docAadhaarStudent}
+                onChange={(e) => setF("docAadhaarStudent", e.target.checked)} />
+              Aadhaar — Student
+            </label>
+            <label className="fm-checkbox-row">
+              <input type="checkbox" checked={f.docAadhaarFather}
+                onChange={(e) => setF("docAadhaarFather", e.target.checked)} />
+              Aadhaar — Father
+            </label>
+            <label className="fm-checkbox-row">
+              <input type="checkbox" checked={f.docAadhaarMother}
+                onChange={(e) => setF("docAadhaarMother", e.target.checked)} />
+              Aadhaar — Mother
+            </label>
+            <label className="fm-checkbox-row">
+              <input type="checkbox" checked={f.docPhoto}
+                onChange={(e) => setF("docPhoto", e.target.checked)} />
+              Photo
+            </label>
+            <label className="fm-checkbox-row">
+              <input type="checkbox" checked={f.docTransferCertificate}
+                onChange={(e) => setF("docTransferCertificate", e.target.checked)} />
+              Transfer Certificate
+            </label>
+            <label className="fm-checkbox-row">
+              <input type="checkbox" checked={f.docBirthCertificate}
+                onChange={(e) => setF("docBirthCertificate", e.target.checked)} />
+              Birth Certificate
+            </label>
+          </div>
+        </div>
+
+        <div className="fm-form-section">
+          <h3>Additional Notes</h3>
+          <div className="fm-form-grid">
+            <label className="fm-full-width">Remarks
+              <textarea value={f.remarks}
+                onChange={(e) => setF("remarks", e.target.value)} /></label>
+          </div>
+        </div>
+      </>
+    );
   }
 
   return (
@@ -445,267 +699,23 @@ export default function StudentDirectory({ session, onSelectStudent }) {
       {cameraSlot && (
         <CameraCapture
           label={IMAGE_SLOTS.find((s) => s.slot === cameraSlot)?.label || "Photo"}
-          onCapture={(file) => setImageForSlot(cameraSlot, file)}
+          onCapture={(file) => setImageForSlot(cameraSlot, file, "add")}
           onClose={() => setCameraSlot(null)}
         />
       )}
 
+      {editCameraSlot && (
+        <CameraCapture
+          label={IMAGE_SLOTS.find((s) => s.slot === editCameraSlot)?.label || "Photo"}
+          onCapture={(file) => setImageForSlot(editCameraSlot, file, "edit")}
+          onClose={() => setEditCameraSlot(null)}
+        />
+      )}
+
+      {/* ---------- ADD FORM ---------- */}
       {showForm && (
         <form onSubmit={handleSubmit}>
-          <div
-            style={{
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              marginBottom: 12,
-              paddingBottom: 12,
-              borderBottom: "1px solid #e5e7eb",
-            }}
-          >
-            <h3 style={{ margin: 0, color: "#1a3d6d" }}>Add New Student</h3>
-            <button
-              type="button"
-              className="fm-secondary-btn"
-              onClick={printBlankForm}
-            >
-              🖨 Print Blank Form
-            </button>
-          </div>
-
-          <div className="fm-form-section" style={{ borderTop: "none", marginTop: 0, paddingTop: 0 }}>
-            <h3>Basic Details</h3>
-            <p className="fm-form-section-hint">
-              Admission number is auto-suggested; you can override it.
-            </p>
-            <div className="fm-form-grid">
-              <label>
-                Admission Number *
-                <input required value={form.admissionNumber}
-                  onChange={(e) => update("admissionNumber", e.target.value)} />
-              </label>
-              <label>
-                Roll No
-                <input type="number" min="0" value={form.rollNumber}
-                  onChange={(e) => update("rollNumber", e.target.value)} />
-              </label>
-              <label>
-                Student Name *
-                <input required value={form.name}
-                  onChange={(e) => update("name", e.target.value)} />
-              </label>
-              <label>
-                Class *
-                <select required value={form.className}
-                  onChange={(e) => update("className", e.target.value)}>
-                  <option value="">Select class…</option>
-                  {CLASS_OPTIONS.map((c) => <option key={c}>{c}</option>)}
-                </select>
-              </label>
-              <label>
-                Section
-                <input value={form.section}
-                  onChange={(e) => update("section", e.target.value)} />
-              </label>
-              <label>
-                Date of Admission
-                <input type="date" value={form.dateOfAdmission}
-                  onChange={(e) => update("dateOfAdmission", e.target.value)} />
-              </label>
-              <label>
-                Date of Birth
-                <input type="date" value={form.dateOfBirth}
-                  onChange={(e) => update("dateOfBirth", e.target.value)} />
-              </label>
-              <label>
-                Gender
-                <select value={form.gender}
-                  onChange={(e) => update("gender", e.target.value)}>
-                  <option value="">—</option>
-                  <option>Male</option>
-                  <option>Female</option>
-                  <option>Other</option>
-                </select>
-              </label>
-              <label>
-                Blood Group
-                <input value={form.bloodGroup}
-                  onChange={(e) => update("bloodGroup", e.target.value)} />
-              </label>
-              <label>
-                PEN No
-                <input value={form.penNumber}
-                  onChange={(e) => update("penNumber", e.target.value)} />
-              </label>
-            </div>
-          </div>
-
-          <div className="fm-form-section">
-            <h3>Family Details</h3>
-            <div className="fm-form-grid">
-              <label>Father's Name
-                <input value={form.fatherName}
-                  onChange={(e) => update("fatherName", e.target.value)} /></label>
-              <label>Mother's Name
-                <input value={form.motherName}
-                  onChange={(e) => update("motherName", e.target.value)} /></label>
-              <label>Guardian Name
-                <input value={form.guardianName}
-                  onChange={(e) => update("guardianName", e.target.value)} /></label>
-              <label>Father's Occupation
-                <input value={form.fatherOccupation}
-                  onChange={(e) => update("fatherOccupation", e.target.value)} /></label>
-              <label>Mother's Occupation
-                <input value={form.motherOccupation}
-                  onChange={(e) => update("motherOccupation", e.target.value)} /></label>
-              <label>Father's Mobile
-                <input value={form.fatherMobile}
-                  onChange={(e) => update("fatherMobile", e.target.value)} /></label>
-              <label>Mother's Mobile
-                <input value={form.motherMobile}
-                  onChange={(e) => update("motherMobile", e.target.value)} /></label>
-              <label>Primary Mobile
-                <input value={form.mobileNumber}
-                  onChange={(e) => update("mobileNumber", e.target.value)} /></label>
-
-              <label className="fm-full-width">
-                Present Address
-                <textarea value={form.addressPresent}
-                  onChange={(e) => update("addressPresent", e.target.value)} />
-              </label>
-
-              <div className="fm-full-width" style={{ marginTop: -6 }}>
-                <label className="fm-checkbox-row" style={{ marginBottom: 6 }}>
-                  <input type="checkbox" checked={sameAsPresent}
-                    onChange={(e) => {
-                      setSameAsPresent(e.target.checked);
-                      if (!e.target.checked) update("addressPermanent", "");
-                    }} />
-                  Permanent address is the same as Present address
-                </label>
-              </div>
-
-              <label className="fm-full-width">
-                Permanent Address
-                <textarea value={form.addressPermanent}
-                  onChange={(e) => update("addressPermanent", e.target.value)}
-                  disabled={sameAsPresent}
-                  style={sameAsPresent ? { background: "#f5f7fa", cursor: "not-allowed" } : undefined} />
-              </label>
-            </div>
-          </div>
-
-          <div className="fm-form-section">
-            <h3>Aadhaar &amp; Identity</h3>
-            <div className="fm-form-grid">
-              <label>Student's Aadhaar
-                <input value={form.aadhaarStudent} maxLength={12}
-                  onChange={(e) => update("aadhaarStudent", e.target.value.replace(/\D/g, ""))} /></label>
-              <label>Father's Aadhaar
-                <input value={form.aadhaarFather} maxLength={12}
-                  onChange={(e) => update("aadhaarFather", e.target.value.replace(/\D/g, ""))} /></label>
-              <label>Mother's Aadhaar
-                <input value={form.aadhaarMother} maxLength={12}
-                  onChange={(e) => update("aadhaarMother", e.target.value.replace(/\D/g, ""))} /></label>
-              <label>Nationality
-                <input value={form.nationality}
-                  onChange={(e) => update("nationality", e.target.value)} /></label>
-              <label>Category
-                <select value={form.category}
-                  onChange={(e) => update("category", e.target.value)}>
-                  <option value="">—</option>
-                  <option>General</option>
-                  <option>OBC</option>
-                  <option>SC</option>
-                  <option>ST</option>
-                  <option>EWS</option>
-                  <option>Other</option>
-                </select></label>
-              <label>Religion
-                <input value={form.religion}
-                  onChange={(e) => update("religion", e.target.value)} /></label>
-              <label className="fm-full-width">Last Institution Attended
-                <input value={form.lastInstitution}
-                  onChange={(e) => update("lastInstitution", e.target.value)} /></label>
-            </div>
-          </div>
-
-          <div className="fm-form-section">
-            <h3>Photos &amp; Aadhaar Scans</h3>
-            <p className="fm-form-section-hint">
-              Each upload lets you use the camera or pick a file. Works on desktop and mobile.
-            </p>
-            <div className="fm-upload-grid">
-              {IMAGE_SLOTS.map(({ slot, label }) => (
-                <div key={slot} className="fm-upload-cell">
-                  <button
-                    type="button"
-                    className="fm-file-label"
-                    onClick={() => setCameraSlot(slot)}
-                    style={{ border: "1px dashed #b0b8c4", background: "#f5f7fa", cursor: "pointer", padding: "10px 14px" }}
-                  >
-                    📷 {label}
-                  </button>
-                  {/* Hidden file input for quick file selection on desktop */}
-                  <input
-                    type="file"
-                    accept="image/*"
-                    style={{ display: "none" }}
-                    id={`file-${slot}`}
-                    onChange={(e) => handleImageInput(slot, e.target.files?.[0])}
-                  />
-                  {images[slot]?.preview && (
-                    <img src={images[slot].preview} alt={label} className="fm-file-preview" />
-                  )}
-                </div>
-              ))}
-            </div>
-          </div>
-
-          <div className="fm-form-section">
-            <h3>Documents Submitted</h3>
-            <div className="fm-doc-checkbox-grid">
-              <label className="fm-checkbox-row">
-                <input type="checkbox" checked={form.docAadhaarStudent}
-                  onChange={(e) => update("docAadhaarStudent", e.target.checked)} />
-                Aadhaar — Student
-              </label>
-              <label className="fm-checkbox-row">
-                <input type="checkbox" checked={form.docAadhaarFather}
-                  onChange={(e) => update("docAadhaarFather", e.target.checked)} />
-                Aadhaar — Father
-              </label>
-              <label className="fm-checkbox-row">
-                <input type="checkbox" checked={form.docAadhaarMother}
-                  onChange={(e) => update("docAadhaarMother", e.target.checked)} />
-                Aadhaar — Mother
-              </label>
-              <label className="fm-checkbox-row">
-                <input type="checkbox" checked={form.docPhoto}
-                  onChange={(e) => update("docPhoto", e.target.checked)} />
-                Photo
-              </label>
-              <label className="fm-checkbox-row">
-                <input type="checkbox" checked={form.docTransferCertificate}
-                  onChange={(e) => update("docTransferCertificate", e.target.checked)} />
-                Transfer Certificate
-              </label>
-              <label className="fm-checkbox-row">
-                <input type="checkbox" checked={form.docBirthCertificate}
-                  onChange={(e) => update("docBirthCertificate", e.target.checked)} />
-                Birth Certificate
-              </label>
-            </div>
-          </div>
-
-          <div className="fm-form-section">
-            <h3>Additional Notes</h3>
-            <div className="fm-form-grid">
-              <label className="fm-full-width">Remarks
-                <textarea value={form.remarks}
-                  onChange={(e) => update("remarks", e.target.value)} /></label>
-            </div>
-          </div>
-
+          {renderFormFields(form, update, sameAsPresent, setSameAsPresent, images, setCameraSlot, "add")}
           <div style={{ marginTop: 24, display: "flex", gap: 12 }}>
             <button type="submit" disabled={saving} className="fm-primary-btn">
               {saving ? "Saving…" : "Create Student"}
@@ -718,6 +728,41 @@ export default function StudentDirectory({ session, onSelectStudent }) {
         </form>
       )}
 
+      {/* ---------- EDIT MODAL ---------- */}
+      {editStudent && (
+        <div className="fm-modal-overlay" style={{ zIndex: 9100 }}>
+          <div className="fm-modal fm-modal-wide">
+            <div className="fm-modal-header">
+              <h3>Edit Student — {editStudent.name}</h3>
+              <button type="button" className="fm-modal-close"
+                onClick={closeEdit} aria-label="Close">×</button>
+            </div>
+            {editError && <p className="fm-error">{editError}</p>}
+            <form onSubmit={saveEdit}>
+              {renderFormFields(
+                editForm,
+                updateEdit,
+                editSameAsPresent,
+                setEditSameAsPresent,
+                editImages,
+                setEditCameraSlot,
+                "edit"
+              )}
+              <div style={{ marginTop: 24, display: "flex", gap: 12 }}>
+                <button type="submit" disabled={editSaving} className="fm-primary-btn">
+                  {editSaving ? "Saving…" : "Save Changes"}
+                </button>
+                <button type="button" className="fm-secondary-btn"
+                  onClick={closeEdit}>
+                  Cancel
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ---------- CREATE CONFIRMATION ---------- */}
       {showConfirm && (
         <div className="fm-modal-overlay">
           <div className="fm-modal">
@@ -732,22 +777,12 @@ export default function StudentDirectory({ session, onSelectStudent }) {
                 <tr><td><strong>Mobile</strong></td><td>{form.mobileNumber || form.fatherMobile || "—"}</td></tr>
               </tbody>
             </table>
-            <p style={{ fontSize: 13, color: "#6b7280" }}>
-              This will create a new student record. You can undo this later with Delete.
-            </p>
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                className="fm-secondary-btn"
-                onClick={() => setShowConfirm(false)}
-              >
+              <button type="button" className="fm-secondary-btn"
+                onClick={() => setShowConfirm(false)}>
                 Cancel
               </button>
-              <button
-                type="button"
-                className="fm-primary-btn"
-                onClick={confirmCreate}
-              >
+              <button type="button" className="fm-primary-btn" onClick={confirmCreate}>
                 Yes, Create Student
               </button>
             </div>
@@ -755,6 +790,7 @@ export default function StudentDirectory({ session, onSelectStudent }) {
         </div>
       )}
 
+      {/* ---------- SEARCH + TABLE ---------- */}
       <form onSubmit={handleSearch} className="fm-search-row" style={{ marginTop: 24 }}>
         <input placeholder="Search by name or admission no."
           value={searchTerm}
@@ -818,14 +854,26 @@ export default function StudentDirectory({ session, onSelectStudent }) {
                   >
                     🖨 Print
                   </button>
-                  <button
-                    type="button"
-                    className="fm-btn-sm fm-btn-danger"
-                    onClick={() => handleDelete(s)}
-                    disabled={deleteBusy === s.id}
-                  >
-                    {deleteBusy === s.id ? "…" : "🗑 Delete"}
-                  </button>
+                  {canEdit && (
+                    <button
+                      type="button"
+                      className="fm-btn-sm fm-btn-edit"
+                      onClick={() => openEdit(s)}
+                      style={{ marginRight: 6 }}
+                    >
+                      ✏ Edit
+                    </button>
+                  )}
+                  {canDelete && (
+                    <button
+                      type="button"
+                      className="fm-btn-sm fm-btn-danger"
+                      onClick={() => handleDelete(s)}
+                      disabled={deleteBusy === s.id}
+                    >
+                      {deleteBusy === s.id ? "…" : "🗑 Delete"}
+                    </button>
+                  )}
                 </td>
               </tr>
             ))}
