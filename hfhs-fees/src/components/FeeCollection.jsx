@@ -13,8 +13,11 @@ import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
+const ADDON_ROLES = ["superAdmin", "admin", "accountant"];
 
-export default function FeeCollection({ session, month, onReceiptGenerated }) {
+export default function FeeCollection({ session, month, onReceiptGenerated, role }) {
+  const canManageAddons = ADDON_ROLES.includes(role);
+
   const [searchTerm, setSearchTerm] = useState("");
   const [results, setResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -51,8 +54,10 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
     try {
       const b = await getMonthlyBill(session, month, studentId);
       setBill(b);
+      return b;
     } catch (e) {
       setError(e.message);
+      return null;
     } finally {
       setLoadingBill(false);
     }
@@ -78,10 +83,9 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
 
   function showFlash(msg) {
     setFlash(msg);
-    setTimeout(() => setFlash(""), 1000);
+    setTimeout(() => setFlash(""), 1500);
   }
 
-  // Live preview values
   const transportAdd = transportEnabled ? Number(transportValue || 0) : 0;
   const amountAdd = Number(form.amountReceived || 0);
   const discountAdd = Number(form.discount || 0);
@@ -91,6 +95,31 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
   const projectedBalance = bill
     ? Math.max((bill.totalDue || 0) + transportAdd - (bill.totalPaid || 0) - netThisPayment, 0)
     : 0;
+
+  function buildParticularsFromBill(b, feeTypeLabel) {
+    const items = [];
+    if (!b) return items;
+
+    if ((b.tuitionBilled || 0) > 0) {
+      items.push({ label: feeTypeLabel || "Tuition Fee", amount: b.tuitionBilled });
+    }
+    if ((b.transportBilled || 0) > 0) {
+      items.push({ label: "Transport Fee", amount: b.transportBilled });
+    }
+    if ((b.devFeeBilled || 0) > 0) {
+      items.push({ label: "Development Fee", amount: b.devFeeBilled });
+    }
+    if ((b.booksBilled || 0) > 0) {
+      items.push({ label: "Books Fee", amount: b.booksBilled });
+    }
+    if ((b.previousYearBilled || 0) > 0) {
+      items.push({ label: "Previous Year Balance", amount: b.previousYearBilled });
+    }
+    if ((b.kitFeeBilled || 0) > 0) {
+      items.push({ label: "Admission / Kit Fee", amount: b.kitFeeBilled });
+    }
+    return items;
+  }
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -121,10 +150,17 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
           (transportEnabled ? ` [Transport ₹${transportValue}]` : ""),
       });
 
+      const freshBill = await refreshBill(selectedStudent.id);
+      const particulars = buildParticularsFromBill(freshBill || bill, form.feeType);
+
       const enrichedReceipt = {
         ...receipt,
+        particulars,
+        amountReceivedThisTransaction: totalReceived,
         transportFee: transportAdd,
-        tuitionFee: Number(form.amountReceived || 0),
+        totalDue: freshBill?.totalDue || 0,
+        remainingDue: freshBill?.carriedForward || 0,
+        previousDue: freshBill?.previousDue || 0,
       };
 
       onReceiptGenerated?.(enrichedReceipt, duplicateBlocked);
@@ -141,7 +177,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
       }));
       setTransportEnabled(false);
       setTransportValue(800);
-      await refreshBill(selectedStudent.id);
     } catch (err) {
       setError(err.message || "Payment could not be recorded.");
     } finally {
@@ -161,14 +196,15 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
         paymentDate: new Date().toISOString(),
         idempotencyKey: uuidv4(),
       });
-      showFlash(`✅ ${label} added`);
+
+      showFlash(`✅ ${label} ₹${amount} added`);
+      await refreshBill(selectedStudent.id);
+
       setAddonMsg(
         res.duplicateBlocked
           ? "This entry was already recorded."
-          : `Added ${label}. Receipt: ${res.receipt.receiptNumber}`
+          : `${label} ₹${amount} added. Receipt: ${res.receipt.receiptNumber}`
       );
-      setReceiptPopup(res.receipt);
-      await refreshBill(selectedStudent.id);
     } catch (e) {
       setAddonMsg(`❌ ${e.message}`);
     } finally {
@@ -291,7 +327,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
           )}
 
           <form onSubmit={handleSubmit} className="fm-payment-form">
-            {/* Row 1: Fee Type | Transport checkbox */}
             <label>
               Fee Type
               <select value={form.feeType}
@@ -302,21 +337,24 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
               </select>
             </label>
 
-            <label>
-              <span style={{ visibility: "hidden" }}>_</span>
-              <span style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", fontSize: 14 }}>
-                <input
-                  type="checkbox"
-                  checked={transportEnabled}
-                  onChange={(e) => setTransportEnabled(e.target.checked)}
-                  style={{ width: 16, height: 16, cursor: "pointer" }}
-                />
-                Include Transport Fee
-              </span>
-            </label>
+            {canManageAddons ? (
+              <label>
+                <span style={{ visibility: "hidden" }}>_</span>
+                <span style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", fontSize: 14 }}>
+                  <input
+                    type="checkbox"
+                    checked={transportEnabled}
+                    onChange={(e) => setTransportEnabled(e.target.checked)}
+                    style={{ width: 16, height: 16, cursor: "pointer" }}
+                  />
+                  Include Transport Fee
+                </span>
+              </label>
+            ) : (
+              <div />
+            )}
 
-            {/* Row 2: Transport amount (only when ticked) */}
-            {transportEnabled && (
+            {canManageAddons && transportEnabled && (
               <label>
                 Transport Amount (₹800–₹1500)
                 <input
@@ -330,7 +368,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
               </label>
             )}
 
-            {/* Row 3: Amount Received | Transaction/Reference */}
             <label>
               Amount Received (₹)
               <input type="number" required min="0" value={form.amountReceived}
@@ -343,7 +380,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
                 onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
             </label>
 
-            {/* Row 4: Payment Date | Payment Method */}
             <label>
               Payment Date
               <input type="date" value={form.paymentDate}
@@ -358,7 +394,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
               </select>
             </label>
 
-            {/* Row 5: Discount | Late Fee */}
             <label>
               Discount (₹)
               <input type="number" min="0" value={form.discount}
@@ -384,27 +419,29 @@ export default function FeeCollection({ session, month, onReceiptGenerated }) {
             </button>
           </form>
 
-          <div className="fm-addon-panel">
-            <h4>Add-on Fees</h4>
-            <p className="fm-subtle">One-time fees added to this month's bill.</p>
+          {canManageAddons && (
+            <div className="fm-addon-panel">
+              <h4>Add-on Fees</h4>
+              <p className="fm-subtle">One-time fees added to this month's bill.</p>
 
-            <div className="fm-addon-row-buttons">
-              <button type="button" className="fm-addon-btn" disabled={addonBusy}
-                onClick={() => promptForAmount("books")}>
-                📚 + Books
-              </button>
-              <button type="button" className="fm-addon-btn" disabled={addonBusy}
-                onClick={() => promptForAmount("previousYear")}>
-                📜 + Prev Year
-              </button>
-              <button type="button" className="fm-addon-btn" disabled={addonBusy}
-                onClick={() => promptForAmount("kit")}>
-                👕 + Admission / Kit
-              </button>
+              <div className="fm-addon-row-buttons">
+                <button type="button" className="fm-addon-btn" disabled={addonBusy}
+                  onClick={() => promptForAmount("books")}>
+                  📚 + Books
+                </button>
+                <button type="button" className="fm-addon-btn" disabled={addonBusy}
+                  onClick={() => promptForAmount("previousYear")}>
+                  📜 + Prev Year
+                </button>
+                <button type="button" className="fm-addon-btn" disabled={addonBusy}
+                  onClick={() => promptForAmount("kit")}>
+                  👕 + Admission / Kit
+                </button>
+              </div>
+
+              {addonMsg && <p className="fm-addon-msg">{addonMsg}</p>}
             </div>
-
-            {addonMsg && <p className="fm-addon-msg">{addonMsg}</p>}
-          </div>
+          )}
 
           <button type="button" className="fm-secondary-btn"
             onClick={() => {
