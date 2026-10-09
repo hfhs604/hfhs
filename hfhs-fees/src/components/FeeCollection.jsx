@@ -7,13 +7,26 @@ import {
   addBooksFee,
   addPreviousYearBalance,
   addKitFee,
-  MONTHLY_TUITION,
+  getSessionPaidTotal,
+  getLastPayment,
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 const ADDON_ROLES = ["superAdmin", "admin", "accountant"];
+
+function fmtDate(d) {
+  if (!d) return "—";
+  try {
+    const date = d instanceof Date ? d : new Date(d);
+    const day = String(date.getDate()).padStart(2, "0");
+    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
+    return `${day}-${months[date.getMonth()]}-${date.getFullYear()}`;
+  } catch {
+    return "—";
+  }
+}
 
 export default function FeeCollection({ session, month, onReceiptGenerated, role }) {
   const canManageAddons = ADDON_ROLES.includes(role);
@@ -22,6 +35,8 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
   const [results, setResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [bill, setBill] = useState(null);
+  const [sessionPaid, setSessionPaid] = useState(0);
+  const [lastPayment, setLastPayment] = useState(null);
   const [loadingBill, setLoadingBill] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -49,11 +64,17 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     remarks: "",
   });
 
-  async function refreshBill(studentId) {
+  async function refreshAll(studentId) {
     setLoadingBill(true);
     try {
-      const b = await getMonthlyBill(session, month, studentId);
+      const [b, sessionTotal, lastPay] = await Promise.all([
+        getMonthlyBill(session, month, studentId),
+        getSessionPaidTotal(studentId, session),
+        getLastPayment(studentId, session, month),
+      ]);
       setBill(b);
+      setSessionPaid(sessionTotal);
+      setLastPayment(lastPay);
       return b;
     } catch (e) {
       setError(e.message);
@@ -78,7 +99,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     setAddonMsg("");
     setTransportEnabled(false);
     setTransportValue(800);
-    await refreshBill(student.id);
+    await refreshAll(student.id);
   }
 
   function showFlash(msg) {
@@ -88,13 +109,10 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
   const transportAdd = transportEnabled ? Number(transportValue || 0) : 0;
   const amountAdd = Number(form.amountReceived || 0);
-  const discountAdd = Number(form.discount || 0);
-  const lateAdd = Number(form.lateFee || 0);
-  const netThisPayment = amountAdd + transportAdd + lateAdd - discountAdd;
-  const projectedTotalDue = bill ? (bill.totalDue || 0) + transportAdd : 0;
-  const projectedBalance = bill
-    ? Math.max((bill.totalDue || 0) + transportAdd - (bill.totalPaid || 0) - netThisPayment, 0)
-    : 0;
+
+  const displayTotal = bill ? (bill.totalDue || 0) + transportAdd : 0;
+  const displayTotalPaidThisMonth = bill ? (bill.totalPaid || 0) : 0;
+  const displayBalance = Math.max(displayTotal - displayTotalPaidThisMonth, 0);
 
   function buildParticularsFromBill(b, feeTypeLabel) {
     const items = [];
@@ -137,9 +155,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     setError(null);
     try {
       const totalReceived = amountAdd + transportAdd;
-
-      // ---- Snapshot the balance BEFORE this payment ----
-      // This is what the receipt should show as "Total Amount".
       const balanceBefore = bill ? (bill.carriedForward || 0) : 0;
 
       const { receipt, duplicateBlocked } = await collectPayment({
@@ -154,19 +169,16 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
           (transportEnabled ? ` [Transport ₹${transportValue}]` : ""),
       });
 
-      const freshBill = await refreshBill(selectedStudent.id);
+      const freshBill = await refreshAll(selectedStudent.id);
       const particulars = buildParticularsFromBill(freshBill || bill, form.feeType);
 
-      // Total Amount on this receipt = balance before this payment.
-      // Balance after this payment = freshBill.carriedForward.
       const enrichedReceipt = {
         ...receipt,
         particulars,
         amountReceivedThisTransaction: totalReceived,
         transportFee: transportAdd,
-        // Override so the receipt shows the running-ledger view
-        totalDue: balanceBefore,                          // was the previous balance
-        remainingDue: freshBill?.carriedForward || 0,     // new balance
+        totalDue: balanceBefore,
+        remainingDue: freshBill?.carriedForward || 0,
         previousDue: freshBill?.previousDue || 0,
       };
 
@@ -205,7 +217,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
       });
 
       showFlash(`✅ ${label} ₹${amount} added`);
-      await refreshBill(selectedStudent.id);
+      await refreshAll(selectedStudent.id);
 
       setAddonMsg(
         res.duplicateBlocked
@@ -276,60 +288,74 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
           {loadingBill && <p className="fm-subtle">Loading bill…</p>}
 
           {bill && (
-            <div className="fm-bill-breakdown">
-              <h4>Current Month Bill ({month})</h4>
-              <table className="fm-bill-table">
-                <tbody>
-                  {bill.previousDue > 0 && (
-                    <tr className="fm-row-prev">
-                      <td>Previous Due (carried forward)</td>
-                      <td align="right">₹{bill.previousDue}</td>
-                    </tr>
-                  )}
-                  <tr>
-                    <td>Tuition (this month)</td>
-                    <td align="right">₹{bill.tuitionBilled || 0}</td>
-                  </tr>
-                  {bill.devFeeBilled > 0 && (
-                    <tr><td>Development Fee</td><td align="right">₹{bill.devFeeBilled}</td></tr>
-                  )}
-                  {(bill.transportBilled > 0 || transportAdd > 0) && (
+            <div className="fm-bill-two-col">
+              <div className="fm-bill-left">
+                <h4>Current Month Bill ({month})</h4>
+                <table className="fm-bill-table">
+                  <tbody>
+                    {bill.previousDue > 0 && (
+                      <tr className="fm-row-prev">
+                        <td>Previous Due</td>
+                        <td align="right">₹{bill.previousDue}</td>
+                      </tr>
+                    )}
                     <tr>
-                      <td>Transport {transportAdd > 0 && bill.transportBilled === 0 ? "(adding now)" : ""}</td>
-                      <td align="right">₹{(bill.transportBilled || 0) + (bill.transportBilled === 0 ? transportAdd : 0)}</td>
+                      <td>Tuition</td>
+                      <td align="right">₹{bill.tuitionBilled || 0}</td>
                     </tr>
-                  )}
-                  {bill.booksBilled > 0 && (
-                    <tr><td>Books</td><td align="right">₹{bill.booksBilled}</td></tr>
-                  )}
-                  {bill.previousYearBilled > 0 && (
-                    <tr><td>Previous Year Balance</td><td align="right">₹{bill.previousYearBilled}</td></tr>
-                  )}
-                  {bill.kitFeeBilled > 0 && (
-                    <tr><td>Admission / Kit Fee</td><td align="right">₹{bill.kitFeeBilled}</td></tr>
-                  )}
+                    {bill.devFeeBilled > 0 && (
+                      <tr><td>Development Fee</td><td align="right">₹{bill.devFeeBilled}</td></tr>
+                    )}
+                    {(bill.transportBilled > 0 || transportAdd > 0) && (
+                      <tr>
+                        <td>Transport {transportAdd > 0 && bill.transportBilled === 0 ? "(adding now)" : ""}</td>
+                        <td align="right">₹{(bill.transportBilled || 0) + (bill.transportBilled === 0 ? transportAdd : 0)}</td>
+                      </tr>
+                    )}
+                    {bill.booksBilled > 0 && (
+                      <tr><td>Books</td><td align="right">₹{bill.booksBilled}</td></tr>
+                    )}
+                    {bill.previousYearBilled > 0 && (
+                      <tr><td>Previous Year Balance</td><td align="right">₹{bill.previousYearBilled}</td></tr>
+                    )}
+                    {bill.kitFeeBilled > 0 && (
+                      <tr><td>Admission / Kit Fee</td><td align="right">₹{bill.kitFeeBilled}</td></tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
 
-                  <tr className="fm-row-total">
-                    <td><strong>Total Due</strong></td>
-                    <td align="right">
-                      <strong>₹{projectedTotalDue}</strong>
-                      {transportAdd > 0 && (
-                        <span style={{ fontSize: 11, color: "#6b7280", marginLeft: 6 }}>
-                          (was ₹{bill.totalDue})
-                        </span>
-                      )}
-                    </td>
-                  </tr>
-                  <tr>
-                    <td>Total Paid</td>
-                    <td align="right">₹{(bill.totalPaid || 0) + netThisPayment}</td>
-                  </tr>
-                  <tr className="fm-row-balance">
-                    <td><strong>Balance</strong></td>
-                    <td align="right"><strong>₹{projectedBalance}</strong></td>
-                  </tr>
-                </tbody>
-              </table>
+              <div className="fm-bill-right">
+                <div className="fm-bill-stat">
+                  <span className="fm-bill-stat-label">Total</span>
+                  <span className="fm-bill-stat-value">₹{displayTotal}</span>
+                </div>
+
+                <div className="fm-bill-stat">
+                  <span className="fm-bill-stat-label">Amount Received (This Month)</span>
+                  <span className="fm-bill-stat-value">₹{displayTotalPaidThisMonth}</span>
+                  {lastPayment && (
+                    <span className="fm-bill-stat-sub">
+                      Last: {fmtDate(lastPayment.date)} · ₹{lastPayment.amount}
+                    </span>
+                  )}
+                </div>
+
+                <div className="fm-bill-stat">
+                  <span className="fm-bill-stat-label">Amount Received</span>
+                  <span className="fm-bill-stat-value">₹{amountAdd}</span>
+                </div>
+
+                <div className="fm-bill-stat fm-bill-stat-balance">
+                  <span className="fm-bill-stat-label">Balance</span>
+                  <span className="fm-bill-stat-value">₹{displayBalance}</span>
+                </div>
+
+                <div className="fm-bill-stat fm-bill-stat-session">
+                  <span className="fm-bill-stat-label">Session Paid (till date)</span>
+                  <span className="fm-bill-stat-value">₹{sessionPaid}</span>
+                </div>
+              </div>
             </div>
           )}
 
@@ -454,6 +480,8 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             onClick={() => {
               setSelectedStudent(null);
               setBill(null);
+              setSessionPaid(0);
+              setLastPayment(null);
               setResults([]);
               setSearchTerm("");
               setError(null);
