@@ -1,0 +1,184 @@
+/* ===========================================================================
+   Demand Slip printing — 6 slips per A4 landscape page (3 cols × 2 rows)
+   =========================================================================== */
+
+.demand-slip-root {
+  padding: 16px;
+  background: #f5f6f8;
+}
+
+.demand-slip-toolbar {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 16px;
+}
+.demand-slip-toolbar button {
+  background: #1a3d6d;
+  color: #fff;
+  border: none;
+  padding: 8px 16px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 14px;
+}
+.demand-slip-toolbar-hint {
+  color: #6b7280;
+  font-size: 13px;
+}
+
+/* A4 landscape page */
+.demand-a4-page {
+  background: #fff;
+  width: 297mm;
+  height: 210mm;
+  padding: 5mm;
+  margin: 0 auto 16px;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
+  box-sizing: border-box;
+  page-break-after: always;
+}
+.demand-a4-page:last-child {
+  page-break-after: auto;
+}
+
+.demand-a4-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  grid-template-rows: repeat(2, 1fr);
+  gap: 3mm;
+  height: 100%;
+}
+
+.demand-a4-cell {
+  border: 1px dashed #cbd5e1;
+  border-radius: 3px;
+  padding: 3mm;
+  overflow: hidden;
+  font-size: 9px;
+  box-sizing: border-box;
+}
+.demand-a4-cell-blank {
+  border-color: transparent;
+}
+
+/* ---- Demand slip card ---- */
+.demand-slip {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  font-family: "Segoe UI", Arial, sans-serif;
+  color: #1f2937;
+}
+
+.demand-slip-header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 1.5px solid #1a3d6d;
+  padding-bottom: 4px;
+  margin-bottom: 4px;
+}
+.demand-slip-logo {
+  width: 26px;
+  height: 26px;
+  object-fit: contain;
+  flex-shrink: 0;
+}
+.demand-slip-header-text { flex: 1; text-align: center; }
+.demand-slip-header-text h3 {
+  margin: 0;
+  font-size: 10px;
+  color: #1a3d6d;
+  font-weight: 700;
+  line-height: 1.1;
+  letter-spacing: 0.3px;
+}
+.demand-slip-header-text p {
+  margin: 1px 0 0;
+  font-size: 6.5px;
+  color: #4b5563;
+}
+
+.demand-slip-title {
+  text-align: center;
+  background: #1a3d6d;
+  color: #fff;
+  padding: 3px 0;
+  border-radius: 3px;
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.8px;
+  margin-bottom: 4px;
+}
+
+.demand-slip-student {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 1px 5px;
+  font-size: 7px;
+  margin-bottom: 4px;
+}
+.demand-slip-student .demand-slip-full {
+  grid-column: 1 / -1;
+}
+
+.demand-slip-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 7px;
+  margin-bottom: 3px;
+}
+.demand-slip-table th {
+  background: #f5f7fa;
+  border: 1px solid #cbd5e1;
+  padding: 2px 4px;
+  text-align: left;
+  font-weight: 600;
+}
+.demand-slip-table td {
+  border: 1px solid #e5e7eb;
+  padding: 2px 4px;
+}
+
+.demand-slip-total {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: #fee2e2;
+  color: #991b1b;
+  font-weight: 700;
+  font-size: 9px;
+  padding: 4px 6px;
+  border-radius: 3px;
+  margin-bottom: 4px;
+}
+
+.demand-slip-footer {
+  margin-top: auto;
+  text-align: center;
+  font-size: 6.5px;
+  color: #4b5563;
+  border-top: 1px dashed #cbd5e1;
+  padding-top: 3px;
+}
+.demand-slip-footer strong {
+  color: #1a3d6d;
+}
+
+/* Print rules */
+@media print {
+  .demand-slip-root { padding: 0; background: #fff; }
+  .demand-slip-toolbar { display: none !important; }
+  .demand-a4-page {
+    box-shadow: none;
+    margin: 0;
+    padding: 5mm;
+    width: 297mm;
+    height: 210mm;
+  }
+  @page {
+    size: A4 landscape;
+    margin: 0;
+  }
+}
