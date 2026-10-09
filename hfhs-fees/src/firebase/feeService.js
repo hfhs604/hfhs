@@ -337,7 +337,7 @@ export async function collectPayment({
 }
 
 // ---------------------------------------------------------------------------
-// Add-on fees — these INCREASE the bill, they are NOT payments
+// Add-on fees — INCREASE the bill, they are NOT payments
 // ---------------------------------------------------------------------------
 async function addLineItem({
   studentId, session, month, amount, field, componentType, feeType, remarks,
@@ -373,7 +373,7 @@ async function addLineItem({
       voided: false,
     });
 
-    // ✅ Add-ons increase the bill only. totalPaid stays the same.
+    // ✅ Add-ons increase the bill ONLY. totalPaid is untouched.
     const newPaid = bill.totalPaid || 0;
     const newCarry = newDue - newPaid;
 
@@ -533,6 +533,7 @@ export async function getDashboardStats(session, month) {
   const byMethod = {};
 
   txns.forEach((t) => {
+    if (t.componentType && t.componentType !== "monthly") return;
     const paidAt = t.paymentDate ? new Date(t.paymentDate) : t.createdAt?.toDate?.();
     const amt = t.netAmount || 0;
     totalCollection += amt;
@@ -556,7 +557,7 @@ export async function getDashboardStats(session, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Fee structures (kept for backward compatibility)
+// Fee structures (backward compat)
 // ---------------------------------------------------------------------------
 export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
   const id = `${session}_${className}`;
@@ -707,7 +708,7 @@ export async function reserveAdmissionNumber() {
 }
 
 // ---------------------------------------------------------------------------
-// Full student update (admin / accountant)
+// Full student update
 // ---------------------------------------------------------------------------
 export async function updateStudentFull(studentId, updates) {
   const user = currentUser();
@@ -739,7 +740,7 @@ export async function updateStudentFull(studentId, updates) {
 }
 
 // ---------------------------------------------------------------------------
-// Delete student + all related data (super admin only)
+// Delete student + all related data
 // ---------------------------------------------------------------------------
 export async function deleteStudentCompletely(studentId, studentName) {
   const user = currentUser();
@@ -890,4 +891,65 @@ export async function setStudentTransport(studentId, amount) {
   });
 
   return { transportOpted: amt > 0, transportAmount: amt };
+}
+
+// ---------------------------------------------------------------------------
+// Session-to-date payments
+// ---------------------------------------------------------------------------
+export async function getSessionPaidTotal(studentId, session) {
+  try {
+    const snap = await getDocs(collection(db, COL.transactions));
+    let total = 0;
+    snap.docs.forEach((d) => {
+      const t = d.data();
+      if (t.studentId !== studentId) return;
+      if (session && t.session !== session) return;
+      if (t.voided === true) return;
+      if (t.componentType && t.componentType !== "monthly") return;
+      total += Number(t.netAmount || 0);
+    });
+    return total;
+  } catch (err) {
+    console.warn("getSessionPaidTotal failed:", err.message);
+    return 0;
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Last payment (most recent monthly payment this month)
+// ---------------------------------------------------------------------------
+export async function getLastPayment(studentId, session, month) {
+  try {
+    const snap = await getDocs(collection(db, COL.transactions));
+    let latest = null;
+    snap.docs.forEach((d) => {
+      const t = d.data();
+      if (t.studentId !== studentId) return;
+      if (session && t.session !== session) return;
+      if (month && t.month !== month) return;
+      if (t.voided === true) return;
+      if (t.componentType && t.componentType !== "monthly") return;
+
+      const paidAt =
+        t.paymentDate instanceof Object && t.paymentDate.toDate
+          ? t.paymentDate.toDate()
+          : new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
+      const ts = paidAt.getTime();
+      if (!latest || ts > latest.ts) {
+        latest = {
+          ts,
+          amount: Number(t.netAmount || 0),
+          paymentDate: paidAt,
+        };
+      }
+    });
+    if (!latest) return null;
+    return {
+      amount: latest.amount,
+      date: latest.paymentDate,
+    };
+  } catch (err) {
+    console.warn("getLastPayment failed:", err.message);
+    return null;
+  }
 }
