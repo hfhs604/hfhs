@@ -13,11 +13,10 @@ export default function ReceiptCard({ receipt, school }) {
   const disc = Number(discount || 0);
   const late = Number(lateFee || 0);
   const prevDue = Number(previousDue || 0);
-  const balance = Number(remainingDue || 0);
   const thisAmount = Number(amountReceivedThisTransaction ?? amountReceived ?? 0);
-  const totalReceivedThis = thisAmount + late - disc;
-
-  const monthTotal = Number(totalDue || 0) || (prevDue + totalReceivedThis);
+  const amountReceivedNow = thisAmount + late - disc;
+  const totalAmount = Number(totalDue || 0) || (prevDue + amountReceivedNow);
+  const balance = Number(remainingDue || 0);
 
   let rows = Array.isArray(passedParticulars) && passedParticulars.length > 0
     ? passedParticulars.map((p) => ({ ...p }))
@@ -95,11 +94,11 @@ export default function ReceiptCard({ receipt, school }) {
       <div className="receipt-summary-block">
         <div className="receipt-summary-line">
           <span>Total Amount</span>
-          <span>₹{monthTotal.toFixed(0)}</span>
+          <span>₹{totalAmount.toFixed(0)}</span>
         </div>
         <div className="receipt-summary-line">
           <span>Amount Received</span>
-          <span>₹{totalReceivedThis.toFixed(0)}</span>
+          <span>₹{amountReceivedNow.toFixed(0)}</span>
         </div>
         <div className="receipt-summary-line receipt-summary-balance">
           <span>Balance</span>
