@@ -1,6 +1,7 @@
 /**
  * feeService.js
  * Fee Management data layer for Holy Faith High School.
+ * Optimized for minimal Firestore reads.
  */
 
 import { db, auth } from "../firebase/config";
@@ -123,26 +124,47 @@ export function computeBalanceView(student) {
   return { ...student, totalDue: due, totalAdvance: advance, accountStatus: status };
 }
 
+/**
+ * Server-side prefix search on name OR admissionNumber.
+ * Reads at most ~30 docs instead of the whole collection.
+ */
 export async function searchStudents(term) {
-  const cleanedTerm = (term || "").trim().toLowerCase();
-  if (!cleanedTerm) return [];
+  const t = (term || "").trim();
+  if (!t) return [];
 
-  let all = [];
+  const results = new Map();
+
+  // Try name prefix
   try {
-    const snap = await getDocs(collection(db, COL.students));
-    all = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    const nameQuery = query(
+      collection(db, COL.students),
+      where("name", ">=", t),
+      where("name", "<=", t + "\uf8ff"),
+      fsLimit(20)
+    );
+    const snap = await getDocs(nameQuery);
+    snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
   } catch (err) {
-    console.warn("searchStudents: fetch failed:", err.message);
-    return [];
+    console.warn("searchStudents: name query failed:", err.message);
   }
 
-  const matches = all.filter((s) => {
-    const name = (s.name || "").toLowerCase();
-    const adm = String(s.admissionNumber || "").toLowerCase();
-    return name.includes(cleanedTerm) || adm.includes(cleanedTerm);
-  });
+  // Try admissionNumber prefix (only if term looks numeric)
+  if (/^\d+$/.test(t)) {
+    try {
+      const admQuery = query(
+        collection(db, COL.students),
+        where("admissionNumber", ">=", t),
+        where("admissionNumber", "<=", t + "\uf8ff"),
+        fsLimit(20)
+      );
+      const snap = await getDocs(admQuery);
+      snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
+    } catch (err) {
+      console.warn("searchStudents: admissionNumber query failed:", err.message);
+    }
+  }
 
-  return matches.slice(0, 30);
+  return Array.from(results.values());
 }
 
 // ---------------------------------------------------------------------------
@@ -159,13 +181,13 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
 
   let students = [];
   try {
-    const snap = await getDocs(collection(db, COL.students));
+    const snap = await getDocs(
+      query(collection(db, COL.students), where("session", "==", session))
+    );
     students = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
     throw new Error(`Could not read students: ${err.message}`);
   }
-
-  students = students.filter((s) => s.session === session);
 
   if (students.length === 0) {
     throw new Error(
@@ -337,7 +359,7 @@ export async function collectPayment({
 }
 
 // ---------------------------------------------------------------------------
-// Add-on fees — INCREASE the bill, they are NOT payments
+// Add-on fees
 // ---------------------------------------------------------------------------
 async function addLineItem({
   studentId, session, month, amount, field, componentType, feeType, remarks,
@@ -373,7 +395,6 @@ async function addLineItem({
       voided: false,
     });
 
-    // ✅ Add-ons increase the bill ONLY. totalPaid is untouched.
     const newPaid = bill.totalPaid || 0;
     const newCarry = newDue - newPaid;
 
@@ -500,27 +521,34 @@ export async function getDashboardStats(session, month) {
 
   let students = [];
   try {
-    const snap = await getDocs(collection(db, COL.students));
-    students = snap.docs.map((d) => ({ id: d.id, ...d.data() }))
-      .filter((s) => s.session === session);
+    const snap = await getDocs(
+      query(collection(db, COL.students), where("session", "==", session))
+    );
+    students = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
     console.warn("getDashboardStats: students read failed:", err.message);
   }
 
   let bills = [];
   try {
-    const snap = await getDocs(collection(db, COL.monthlyBills));
-    bills = snap.docs.map((d) => d.data())
-      .filter((b) => b.session === session && b.month === targetMonth);
+    const snap = await getDocs(
+      query(
+        collection(db, COL.monthlyBills),
+        where("session", "==", session),
+        where("month", "==", targetMonth)
+      )
+    );
+    bills = snap.docs.map((d) => d.data());
   } catch (err) {
     console.warn("getDashboardStats: bills read failed:", err.message);
   }
 
   let txns = [];
   try {
-    const snap = await getDocs(collection(db, COL.transactions));
-    txns = snap.docs.map((d) => d.data())
-      .filter((t) => t.session === session && t.voided !== true);
+    const snap = await getDocs(
+      query(collection(db, COL.transactions), where("session", "==", session))
+    );
+    txns = snap.docs.map((d) => d.data()).filter((t) => t.voided !== true);
   } catch (err) {
     console.warn("getDashboardStats: transactions read failed:", err.message);
   }
@@ -578,7 +606,7 @@ export async function getFeeStructure(session, className) {
 }
 
 // ---------------------------------------------------------------------------
-// Payment history
+// Payment history — indexed by studentId
 // ---------------------------------------------------------------------------
 export async function getPaymentHistory(studentId) {
   try {
@@ -590,13 +618,77 @@ export async function getPaymentHistory(studentId) {
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
-    console.warn("getPaymentHistory: using client-side fallback:", err.message);
-    const snap = await getDocs(collection(db, COL.transactions));
+    console.warn("getPaymentHistory: falling back (likely missing index):", err.message);
+    const snap = await getDocs(
+      query(collection(db, COL.transactions), where("studentId", "==", studentId))
+    );
     return snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((t) => t.studentId === studentId)
       .sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0));
   }
+}
+
+/**
+ * Combines "session paid total" and "last payment" into ONE query.
+ * Returns both numbers with only one read pass over this student's txns.
+ */
+export async function getStudentPaymentSummary(studentId, session, month) {
+  try {
+    const q = query(
+      collection(db, COL.transactions),
+      where("studentId", "==", studentId)
+    );
+    const snap = await getDocs(q);
+
+    let sessionTotal = 0;
+    let lastPayment = null;
+    let monthTotal = 0;
+
+    snap.docs.forEach((d) => {
+      const t = d.data();
+      if (session && t.session !== session) return;
+      if (t.voided === true) return;
+      if (t.componentType && t.componentType !== "monthly") return;
+
+      const amt = Number(t.netAmount || 0);
+      sessionTotal += amt;
+
+      if (month && t.month === month) {
+        monthTotal += amt;
+      }
+
+      const paidAt =
+        t.paymentDate && typeof t.paymentDate.toDate === "function"
+          ? t.paymentDate.toDate()
+          : new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
+      const ts = paidAt.getTime();
+      if (!lastPayment || ts > lastPayment.ts) {
+        lastPayment = { ts, amount: amt, date: paidAt };
+      }
+    });
+
+    return {
+      sessionTotal,
+      monthTotal,
+      lastPayment: lastPayment
+        ? { amount: lastPayment.amount, date: lastPayment.date }
+        : null,
+    };
+  } catch (err) {
+    console.warn("getStudentPaymentSummary failed:", err.message);
+    return { sessionTotal: 0, monthTotal: 0, lastPayment: null };
+  }
+}
+
+// Legacy wrappers (still exported to avoid breaking call sites)
+export async function getSessionPaidTotal(studentId, session) {
+  const s = await getStudentPaymentSummary(studentId, session);
+  return s.sessionTotal;
+}
+
+export async function getLastPayment(studentId, session, month) {
+  const s = await getStudentPaymentSummary(studentId, session, month);
+  return s.lastPayment;
 }
 
 // ---------------------------------------------------------------------------
@@ -628,7 +720,7 @@ export async function getAuditLogs({ studentId, limitCount = 100 } = {}) {
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
-    console.warn("getAuditLogs: using client-side fallback:", err.message);
+    console.warn("getAuditLogs: falling back:", err.message);
     const snap = await getDocs(collection(db, COL.auditLogs));
     let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (studentId) rows = rows.filter((r) => r.studentId === studentId);
@@ -891,65 +983,4 @@ export async function setStudentTransport(studentId, amount) {
   });
 
   return { transportOpted: amt > 0, transportAmount: amt };
-}
-
-// ---------------------------------------------------------------------------
-// Session-to-date payments
-// ---------------------------------------------------------------------------
-export async function getSessionPaidTotal(studentId, session) {
-  try {
-    const snap = await getDocs(collection(db, COL.transactions));
-    let total = 0;
-    snap.docs.forEach((d) => {
-      const t = d.data();
-      if (t.studentId !== studentId) return;
-      if (session && t.session !== session) return;
-      if (t.voided === true) return;
-      if (t.componentType && t.componentType !== "monthly") return;
-      total += Number(t.netAmount || 0);
-    });
-    return total;
-  } catch (err) {
-    console.warn("getSessionPaidTotal failed:", err.message);
-    return 0;
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Last payment (most recent monthly payment this month)
-// ---------------------------------------------------------------------------
-export async function getLastPayment(studentId, session, month) {
-  try {
-    const snap = await getDocs(collection(db, COL.transactions));
-    let latest = null;
-    snap.docs.forEach((d) => {
-      const t = d.data();
-      if (t.studentId !== studentId) return;
-      if (session && t.session !== session) return;
-      if (month && t.month !== month) return;
-      if (t.voided === true) return;
-      if (t.componentType && t.componentType !== "monthly") return;
-
-      const paidAt =
-        t.paymentDate instanceof Object && t.paymentDate.toDate
-          ? t.paymentDate.toDate()
-          : new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
-      const ts = paidAt.getTime();
-      if (!latest || ts > latest.ts) {
-        latest = {
-          ts,
-          amount: Number(t.netAmount || 0),
-          paymentDate: paidAt,
-        };
-      }
-    });
-    if (!latest) return null;
-    return {
-      amount: latest.amount,
-      date: latest.paymentDate,
-    };
-  } catch (err) {
-    console.warn("getLastPayment failed:", err.message);
-    return null;
-  }
 }
