@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import {
   searchStudents,
@@ -52,6 +52,16 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
   const [transportValue, setTransportValue] = useState(800);
 
   const [receiptPopup, setReceiptPopup] = useState(null);
+
+  // Add/remove body class when the popup is open, so print CSS can isolate it.
+  useEffect(() => {
+    if (receiptPopup) {
+      document.body.classList.add("printing-receipt");
+    } else {
+      document.body.classList.remove("printing-receipt");
+    }
+    return () => document.body.classList.remove("printing-receipt");
+  }, [receiptPopup]);
 
   const [form, setForm] = useState({
     amountReceived: "",
@@ -310,7 +320,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
           {bill && (
             <div className="fm-bill-two-col fm-bill-two-col-compact">
-              {/* LEFT — itemized details */}
               <div className="fm-bill-left">
                 <table className="fm-bill-table fm-bill-table-compact">
                   <tbody>
@@ -346,7 +355,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                 </table>
               </div>
 
-              {/* RIGHT — 2×2 stats grid */}
               <div className="fm-bill-right fm-bill-right-compact">
                 <div className="fm-bill-session-line">
                   <span>Session Paid (till date)</span>
@@ -380,7 +388,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             </div>
           )}
 
-          {/* COMPACT PAYMENT FORM */}
           <form onSubmit={handleSubmit} className="fm-payment-form fm-payment-form-compact">
             <label>
               Fee Type
@@ -470,7 +477,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
           {error && <p className="fm-error">{error}</p>}
           {addonMsg && <p className="fm-addon-msg">{addonMsg}</p>}
 
-          {/* ACTION ROW: add-ons + back + record */}
           <div className="fm-action-row">
             {canManageAddons && (
               <div className="fm-action-addons">
@@ -569,7 +575,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
       )}
 
       {receiptPopup && (
-        <div className="fm-modal-overlay" style={{ zIndex: 9500 }}>
+        <div className="fm-modal-overlay fm-receipt-popup" style={{ zIndex: 9500 }}>
           <div style={{
             background: "#fff",
             borderRadius: 10,
@@ -579,7 +585,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             maxHeight: "90vh",
             overflowY: "auto",
           }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+            <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <h3 style={{ margin: 0, color: "#1a3d6d" }}>Payment Receipt</h3>
               <button
                 type="button"
@@ -592,7 +598,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
             <ReceiptPrintSheet receipts={[receiptPopup]} />
 
-            <div style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
+            <div className="no-print" style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
               <button type="button" className="fm-secondary-btn"
                 onClick={() => setReceiptPopup(null)}>Close</button>
               <button type="button" className="fm-primary-btn"
