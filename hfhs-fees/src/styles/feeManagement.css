@@ -1221,3 +1221,38 @@ input[type="range"]:disabled {
     text-align: center;
   }
 }
+/* ===========================================================================
+   Print isolation for the receipt popup
+   When the receipt popup is open, hide everything else on the page.
+   =========================================================================== */
+@media print {
+  body.printing-receipt .fm-app {
+    display: none !important;
+  }
+
+  body.printing-receipt .fm-receipt-popup {
+    position: static !important;
+    background: #fff !important;
+    display: block !important;
+    padding: 0 !important;
+    inset: auto !important;
+    z-index: auto !important;
+    width: auto !important;
+    height: auto !important;
+  }
+
+  body.printing-receipt .fm-receipt-popup > div {
+    background: #fff !important;
+    box-shadow: none !important;
+    border-radius: 0 !important;
+    max-width: none !important;
+    width: auto !important;
+    max-height: none !important;
+    padding: 0 !important;
+    overflow: visible !important;
+  }
+
+  body.printing-receipt .no-print {
+    display: none !important;
+  }
+}
