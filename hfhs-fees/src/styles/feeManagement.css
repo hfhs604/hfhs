@@ -608,6 +608,59 @@
   color: #059669;
 }
 
+/* Session paid line + 2x2 stats grid (used in the compact Collect Fee panel) */
+.fm-bill-session-line {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 0.78em;
+  color: #6b7280;
+  border-bottom: 1px dashed #cbd5e1;
+  padding-bottom: 6px;
+  margin-bottom: 6px;
+}
+.fm-bill-session-line strong {
+  color: #059669;
+  font-size: 1.1em;
+}
+
+.fm-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+.fm-stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 6px 8px;
+  background: #fff;
+  border-radius: 6px;
+  border: 1px solid #e5e7eb;
+  min-height: 56px;
+}
+.fm-stat-cell-label {
+  font-size: 0.68em;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.fm-stat-cell-value {
+  font-size: 1.15em;
+  font-weight: 700;
+  color: #1a3d6d;
+  line-height: 1.1;
+}
+.fm-stat-cell-sub {
+  font-size: 0.68em;
+  color: #6b7280;
+  font-style: italic;
+}
+.fm-stat-cell-balance .fm-stat-cell-value {
+  color: #c62828;
+}
+
 /* ---------------------------------------------------------------------------
    Add-on panel
    --------------------------------------------------------------------------- */
@@ -682,7 +735,7 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Action row (bottom of Collect Fee — add-ons + buttons)
+   Action row (bottom of Collect Fee)
    --------------------------------------------------------------------------- */
 .fm-action-row {
   display: flex;
@@ -742,7 +795,7 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Flash message — 1.5s toast
+   Flash message
    --------------------------------------------------------------------------- */
 .fm-flash {
   position: fixed;
@@ -837,7 +890,7 @@
 }
 
 /* ---------------------------------------------------------------------------
-   Small action buttons (Print / Delete / Edit in Students table)
+   Small action buttons
    --------------------------------------------------------------------------- */
 .fm-btn-sm {
   display: inline-flex;
@@ -1103,6 +1156,8 @@ input[type="range"]:disabled {
 
 /* ---------------------------------------------------------------------------
    Print styles
+   Note: .receipt-print-root handles its own print isolation in receipt.css.
+   These rules apply to reports and tables when the receipt popup is NOT open.
    --------------------------------------------------------------------------- */
 @media print {
   .fm-app-header,
@@ -1219,40 +1274,5 @@ input[type="range"]:disabled {
   .fm-nav-btn {
     flex: 1 1 45%;
     text-align: center;
-  }
-}
-/* ===========================================================================
-   Print isolation for the receipt popup
-   When the receipt popup is open, hide everything else on the page.
-   =========================================================================== */
-@media print {
-  body.printing-receipt .fm-app {
-    display: none !important;
-  }
-
-  body.printing-receipt .fm-receipt-popup {
-    position: static !important;
-    background: #fff !important;
-    display: block !important;
-    padding: 0 !important;
-    inset: auto !important;
-    z-index: auto !important;
-    width: auto !important;
-    height: auto !important;
-  }
-
-  body.printing-receipt .fm-receipt-popup > div {
-    background: #fff !important;
-    box-shadow: none !important;
-    border-radius: 0 !important;
-    max-width: none !important;
-    width: auto !important;
-    max-height: none !important;
-    padding: 0 !important;
-    overflow: visible !important;
-  }
-
-  body.printing-receipt .no-print {
-    display: none !important;
   }
 }
