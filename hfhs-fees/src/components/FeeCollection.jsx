@@ -7,8 +7,7 @@ import {
   addBooksFee,
   addPreviousYearBalance,
   addKitFee,
-  getSessionPaidTotal,
-  getLastPayment,
+  getStudentPaymentSummary,
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import "../styles/feeManagement.css";
@@ -22,7 +21,7 @@ function fmtDate(d) {
     const date = d instanceof Date ? d : new Date(d);
     const day = String(date.getDate()).padStart(2, "0");
     const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    return `${day}-${months[date.getMonth()]}-${date.getFullYear()}`;
+    return `${day}-${months[date.getMonth()]}`;
   } catch {
     return "—";
   }
@@ -47,6 +46,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
   const [addonMsg, setAddonMsg] = useState("");
   const [promptSlot, setPromptSlot] = useState(null);
   const [promptValue, setPromptValue] = useState("");
+  const [promptConfirming, setPromptConfirming] = useState(false);
 
   const [transportEnabled, setTransportEnabled] = useState(false);
   const [transportValue, setTransportValue] = useState(800);
@@ -67,14 +67,13 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
   async function refreshAll(studentId) {
     setLoadingBill(true);
     try {
-      const [b, sessionTotal, lastPay] = await Promise.all([
+      const [b, summary] = await Promise.all([
         getMonthlyBill(session, month, studentId),
-        getSessionPaidTotal(studentId, session),
-        getLastPayment(studentId, session, month),
+        getStudentPaymentSummary(studentId, session, month),
       ]);
       setBill(b);
-      setSessionPaid(sessionTotal);
-      setLastPayment(lastPay);
+      setSessionPaid(summary.sessionTotal);
+      setLastPayment(summary.lastPayment);
       return b;
     } catch (e) {
       setError(e.message);
@@ -221,8 +220,8 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
       setAddonMsg(
         res.duplicateBlocked
-          ? "This entry was already recorded."
-          : `${label} ₹${amount} added. Receipt: ${res.receipt.receiptNumber}`
+          ? "Already recorded."
+          : `${label} ₹${amount} added.`
       );
     } catch (e) {
       setAddonMsg(`❌ ${e.message}`);
@@ -234,28 +233,50 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
   function promptForAmount(slot) {
     setPromptSlot(slot);
     setPromptValue("");
+    setPromptConfirming(false);
   }
 
-  function confirmPrompt() {
+  function cancelPrompt() {
+    setPromptSlot(null);
+    setPromptValue("");
+    setPromptConfirming(false);
+  }
+
+  async function confirmPrompt() {
+    if (promptConfirming) return;
+
     const amt = Number(promptValue);
     if (!amt || amt <= 0) {
       setAddonMsg("Please enter a valid amount.");
       return;
     }
-    if (promptSlot === "books") handleAddon(addBooksFee, amt, "Books");
-    else if (promptSlot === "previousYear") handleAddon(addPreviousYearBalance, amt, "Previous Year Balance");
-    else if (promptSlot === "kit") handleAddon(addKitFee, amt, "Admission / Kit");
-    setPromptSlot(null);
+
+    setPromptConfirming(true);
+
+    try {
+      if (promptSlot === "books") {
+        await handleAddon(addBooksFee, amt, "Books");
+      } else if (promptSlot === "previousYear") {
+        await handleAddon(addPreviousYearBalance, amt, "Previous Year Balance");
+      } else if (promptSlot === "kit") {
+        await handleAddon(addKitFee, amt, "Admission / Kit");
+      }
+      cancelPrompt();
+    } catch (e) {
+      setPromptConfirming(false);
+    }
   }
 
   return (
-    <div className="fm-card">
-      <h2>Collect Fee</h2>
-      <p className="fm-subtle">Billing month: <strong>{month}</strong></p>
+    <div className="fm-card fm-collect-compact">
+      <div className="fm-collect-header">
+        <h2>Collect Fee</h2>
+        <span className="fm-subtle">Billing month: <strong>{month}</strong></span>
+      </div>
 
       {flash && <div className="fm-flash">{flash}</div>}
 
-      <form onSubmit={handleSearch} className="fm-search-row">
+      <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
         <input
           type="text"
           placeholder="Search by name or admission no."
@@ -266,7 +287,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
       </form>
 
       {results.length > 0 && !selectedStudent && (
-        <ul className="fm-result-list">
+        <ul className="fm-result-list fm-result-list-compact">
           {results.map((s) => (
             <li key={s.id} onClick={() => selectStudent(s)}>
               <strong>{s.name}</strong> — Adm# {s.admissionNumber} — Class {s.className}
@@ -277,7 +298,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
       {selectedStudent && (
         <>
-          <div className="fm-student-header">
+          <div className="fm-student-header fm-student-header-compact">
             <h3>{selectedStudent.name}</h3>
             <p>
               Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}
@@ -288,10 +309,10 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
           {loadingBill && <p className="fm-subtle">Loading bill…</p>}
 
           {bill && (
-            <div className="fm-bill-two-col">
+            <div className="fm-bill-two-col fm-bill-two-col-compact">
+              {/* LEFT — itemized details */}
               <div className="fm-bill-left">
-                <h4>Current Month Bill ({month})</h4>
-                <table className="fm-bill-table">
+                <table className="fm-bill-table fm-bill-table-compact">
                   <tbody>
                     {bill.previousDue > 0 && (
                       <tr className="fm-row-prev">
@@ -325,41 +346,42 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                 </table>
               </div>
 
-              <div className="fm-bill-right">
-                <div className="fm-bill-stat">
-                  <span className="fm-bill-stat-label">Total</span>
-                  <span className="fm-bill-stat-value">₹{displayTotal}</span>
+              {/* RIGHT — 2×2 stats grid */}
+              <div className="fm-bill-right fm-bill-right-compact">
+                <div className="fm-bill-session-line">
+                  <span>Session Paid (till date)</span>
+                  <strong>₹{sessionPaid}</strong>
                 </div>
 
-                <div className="fm-bill-stat">
-                  <span className="fm-bill-stat-label">Amount Received (This Month)</span>
-                  <span className="fm-bill-stat-value">₹{displayTotalPaidThisMonth}</span>
-                  {lastPayment && (
-                    <span className="fm-bill-stat-sub">
-                      Last: {fmtDate(lastPayment.date)} · ₹{lastPayment.amount}
-                    </span>
-                  )}
-                </div>
-
-                <div className="fm-bill-stat">
-                  <span className="fm-bill-stat-label">Amount Received</span>
-                  <span className="fm-bill-stat-value">₹{amountAdd}</span>
-                </div>
-
-                <div className="fm-bill-stat fm-bill-stat-balance">
-                  <span className="fm-bill-stat-label">Balance</span>
-                  <span className="fm-bill-stat-value">₹{displayBalance}</span>
-                </div>
-
-                <div className="fm-bill-stat fm-bill-stat-session">
-                  <span className="fm-bill-stat-label">Session Paid (till date)</span>
-                  <span className="fm-bill-stat-value">₹{sessionPaid}</span>
+                <div className="fm-stats-grid">
+                  <div className="fm-stat-cell">
+                    <span className="fm-stat-cell-label">Total</span>
+                    <span className="fm-stat-cell-value">₹{displayTotal}</span>
+                  </div>
+                  <div className="fm-stat-cell">
+                    <span className="fm-stat-cell-label">Amount Received (This Month)</span>
+                    <span className="fm-stat-cell-value">₹{displayTotalPaidThisMonth}</span>
+                    {lastPayment && (
+                      <span className="fm-stat-cell-sub">
+                        Last: {fmtDate(lastPayment.date)} · ₹{lastPayment.amount}
+                      </span>
+                    )}
+                  </div>
+                  <div className="fm-stat-cell">
+                    <span className="fm-stat-cell-label">Amount Received</span>
+                    <span className="fm-stat-cell-value">₹{amountAdd}</span>
+                  </div>
+                  <div className="fm-stat-cell fm-stat-cell-balance">
+                    <span className="fm-stat-cell-label">Balance</span>
+                    <span className="fm-stat-cell-value">₹{displayBalance}</span>
+                  </div>
                 </div>
               </div>
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="fm-payment-form">
+          {/* COMPACT PAYMENT FORM */}
+          <form onSubmit={handleSubmit} className="fm-payment-form fm-payment-form-compact">
             <label>
               Fee Type
               <select value={form.feeType}
@@ -370,47 +392,10 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
               </select>
             </label>
 
-            {canManageAddons ? (
-              <label>
-                <span style={{ visibility: "hidden" }}>_</span>
-                <span style={{ display: "flex", alignItems: "center", gap: 10, padding: "8px 0", fontSize: 14 }}>
-                  <input
-                    type="checkbox"
-                    checked={transportEnabled}
-                    onChange={(e) => setTransportEnabled(e.target.checked)}
-                    style={{ width: 16, height: 16, cursor: "pointer" }}
-                  />
-                  Include Transport Fee
-                </span>
-              </label>
-            ) : (
-              <div />
-            )}
-
-            {canManageAddons && transportEnabled && (
-              <label>
-                Transport Amount (₹800–₹1500)
-                <input
-                  type="number"
-                  min="800"
-                  max="1500"
-                  step="50"
-                  value={transportValue}
-                  onChange={(e) => setTransportValue(Number(e.target.value))}
-                />
-              </label>
-            )}
-
             <label>
               Amount Received (₹)
               <input type="number" required min="0" value={form.amountReceived}
                 onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
-            </label>
-
-            <label>
-              Transaction / Reference No.
-              <input type="text" value={form.referenceNumber}
-                onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
             </label>
 
             <label>
@@ -428,6 +413,42 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             </label>
 
             <label>
+              Transaction / Reference No.
+              <input type="text" value={form.referenceNumber}
+                onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
+            </label>
+
+            {canManageAddons ? (
+              <label>
+                <span style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 18 }}>
+                  <input
+                    type="checkbox"
+                    checked={transportEnabled}
+                    onChange={(e) => setTransportEnabled(e.target.checked)}
+                    style={{ width: 16, height: 16, cursor: "pointer" }}
+                  />
+                  <span style={{ fontSize: 13 }}>Include Transport</span>
+                </span>
+              </label>
+            ) : (
+              <div />
+            )}
+
+            {canManageAddons && transportEnabled && (
+              <label>
+                Transport Amount
+                <input
+                  type="number"
+                  min="800"
+                  max="1500"
+                  step="50"
+                  value={transportValue}
+                  onChange={(e) => setTransportValue(Number(e.target.value))}
+                />
+              </label>
+            )}
+
+            <label>
               Discount (₹)
               <input type="number" min="0" value={form.discount}
                 onChange={(e) => setForm({ ...form, discount: e.target.value })} />
@@ -441,23 +462,18 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
             <label className="fm-full-width">
               Remarks
-              <textarea value={form.remarks}
+              <input type="text" value={form.remarks}
                 onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
             </label>
-
-            {error && <p className="fm-error">{error}</p>}
-
-            <button type="submit" disabled={submitting} className="fm-primary-btn fm-full-width">
-              {submitting ? "Recording payment…" : "Record Payment"}
-            </button>
           </form>
 
-          {canManageAddons && (
-            <div className="fm-addon-panel">
-              <h4>Add-on Fees</h4>
-              <p className="fm-subtle">One-time fees added to this month's bill.</p>
+          {error && <p className="fm-error">{error}</p>}
+          {addonMsg && <p className="fm-addon-msg">{addonMsg}</p>}
 
-              <div className="fm-addon-row-buttons">
+          {/* ACTION ROW: add-ons + back + record */}
+          <div className="fm-action-row">
+            {canManageAddons && (
+              <div className="fm-action-addons">
                 <button type="button" className="fm-addon-btn" disabled={addonBusy}
                   onClick={() => promptForAmount("books")}>
                   📚 + Books
@@ -468,29 +484,38 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                 </button>
                 <button type="button" className="fm-addon-btn" disabled={addonBusy}
                   onClick={() => promptForAmount("kit")}>
-                  👕 + Admission / Kit
+                  👕 + Kit
                 </button>
               </div>
+            )}
 
-              {addonMsg && <p className="fm-addon-msg">{addonMsg}</p>}
+            <div className="fm-action-buttons">
+              <button type="button" className="fm-secondary-btn"
+                onClick={() => {
+                  setSelectedStudent(null);
+                  setBill(null);
+                  setSessionPaid(0);
+                  setLastPayment(null);
+                  setResults([]);
+                  setSearchTerm("");
+                  setError(null);
+                  setAddonMsg("");
+                  setTransportEnabled(false);
+                  setTransportValue(800);
+                }}>
+                ← Back
+              </button>
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="fm-primary-btn"
+                onClick={handleSubmit}
+              >
+                {submitting ? "Recording…" : "Record Payment"}
+              </button>
             </div>
-          )}
-
-          <button type="button" className="fm-secondary-btn"
-            onClick={() => {
-              setSelectedStudent(null);
-              setBill(null);
-              setSessionPaid(0);
-              setLastPayment(null);
-              setResults([]);
-              setSearchTerm("");
-              setError(null);
-              setAddonMsg("");
-              setTransportEnabled(false);
-              setTransportValue(800);
-            }}>
-            ← Back to search
-          </button>
+          </div>
         </>
       )}
 
@@ -512,13 +537,32 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
               value={promptValue}
               onChange={(e) => setPromptValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && confirmPrompt()}
-              style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15 }}
+              disabled={promptConfirming}
+              style={{
+                width: "100%",
+                padding: 10,
+                border: "1px solid #ccc",
+                borderRadius: 6,
+                fontSize: 15,
+              }}
             />
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
-              <button type="button" className="fm-secondary-btn"
-                onClick={() => setPromptSlot(null)}>Cancel</button>
-              <button type="button" className="fm-primary-btn"
-                onClick={confirmPrompt}>Add</button>
+              <button
+                type="button"
+                className="fm-secondary-btn"
+                onClick={cancelPrompt}
+                disabled={promptConfirming}
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                className="fm-primary-btn"
+                onClick={confirmPrompt}
+                disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}
+              >
+                {promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}
+              </button>
             </div>
           </div>
         </div>
