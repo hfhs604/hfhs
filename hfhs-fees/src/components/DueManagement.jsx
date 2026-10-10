@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { listBillsForMonth, getStudentFeeProfile } from "../firebase/feeService";
 import DemandSlipSheet from "./DemandSlipSheet";
+import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
 
 const CLASS_OPTIONS = [
@@ -16,7 +17,6 @@ export default function DueManagement({ session }) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  // For printing
   const [printingItems, setPrintingItems] = useState(null);
   const [printing, setPrinting] = useState(false);
 
@@ -84,21 +84,6 @@ export default function DueManagement({ session }) {
     } finally {
       setPrinting(false);
     }
-  }
-
-  if (printingItems) {
-    return (
-      <div>
-        <button
-          className="fm-secondary-btn no-print"
-          onClick={() => setPrintingItems(null)}
-          style={{ marginBottom: 12 }}
-        >
-          ← Back to Due List
-        </button>
-        <DemandSlipSheet items={printingItems} />
-      </div>
-    );
   }
 
   return (
@@ -216,6 +201,14 @@ export default function DueManagement({ session }) {
           </table>
         </div>
       )}
+
+      <PrintManager
+        active={!!printingItems}
+        onClose={() => setPrintingItems(null)}
+        type="slip"
+      >
+        {printingItems && <DemandSlipSheet items={printingItems} />}
+      </PrintManager>
     </div>
   );
 }
