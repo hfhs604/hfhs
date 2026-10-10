@@ -984,3 +984,85 @@ export async function setStudentTransport(studentId, amount) {
 
   return { transportOpted: amt > 0, transportAmount: amt };
 }
+// ---------------------------------------------------------------------------
+// Delete a single transaction (super admin only)
+// ---------------------------------------------------------------------------
+export async function deleteTransaction(transactionId, reason = "") {
+  const user = currentUser();
+
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  if (!userDoc.exists() || userDoc.data().role !== "superAdmin") {
+    throw new Error("Only a Super Admin can delete a transaction.");
+  }
+
+  const txnRef = doc(db, COL.transactions, transactionId);
+  const txnSnap = await getDoc(txnRef);
+  if (!txnSnap.exists()) throw new Error("Transaction not found.");
+
+  const txn = txnSnap.data();
+
+  // Reverse from bill
+  if (txn.studentId && txn.session && txn.month) {
+    const safeId = String(txn.studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+    const billRef = doc(db, COL.monthlyBills, `${txn.session}_${txn.month}_${safeId}`);
+    const billSnap = await getDoc(billRef);
+    if (billSnap.exists()) {
+      const bill = billSnap.data();
+      const amt = Number(txn.netAmount || 0);
+
+      if (!txn.componentType || txn.componentType === "monthly") {
+        // Real payment — reduce totalPaid
+        const newPaid = Math.max((bill.totalPaid || 0) - amt, 0);
+        const newCarry = (bill.totalDue || 0) - newPaid;
+        await updateDoc(billRef, {
+          totalPaid: newPaid,
+          carriedForward: Math.max(newCarry, 0),
+          status: newCarry <= 0 ? "PAID" : "PARTIAL",
+        });
+      } else {
+        // Add-on — reduce the corresponding bill field
+        const fieldMap = {
+          books: "booksBilled",
+          kit: "kitFeeBilled",
+          previousYear: "previousYearBilled",
+          transport: "transportBilled",
+        };
+        const field = fieldMap[txn.componentType];
+        if (field) {
+          const newFieldValue = Math.max((bill[field] || 0) - amt, 0);
+          const newDue = Math.max((bill.totalDue || 0) - amt, 0);
+          const newCarry = newDue - (bill.totalPaid || 0);
+          await updateDoc(billRef, {
+            [field]: newFieldValue,
+            totalDue: newDue,
+            carriedForward: Math.max(newCarry, 0),
+            status: newCarry <= 0 ? "PAID" : "PARTIAL",
+          });
+        }
+      }
+    }
+  }
+
+  await deleteDoc(txnRef);
+
+  if (txn.receiptRef) {
+    try {
+      await deleteDoc(doc(db, COL.receipts, txn.receiptRef));
+    } catch (err) {
+      console.warn("Could not delete receipt:", err.message);
+    }
+  }
+
+  await writeAuditLog({
+    action: "TRANSACTION_DELETED",
+    studentId: txn.studentId || null,
+    previousValue: txn,
+    newValue: {
+      deletedBy: user.email || user.uid,
+      reason: reason || "Not specified",
+      deletedAt: new Date().toISOString(),
+    },
+  });
+
+  return { success: true };
+}
