@@ -2,7 +2,6 @@
    Unified print system
    =========================================================================== */
 
-/* --- Floating toolbar --- */
 .print-overlay {
   position: fixed;
   top: 16px;
@@ -21,7 +20,6 @@
   pointer-events: auto;
 }
 
-/* --- On-screen preview --- */
 .print-screen-preview {
   position: fixed;
   inset: 0;
@@ -35,21 +33,17 @@
   margin: 0 auto;
 }
 
-/* --- Print-only container (invisible on screen) --- */
 .print-only-container {
   display: none;
 }
 
-/* ===========================================================================
-   PRINT RULES
-   =========================================================================== */
 @media print {
   /* 1. Hide everything on the page */
   body * {
     visibility: hidden !important;
   }
 
-  /* 2. Hide the whole app and the preview */
+  /* 2. Hide the app and the on-screen preview */
   .fm-app,
   .print-overlay,
   .print-screen-preview,
