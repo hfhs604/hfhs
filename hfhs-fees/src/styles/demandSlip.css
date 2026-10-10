@@ -1,33 +1,16 @@
 /* ===========================================================================
-   Demand Slip printing — 6 slips per A4 landscape page (3 cols × 2 rows)
+   Demand Slip printing — 6 slips per A4 LANDSCAPE page (3 cols × 2 rows)
    =========================================================================== */
 
 .demand-slip-root {
-  padding: 16px;
-  background: #f5f6f8;
+  padding: 8px;
+  background: #fff;
 }
 
 .demand-slip-toolbar {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.demand-slip-toolbar button {
-  background: #1a3d6d;
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-}
-.demand-slip-toolbar-hint {
-  color: #6b7280;
-  font-size: 13px;
+  display: none;
 }
 
-/* A4 landscape page */
 .demand-a4-page {
   background: #fff;
   width: 297mm;
@@ -166,17 +149,10 @@
   color: #1a3d6d;
 }
 
-/* Print rules */
+/* ---------------------------------------------------------------------------
+   Print page setup (isolation handled by printManager.css)
+   --------------------------------------------------------------------------- */
 @media print {
-  .demand-slip-root { padding: 0; background: #fff; }
-  .demand-slip-toolbar { display: none !important; }
-  .demand-a4-page {
-    box-shadow: none;
-    margin: 0;
-    padding: 5mm;
-    width: 297mm;
-    height: 210mm;
-  }
   @page {
     size: A4 landscape;
     margin: 0;
