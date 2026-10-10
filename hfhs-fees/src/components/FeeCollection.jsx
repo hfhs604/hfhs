@@ -1,5 +1,4 @@
-import React, { useState, useEffect } from "react";
-import PrintManager from "./PrintManager";
+import React, { useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import {
   searchStudents,
@@ -11,6 +10,7 @@ import {
   getStudentPaymentSummary,
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
+import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
@@ -53,16 +53,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
   const [transportValue, setTransportValue] = useState(800);
 
   const [receiptPopup, setReceiptPopup] = useState(null);
-
-  // Add/remove body class when the popup is open, so print CSS can isolate it.
-  useEffect(() => {
-    if (receiptPopup) {
-      document.body.classList.add("printing-receipt");
-    } else {
-      document.body.classList.remove("printing-receipt");
-    }
-    return () => document.body.classList.remove("printing-receipt");
-  }, [receiptPopup]);
 
   const [form, setForm] = useState({
     amountReceived: "",
@@ -575,39 +565,13 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
         </div>
       )}
 
-      {receiptPopup && (
-        <div className="fm-modal-overlay fm-receipt-popup" style={{ zIndex: 9500 }}>
-          <div style={{
-            background: "#fff",
-            borderRadius: 10,
-            padding: 20,
-            maxWidth: 800,
-            width: "95%",
-            maxHeight: "90vh",
-            overflowY: "auto",
-          }}>
-            <div className="no-print" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
-              <h3 style={{ margin: 0, color: "#1a3d6d" }}>Payment Receipt</h3>
-              <button
-                type="button"
-                onClick={() => setReceiptPopup(null)}
-                style={{ background: "none", border: "none", fontSize: 22, cursor: "pointer", color: "#6b7280" }}
-              >
-                ×
-              </button>
-            </div>
-
-            <ReceiptPrintSheet receipts={[receiptPopup]} />
-
-            <div className="no-print" style={{ display: "flex", gap: 10, justifyContent: "flex-end", marginTop: 16 }}>
-              <button type="button" className="fm-secondary-btn"
-                onClick={() => setReceiptPopup(null)}>Close</button>
-              <button type="button" className="fm-primary-btn"
-                onClick={() => window.print()}>🖨 Print</button>
-            </div>
-          </div>
-        </div>
-      )}
+      <PrintManager
+        active={!!receiptPopup}
+        onClose={() => setReceiptPopup(null)}
+        type="receipt"
+      >
+        {receiptPopup && <ReceiptPrintSheet receipts={[receiptPopup]} />}
+      </PrintManager>
     </div>
   );
 }
