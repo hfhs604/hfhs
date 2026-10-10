@@ -185,3 +185,13 @@
   text-align: center;
   margin: 0;
 }
+
+/* ---------------------------------------------------------------------------
+   Print page setup (isolation handled by printManager.css)
+   --------------------------------------------------------------------------- */
+@media print {
+  @page {
+    size: A4 portrait;
+    margin: 0;
+  }
+}
