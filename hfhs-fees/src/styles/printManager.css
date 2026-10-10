@@ -2,6 +2,7 @@
    Unified print system
    =========================================================================== */
 
+/* --- Floating toolbar --- */
 .print-overlay {
   position: fixed;
   top: 16px;
@@ -20,7 +21,8 @@
   pointer-events: auto;
 }
 
-.print-root {
+/* --- On-screen preview --- */
+.print-screen-preview {
   position: fixed;
   inset: 0;
   z-index: 9998;
@@ -33,44 +35,42 @@
   margin: 0 auto;
 }
 
+/* --- Print-only container (invisible on screen) --- */
+.print-only-container {
+  display: none;
+}
+
+/* ===========================================================================
+   PRINT RULES
+   =========================================================================== */
 @media print {
+  /* 1. Hide everything on the page */
   body * {
     visibility: hidden !important;
   }
 
-  .print-root,
-  .print-root * {
-    visibility: visible !important;
+  /* 2. Hide the whole app and the preview */
+  .fm-app,
+  .print-overlay,
+  .print-screen-preview,
+  .no-print {
+    display: none !important;
   }
 
-  .print-root {
+  /* 3. Make the print-only container visible */
+  .print-only-container {
+    display: block !important;
+    visibility: visible !important;
     position: absolute !important;
-    inset: auto !important;
     left: 0 !important;
     top: 0 !important;
     width: 100% !important;
     padding: 0 !important;
     margin: 0 !important;
     background: #fff !important;
-    overflow: visible !important;
-    z-index: auto !important;
   }
 
-  .print-scroll {
-    max-width: none !important;
-    margin: 0 !important;
-    padding: 0 !important;
-  }
-
-  .no-print,
-  .print-overlay {
-    display: none !important;
-  }
-
-  .fm-app,
-  .fm-app-header,
-  .fm-nav,
-  .fm-main {
-    display: none !important;
+  .print-only-container * {
+    visibility: visible !important;
   }
 }
