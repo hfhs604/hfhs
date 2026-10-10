@@ -3,9 +3,30 @@ import React, { useEffect } from "react";
 export default function PrintManager({ active, onClose, type, children }) {
   useEffect(() => {
     if (!active) return;
+
     document.body.classList.add(`printing-${type}`);
+
+    const handleBeforePrint = () => {
+      const printContainer = document.querySelector(".print-only-container");
+      if (printContainer) {
+        printContainer.setAttribute("data-active", "true");
+      }
+    };
+
+    const handleAfterPrint = () => {
+      const printContainer = document.querySelector(".print-only-container");
+      if (printContainer) {
+        printContainer.removeAttribute("data-active");
+      }
+    };
+
+    window.addEventListener("beforeprint", handleBeforePrint);
+    window.addEventListener("afterprint", handleAfterPrint);
+
     return () => {
       document.body.classList.remove(`printing-${type}`);
+      window.removeEventListener("beforeprint", handleBeforePrint);
+      window.removeEventListener("afterprint", handleAfterPrint);
     };
   }, [active, type]);
 
@@ -13,7 +34,6 @@ export default function PrintManager({ active, onClose, type, children }) {
 
   return (
     <>
-      {/* On-screen toolbar */}
       <div className="print-overlay no-print">
         <div className="print-overlay-toolbar">
           <button
@@ -29,15 +49,13 @@ export default function PrintManager({ active, onClose, type, children }) {
         </div>
       </div>
 
-      {/* On-screen preview (hidden when printing) */}
       <div className="print-screen-preview">
         <div className="print-scroll">
           {children}
         </div>
       </div>
 
-      {/* Print-only container — hidden on screen, shown when printing */}
-      <div className="print-only-container">
+      <div className="print-only-container" data-print-type={type}>
         {children}
       </div>
     </>
