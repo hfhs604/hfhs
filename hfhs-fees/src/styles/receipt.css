@@ -1,48 +1,30 @@
 /* ===========================================================================
-   Receipt printing — 4 receipts per A4 landscape page (2 cols × 2 rows)
+   Receipt printing — 4 receipts per A4 PORTRAIT page (2 cols × 2 rows)
    =========================================================================== */
 
 .receipt-print-root {
-  padding: 16px;
-  background: #f5f6f8;
+  padding: 8px;
+  background: #fff;
 }
 
 .receipt-toolbar {
-  display: flex;
-  gap: 12px;
-  align-items: center;
-  margin-bottom: 16px;
-}
-.receipt-toolbar button {
-  background: #1a3d6d;
-  color: #fff;
-  border: none;
-  padding: 8px 16px;
-  border-radius: 6px;
-  cursor: pointer;
-  font-size: 14px;
-}
-.receipt-toolbar-hint {
-  color: #6b7280;
-  font-size: 13px;
+  display: none;
 }
 
-/* ---- A4 landscape page ---- */
-.a4-page-landscape {
+.a4-page-portrait {
   background: #fff;
-  width: 297mm;
-  height: 210mm;
-  padding: 5mm;
+  width: 210mm;
+  height: 297mm;
+  padding: 6mm;
   margin: 0 auto 16px;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.15);
   box-sizing: border-box;
   page-break-after: always;
 }
-.a4-page-landscape:last-child {
+.a4-page-portrait:last-child {
   page-break-after: auto;
 }
 
-/* 2 columns × 2 rows = 4 slots */
 .a4-grid-4 {
   display: grid;
   grid-template-columns: repeat(2, 1fr);
@@ -62,7 +44,6 @@
   border-color: transparent;
 }
 
-/* ---- Receipt card ---- */
 .receipt-card {
   display: flex;
   flex-direction: column;
@@ -81,8 +62,8 @@
   margin-bottom: 6px;
 }
 .receipt-logo {
-  width: 40px;
-  height: 40px;
+  width: 44px;
+  height: 44px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -93,11 +74,11 @@
 .receipt-school-name {
   margin: 0;
   font-family: "Algerian", "Copperplate", "Lucida Blackletter", "Papyrus", Georgia, serif;
-  font-size: 14px;
+  font-size: 18px;
   font-weight: 700;
   color: #1a3d6d;
-  letter-spacing: 0.5px;
-  line-height: 1.1;
+  letter-spacing: 0.8px;
+  line-height: 1.15;
 }
 .receipt-tagline {
   margin: 2px 0 0;
@@ -107,7 +88,7 @@
 }
 .receipt-address {
   margin: 1px 0 0;
-  font-size: 7.5px;
+  font-size: 8px;
   color: #4b5563;
 }
 .receipt-reg {
@@ -119,21 +100,21 @@
 .receipt-meta-row {
   display: flex;
   justify-content: space-between;
-  font-size: 8px;
+  font-size: 9px;
   margin-bottom: 4px;
 }
 .receipt-student-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 2px 8px;
-  font-size: 8px;
+  font-size: 9px;
   margin-bottom: 6px;
 }
 
 .receipt-table {
   width: 100%;
   border-collapse: collapse;
-  font-size: 8px;
+  font-size: 9px;
   margin-bottom: 6px;
 }
 .receipt-table th,
@@ -158,7 +139,7 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 8px;
+  font-size: 9px;
   color: #4b5563;
   padding: 2px 0;
 }
@@ -167,16 +148,16 @@
   margin-top: 4px;
   padding-top: 4px;
   font-weight: 700;
-  font-size: 10px;
+  font-size: 11px;
   color: #1f2937;
 }
 .receipt-summary-line.receipt-summary-balance span:last-child {
   color: #c62828;
-  font-size: 11px;
+  font-size: 13px;
 }
 
 .receipt-payment-row {
-  font-size: 7px;
+  font-size: 8px;
   color: #9ca3af;
   margin-top: 4px;
   margin-bottom: 6px;
@@ -190,66 +171,17 @@
   margin-bottom: 4px;
 }
 .receipt-signature-box {
-  font-size: 7px;
+  font-size: 8px;
   color: #6b7280;
   border-top: 1px solid #94a3b8;
   padding-top: 3px;
   text-align: center;
   width: 40%;
-  max-width: 120px;
+  max-width: 140px;
 }
 .receipt-computer-generated {
   font-size: 6px;
   color: #cbd5e1;
   text-align: center;
   margin: 0;
-}
-
-/* ---- On screen, hide the print-only variant ---- */
-.print-only-receipt { display: none; }
-
-/* ===========================================================================
-   PRINT RULES
-   =========================================================================== */
-@media print {
-  /* Hide everything on the page */
-  body * {
-    visibility: hidden !important;
-  }
-
-  /* Then reveal only the receipt sheet */
-  .receipt-print-root,
-  .receipt-print-root * {
-    visibility: visible !important;
-  }
-
-  /* Position the sheet at the top-left of the page */
-  .receipt-print-root {
-    position: absolute !important;
-    left: 0 !important;
-    top: 0 !important;
-    width: 100% !important;
-    padding: 0 !important;
-    margin: 0 !important;
-    background: #fff !important;
-  }
-
-  .receipt-toolbar { display: none !important; }
-
-  .a4-page-landscape {
-    box-shadow: none !important;
-    margin: 0 !important;
-    padding: 5mm !important;
-    width: 297mm !important;
-    height: 210mm !important;
-    page-break-after: always !important;
-  }
-  .a4-page-landscape:last-child {
-    page-break-after: auto !important;
-  }
-
-  @page {
-    size: A4 landscape;
-    margin: 0;
-  }
 }
