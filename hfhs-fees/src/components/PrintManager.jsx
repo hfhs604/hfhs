@@ -3,58 +3,100 @@ import React, { useEffect, useRef } from "react";
 export default function PrintManager({ active, onClose, type, children }) {
   const printRootRef = useRef(null);
 
-  useEffect(() => {
-    if (!active) return;
+  function handlePrint() {
+    const container = printRootRef.current;
+    if (!container) return;
 
-    const handleBeforePrint = () => {
-      // Force the print container to be visible via inline styles
-      const container = document.querySelector(".print-only-container");
-      if (container) {
-        container.style.setProperty("display", "block", "important");
-        container.style.setProperty("visibility", "visible", "important");
-        container.style.setProperty("position", "absolute", "important");
-        container.style.setProperty("left", "0", "important");
-        container.style.setProperty("top", "0", "important");
-        container.style.setProperty("width", "100%", "important");
-        container.style.setProperty("background", "#fff", "important");
-        container.style.setProperty("z-index", "999999", "important");
-      }
+    // Create a hidden iframe
+    const iframe = document.createElement("iframe");
+    iframe.style.position = "fixed";
+    iframe.style.right = "0";
+    iframe.style.bottom = "0";
+    iframe.style.width = "0";
+    iframe.style.height = "0";
+    iframe.style.border = "0";
+    document.body.appendChild(iframe);
 
-      // Hide everything else
-      document.querySelectorAll(".fm-app, .print-overlay, .print-screen-preview").forEach((el) => {
-        el.style.setProperty("display", "none", "important");
-        el.style.setProperty("visibility", "hidden", "important");
-      });
+    const doc = iframe.contentWindow.document;
+
+    // Copy every <link rel="stylesheet"> from the main document
+    const styleLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
+      .map((link) => `<link rel="stylesheet" href="${link.href}">`)
+      .join("");
+
+    // Copy every <style> tag from the main document
+    const inlineStyles = Array.from(document.querySelectorAll("style"))
+      .map((s) => `<style>${s.textContent}</style>`)
+      .join("");
+
+    // Determine page orientation
+    const pageSize = type === "slip" ? "A4 landscape" : "A4 portrait";
+
+    doc.open();
+    doc.write(`
+      <!DOCTYPE html>
+      <html>
+      <head>
+        <meta charset="utf-8">
+        <title>Print</title>
+        ${styleLinks}
+        ${inlineStyles}
+        <style>
+          @page { size: ${pageSize}; margin: 0; }
+          html, body {
+            margin: 0;
+            padding: 0;
+            background: #fff;
+          }
+          .print-only-container {
+            display: block !important;
+            visibility: visible !important;
+            position: static !important;
+            width: auto !important;
+            height: auto !important;
+            padding: 0 !important;
+            margin: 0 !important;
+            background: #fff !important;
+          }
+          .print-only-container .print-screen-preview,
+          .print-only-container .print-overlay,
+          .print-only-container .no-print {
+            display: none !important;
+          }
+          .demand-slip-toolbar,
+          .receipt-toolbar {
+            display: none !important;
+          }
+        </style>
+      </head>
+      <body>${container.innerHTML}</body>
+      </html>
+    `);
+    doc.close();
+
+    // Wait for images + stylesheets to load, then print
+    const waitAndPrint = () => {
+      setTimeout(() => {
+        try {
+          iframe.contentWindow.focus();
+          iframe.contentWindow.print();
+        } catch (err) {
+          console.error("Print failed:", err);
+        }
+        // Remove the iframe after a delay
+        setTimeout(() => {
+          document.body.removeChild(iframe);
+        }, 1000);
+      }, 500);
     };
 
-    const handleAfterPrint = () => {
-      const container = document.querySelector(".print-only-container");
-      if (container) {
-        container.style.removeProperty("display");
-        container.style.removeProperty("visibility");
-        container.style.removeProperty("position");
-        container.style.removeProperty("left");
-        container.style.removeProperty("top");
-        container.style.removeProperty("width");
-        container.style.removeProperty("background");
-        container.style.removeProperty("z-index");
-      }
-
-      document.querySelectorAll(".fm-app, .print-overlay, .print-screen-preview").forEach((el) => {
-        el.style.removeProperty("display");
-        el.style.removeProperty("visibility");
-      });
-    };
-
-    window.addEventListener("beforeprint", handleBeforePrint);
-    window.addEventListener("afterprint", handleAfterPrint);
-
-    return () => {
-      window.removeEventListener("beforeprint", handleBeforePrint);
-      window.removeEventListener("afterprint", handleAfterPrint);
-      handleAfterPrint();
-    };
-  }, [active]);
+    // If the iframe document has loaded, print. Otherwise wait.
+    if (doc.readyState === "complete") {
+      waitAndPrint();
+    } else {
+      iframe.contentWindow.onload = waitAndPrint;
+    }
+  }
 
   if (!active) return null;
 
@@ -65,7 +107,7 @@ export default function PrintManager({ active, onClose, type, children }) {
           <button
             type="button"
             className="fm-primary-btn"
-            onClick={() => window.print()}
+            onClick={handlePrint}
           >
             🖨 Print
           </button>
