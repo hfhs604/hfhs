@@ -13,6 +13,7 @@ export default function PrintManager({ active, onClose, type, children }) {
 
   return (
     <>
+      {/* On-screen toolbar */}
       <div className="print-overlay no-print">
         <div className="print-overlay-toolbar">
           <button
@@ -28,10 +29,16 @@ export default function PrintManager({ active, onClose, type, children }) {
         </div>
       </div>
 
-      <div className={`print-root print-root-${type}`}>
+      {/* On-screen preview (hidden when printing) */}
+      <div className="print-screen-preview">
         <div className="print-scroll">
           {children}
         </div>
+      </div>
+
+      {/* Print-only container — hidden on screen, shown when printing */}
+      <div className="print-only-container">
+        {children}
       </div>
     </>
   );
