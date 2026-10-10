@@ -1,104 +1,103 @@
-import React, { useEffect, useRef } from "react";
+import React from "react";
 
 export default function PrintManager({ active, onClose, type, children }) {
-  const printRootRef = useRef(null);
+  if (!active) return null;
 
   function handlePrint() {
-    const container = printRootRef.current;
-    if (!container) return;
+    const printRoot = document.querySelector(".print-only-container");
+    if (!printRoot) {
+      alert("Nothing to print.");
+      return;
+    }
 
-    // Create a hidden iframe
-    const iframe = document.createElement("iframe");
-    iframe.style.position = "fixed";
-    iframe.style.right = "0";
-    iframe.style.bottom = "0";
-    iframe.style.width = "0";
-    iframe.style.height = "0";
-    iframe.style.border = "0";
-    document.body.appendChild(iframe);
+    // Open a new window with an empty document
+    const w = window.open("", "_blank", "width=1000,height=800");
+    if (!w) {
+      alert("Please allow pop-ups for this site to print.");
+      return;
+    }
 
-    const doc = iframe.contentWindow.document;
+    // Determine page size by type
+    const pageSize =
+      type === "slip" ? "A4 landscape" : "A4 portrait";
 
-    // Copy every <link rel="stylesheet"> from the main document
-    const styleLinks = Array.from(document.querySelectorAll('link[rel="stylesheet"]'))
-      .map((link) => `<link rel="stylesheet" href="${link.href}">`)
-      .join("");
+    // Serialize styles
+    const stylesHtml = Array.from(
+      document.querySelectorAll('link[rel="stylesheet"], style')
+    )
+      .map((node) => {
+        if (node.tagName === "LINK") {
+          return `<link rel="stylesheet" href="${node.href}">`;
+        }
+        return `<style>${node.textContent}</style>`;
+      })
+      .join("\n");
 
-    // Copy every <style> tag from the main document
-    const inlineStyles = Array.from(document.querySelectorAll("style"))
-      .map((s) => `<style>${s.textContent}</style>`)
-      .join("");
+    // Grab the printable HTML
+    const printableHtml = printRoot.innerHTML;
 
-    // Determine page orientation
-    const pageSize = type === "slip" ? "A4 landscape" : "A4 portrait";
-
-    doc.open();
-    doc.write(`
+    w.document.open();
+    w.document.write(`
       <!DOCTYPE html>
       <html>
-      <head>
-        <meta charset="utf-8">
-        <title>Print</title>
-        ${styleLinks}
-        ${inlineStyles}
-        <style>
-          @page { size: ${pageSize}; margin: 0; }
-          html, body {
-            margin: 0;
-            padding: 0;
-            background: #fff;
-          }
-          .print-only-container {
-            display: block !important;
-            visibility: visible !important;
-            position: static !important;
-            width: auto !important;
-            height: auto !important;
-            padding: 0 !important;
-            margin: 0 !important;
-            background: #fff !important;
-          }
-          .print-only-container .print-screen-preview,
-          .print-only-container .print-overlay,
-          .print-only-container .no-print {
-            display: none !important;
-          }
-          .demand-slip-toolbar,
-          .receipt-toolbar {
-            display: none !important;
-          }
-        </style>
-      </head>
-      <body>${container.innerHTML}</body>
+        <head>
+          <meta charset="utf-8">
+          <title>Print</title>
+          ${stylesHtml}
+          <style>
+            /* Force the correct page size */
+            @page {
+              size: ${pageSize};
+              margin: 0;
+            }
+
+            /* Reset page background */
+            html, body {
+              margin: 0 !important;
+              padding: 0 !important;
+              background: #fff !important;
+              -webkit-print-color-adjust: exact;
+              print-color-adjust: exact;
+            }
+
+            /* The print container inside the new window is a plain block */
+            .print-only-container,
+            .print-screen-preview,
+            .print-overlay,
+            .no-print {
+              display: block !important;
+              visibility: visible !important;
+              position: static !important;
+              width: auto !important;
+              height: auto !important;
+              padding: 0 !important;
+              margin: 0 !important;
+              background: #fff !important;
+              box-shadow: none !important;
+            }
+
+            /* Hide the app chrome if it slipped in */
+            .print-overlay,
+            .no-print {
+              display: none !important;
+            }
+          </style>
+        </head>
+        <body>
+          ${printableHtml}
+          <script>
+            window.onload = function() {
+              setTimeout(function() {
+                window.focus();
+                window.print();
+              }, 300);
+            };
+          </script>
+        </body>
       </html>
     `);
-    doc.close();
-
-    // Wait for images + stylesheets to load, then print
-    const waitAndPrint = () => {
-      setTimeout(() => {
-        try {
-          iframe.contentWindow.focus();
-          iframe.contentWindow.print();
-        } catch (err) {
-          console.error("Print failed:", err);
-        }
-        // Remove the iframe after a delay
-        setTimeout(() => {
-          document.body.removeChild(iframe);
-        }, 1000);
-      }, 500);
-    };
-
-    // If the iframe document has loaded, print. Otherwise wait.
-    if (doc.readyState === "complete") {
-      waitAndPrint();
-    } else {
-      iframe.contentWindow.onload = waitAndPrint;
-    }
+    w.document.close();
   }
-
-  if (!active) return null;
 
   return (
     <>
@@ -117,15 +116,13 @@ export default function PrintManager({ active, onClose, type, children }) {
         </div>
       </div>
 
+      {/* On-screen preview */}
       <div className="print-screen-preview">
-        <div className="print-scroll">
-          {children}
-        </div>
+        <div className="print-scroll">{children}</div>
       </div>
 
-      <div className="print-only-container" ref={printRootRef}>
-        {children}
-      </div>
+      {/* Hidden container for print HTML extraction */}
+      <div className="print-only-container">{children}</div>
     </>
   );
 }
