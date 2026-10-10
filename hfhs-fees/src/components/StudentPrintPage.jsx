@@ -182,4 +182,26 @@ export default function StudentPrintPage({ student }) {
 
       {student.remarks && (
         <section className="sp-section">
-          <
+          <h2>Remarks</h2>
+          <p className="sp-remarks">{student.remarks}</p>
+        </section>
+      )}
+
+      <footer className="sp-footer">
+        <div className="sp-signature">
+          <div className="sp-sign-line"></div>
+          <p>Parent / Guardian Signature</p>
+        </div>
+        <div className="sp-signature">
+          <div className="sp-sign-line"></div>
+          <p>Principal / Authorised Signature</p>
+        </div>
+      </footer>
+
+      <p className="sp-footer-note">
+        Generated on {new Date().toLocaleDateString("en-GB")} · Session{" "}
+        {student.session || "—"}
+      </p>
+    </div>
+  );
+}
