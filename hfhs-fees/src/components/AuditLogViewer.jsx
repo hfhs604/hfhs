@@ -3,11 +3,6 @@ import { auth } from "../firebase/config";
 import { getAuditLogs } from "../firebase/feeService";
 import "../styles/feeManagement.css";
 
-/**
- * Retries a Firestore read a few times with a short backoff when the SDK
- * returns a transient error (typically on a cold page load, before the
- * client has finished connecting).
- */
 async function getAuditLogsWithRetry(opts, retries = 3, delayMs = 800) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -19,26 +14,24 @@ async function getAuditLogsWithRetry(opts, retries = 3, delayMs = 800) {
         err?.message?.includes("internal error") ||
         err?.message?.includes("client is offline");
 
-      // If we've retried enough times, give up and let the caller decide.
       if (!transient || attempt === retries - 1) throw err;
-
       await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
     }
   }
 }
 
+const PREVIEW_COUNT = 5;
+
 export default function AuditLogViewer() {
   const [logs, setLogs] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  const [showAll, setShowAll] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
 
     async function load() {
-      // Wait for Firebase Auth to finish restoring the session before
-      // querying — otherwise the SDK can throw "internal error" on the
-      // very first request.
       await new Promise((resolve) => {
         if (auth.currentUser) return resolve();
         const unsub = auth.onAuthStateChanged((u) => {
@@ -54,9 +47,6 @@ export default function AuditLogViewer() {
         setError(null);
       } catch (err) {
         if (cancelled) return;
-        // Treat "empty collection / internal error" as "no logs yet"
-        // instead of showing a scary red error. Genuine failures still
-        // surface below.
         const isInternal =
           err?.code === "internal" ||
           err?.message?.includes("internal error");
@@ -80,6 +70,9 @@ export default function AuditLogViewer() {
     };
   }, []);
 
+  const visibleLogs = showAll ? logs : logs.slice(0, PREVIEW_COUNT);
+  const hasMore = logs.length > PREVIEW_COUNT;
+
   return (
     <div className="fm-card">
       <h2>Audit Log</h2>
@@ -100,36 +93,49 @@ export default function AuditLogViewer() {
           or fee change is made.
         </p>
       ) : (
-        <table className="fm-table">
-          <thead>
-            <tr>
-              <th>When</th>
-              <th>User</th>
-              <th>Action</th>
-              <th>Student</th>
-              <th>Details</th>
-            </tr>
-          </thead>
-          <tbody>
-            {logs.map((l) => (
-              <tr key={l.id}>
-                <td>{l.timestamp?.toDate?.().toLocaleString?.() || "—"}</td>
-                <td>{l.userEmail || l.userId}</td>
-                <td>{l.action}</td>
-                <td>{l.studentId || "—"}</td>
-                <td>
-                  {l.newValue ? (
-                    <code style={{ fontSize: 11 }}>
-                      {JSON.stringify(l.newValue)}
-                    </code>
-                  ) : (
-                    "—"
-                  )}
-                </td>
+        <>
+          <table className="fm-table">
+            <thead>
+              <tr>
+                <th>When</th>
+                <th>User</th>
+                <th>Action</th>
+                <th>Student</th>
+                <th>Details</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {visibleLogs.map((l) => (
+                <tr key={l.id}>
+                  <td>{l.timestamp?.toDate?.().toLocaleString?.() || "—"}</td>
+                  <td>{l.userEmail || l.userId}</td>
+                  <td>{l.action}</td>
+                  <td>{l.studentId || "—"}</td>
+                  <td>
+                    {l.newValue ? (
+                      <code style={{ fontSize: 11 }}>
+                        {JSON.stringify(l.newValue)}
+                      </code>
+                    ) : (
+                      "—"
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+
+          {hasMore && (
+            <button
+              type="button"
+              className="fm-link-btn"
+              onClick={() => setShowAll((v) => !v)}
+              style={{ marginTop: 8 }}
+            >
+              {showAll ? "Show fewer" : `View all (${logs.length})`}
+            </button>
+          )}
+        </>
       )}
     </div>
   );
