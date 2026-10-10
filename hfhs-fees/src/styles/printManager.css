@@ -33,6 +33,8 @@
   margin: 0 auto;
 }
 
+/* The print-only-container stays hidden in the app
+   (its content is copied to a new window when printing) */
 .print-only-container {
   display: none;
 }
