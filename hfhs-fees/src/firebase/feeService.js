@@ -7,7 +7,7 @@
 import { db, auth } from "../firebase/config";
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, setDoc,
-  deleteDoc,
+  deleteDoc, getCountFromServer,
   query, where, orderBy, limit as fsLimit,
   runTransaction, serverTimestamp, Timestamp,
 } from "firebase/firestore";
@@ -37,6 +37,9 @@ export const MONTHLY_TUITION = {
 
 export const DEVELOPMENT_FEE = 3150;
 export const TRANSPORT_OPTIONS = [800, 1500];
+
+// Hard cap to prevent accidental full-collection scans.
+const MAX_QUERY_RESULTS = 300;
 
 function currentUser() {
   const u = auth.currentUser;
@@ -114,19 +117,9 @@ export async function getStudentFeeProfile(studentId) {
   return { id: snap.id, ...snap.data() };
 }
 
-export function computeBalanceView(student) {
-  const due = student.totalDue || 0;
-  const advance = student.totalAdvance || 0;
-  let status = "PAID";
-  if (due > 0 && (student.totalPaid || 0) > 0) status = "PARTIAL";
-  else if (due > 0) status = "DUE";
-  else if (advance > 0) status = "ADVANCE";
-  return { ...student, totalDue: due, totalAdvance: advance, accountStatus: status };
-}
-
 /**
  * Server-side prefix search on name OR admissionNumber.
- * Reads at most ~30 docs instead of the whole collection.
+ * Reads at most ~20 docs per branch.
  */
 export async function searchStudents(term) {
   const t = (term || "").trim();
@@ -134,7 +127,7 @@ export async function searchStudents(term) {
 
   const results = new Map();
 
-  // Try name prefix
+  // Name prefix search (case-sensitive in Firestore; user must match case)
   try {
     const nameQuery = query(
       collection(db, COL.students),
@@ -148,7 +141,7 @@ export async function searchStudents(term) {
     console.warn("searchStudents: name query failed:", err.message);
   }
 
-  // Try admissionNumber prefix (only if term looks numeric)
+  // Admission number prefix (only if term is numeric)
   if (/^\d+$/.test(t)) {
     try {
       const admQuery = query(
@@ -262,11 +255,10 @@ export async function listBillsForMonth(session, month) {
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
-    console.warn("listBillsForMonth: using client-side filter:", err.message);
-    const snap = await getDocs(collection(db, COL.monthlyBills));
-    return snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((b) => b.session === session && b.month === month);
+    console.warn("listBillsForMonth: query failed (index missing?):", err.message);
+    throw new Error(
+      "Could not load bills. Please ask the admin to create the required Firestore index."
+    );
   }
 }
 
@@ -496,13 +488,10 @@ export async function getDueList({ session, month } = {}) {
       .filter((b) => (b.carriedForward || 0) > 0)
       .sort((a, b) => (b.carriedForward || 0) - (a.carriedForward || 0));
   } catch (err) {
-    console.warn("getDueList: using fallback:", err.message);
-    const snap = await getDocs(collection(db, COL.monthlyBills));
-    return snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .filter((b) => (!session || b.session === session) && (!month || b.month === month))
-      .filter((b) => (b.carriedForward || 0) > 0)
-      .sort((a, b) => (b.carriedForward || 0) - (a.carriedForward || 0));
+    console.error("getDueList failed:", err.message);
+    throw new Error(
+      "Could not load due list. Please ask the admin to create the required Firestore index."
+    );
   }
 }
 
@@ -514,21 +503,23 @@ export async function getStudentsWithDue({ session, month, className, section } 
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard stats
+// Dashboard stats — READ-OPTIMIZED
 // ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
 
-  let students = [];
+  // 1. Count students using aggregation (1 read, not N).
+  let studentCount = 0;
   try {
-    const snap = await getDocs(
+    const countSnap = await getCountFromServer(
       query(collection(db, COL.students), where("session", "==", session))
     );
-    students = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    studentCount = countSnap.data().count;
   } catch (err) {
-    console.warn("getDashboardStats: students read failed:", err.message);
+    console.warn("getDashboardStats: count failed:", err.message);
   }
 
+  // 2. Read only bills for the target month (not all transactions).
   let bills = [];
   try {
     const snap = await getDocs(
@@ -543,43 +534,33 @@ export async function getDashboardStats(session, month) {
     console.warn("getDashboardStats: bills read failed:", err.message);
   }
 
-  let txns = [];
-  try {
-    const snap = await getDocs(
-      query(collection(db, COL.transactions), where("session", "==", session))
-    );
-    txns = snap.docs.map((d) => d.data()).filter((t) => t.voided !== true);
-  } catch (err) {
-    console.warn("getDashboardStats: transactions read failed:", err.message);
-  }
+  // 3. Derive totals from bills (no transaction scan).
+  let totalCollection = 0;
+  let monthCollection = 0;
+  let totalOutstandingDue = 0;
+  let studentsWithDue = 0;
+  let studentsFullyPaid = 0;
 
-  const startOfToday = new Date();
-  startOfToday.setHours(0, 0, 0, 0);
-  const startOfMonth = new Date(startOfToday.getFullYear(), startOfToday.getMonth(), 1);
-
-  let todayCollection = 0, monthCollection = 0, totalCollection = 0;
-  const byMethod = {};
-
-  txns.forEach((t) => {
-    if (t.componentType && t.componentType !== "monthly") return;
-    const paidAt = t.paymentDate ? new Date(t.paymentDate) : t.createdAt?.toDate?.();
-    const amt = t.netAmount || 0;
-    totalCollection += amt;
-    if (paidAt && paidAt >= startOfMonth) monthCollection += amt;
-    if (paidAt && paidAt >= startOfToday) todayCollection += amt;
-    if (t.paymentMethod) byMethod[t.paymentMethod] = (byMethod[t.paymentMethod] || 0) + amt;
+  bills.forEach((b) => {
+    const paid = b.totalPaid || 0;
+    const due = b.carriedForward || 0;
+    totalCollection += paid;
+    monthCollection += paid;
+    totalOutstandingDue += due;
+    if (due > 0) studentsWithDue++;
+    else studentsFullyPaid++;
   });
 
-  const totalOutstandingDue = bills.reduce((s, b) => s + (b.carriedForward || 0), 0);
-  const studentsWithDue = bills.filter((b) => (b.carriedForward || 0) > 0).length;
-  const studentsFullyPaid = bills.filter((b) => (b.carriedForward || 0) === 0).length;
-
   return {
-    todayCollection, monthCollection, totalCollection,
-    totalOutstandingDue, totalAdvance: 0,
-    studentsWithDue, studentsFullyPaid,
-    paymentMethodBreakdown: byMethod,
-    studentCount: students.length,
+    todayCollection: 0,
+    monthCollection,
+    totalCollection,
+    totalOutstandingDue,
+    totalAdvance: 0,
+    studentsWithDue,
+    studentsFullyPaid,
+    paymentMethodBreakdown: {},
+    studentCount,
     month: targetMonth,
   };
 }
@@ -618,7 +599,7 @@ export async function getPaymentHistory(studentId) {
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
-    console.warn("getPaymentHistory: falling back (likely missing index):", err.message);
+    console.warn("getPaymentHistory: retry without orderBy:", err.message);
     const snap = await getDocs(
       query(collection(db, COL.transactions), where("studentId", "==", studentId))
     );
@@ -630,7 +611,6 @@ export async function getPaymentHistory(studentId) {
 
 /**
  * Combines "session paid total" and "last payment" into ONE query.
- * Returns both numbers with only one read pass over this student's txns.
  */
 export async function getStudentPaymentSummary(studentId, session, month) {
   try {
@@ -680,7 +660,6 @@ export async function getStudentPaymentSummary(studentId, session, month) {
   }
 }
 
-// Legacy wrappers (still exported to avoid breaking call sites)
 export async function getSessionPaidTotal(studentId, session) {
   const s = await getStudentPaymentSummary(studentId, session);
   return s.sessionTotal;
@@ -720,8 +699,10 @@ export async function getAuditLogs({ studentId, limitCount = 100 } = {}) {
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
-    console.warn("getAuditLogs: falling back:", err.message);
-    const snap = await getDocs(collection(db, COL.auditLogs));
+    console.warn("getAuditLogs: falling back (no orderBy):", err.message);
+    const snap = await getDocs(
+      query(collection(db, COL.auditLogs), fsLimit(limitCount))
+    );
     let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (studentId) rows = rows.filter((r) => r.studentId === studentId);
     rows.sort((a, b) => (b.timestamp?.toDate?.() || 0) - (a.timestamp?.toDate?.() || 0));
@@ -744,7 +725,7 @@ export async function getAcademicSessions() {
     const snap = await getDocs(query(collection(db, COL.sessions), orderBy("label", "desc")));
     return snap.docs.map((d) => d.data());
   } catch (err) {
-    console.warn("getAcademicSessions: using fallback:", err.message);
+    console.warn("getAcademicSessions: retry without orderBy:", err.message);
     const snap = await getDocs(collection(db, COL.sessions));
     return snap.docs
       .map((d) => d.data())
@@ -984,6 +965,7 @@ export async function setStudentTransport(studentId, amount) {
 
   return { transportOpted: amt > 0, transportAmount: amt };
 }
+
 // ---------------------------------------------------------------------------
 // Delete a single transaction (super admin only)
 // ---------------------------------------------------------------------------
@@ -1001,7 +983,6 @@ export async function deleteTransaction(transactionId, reason = "") {
 
   const txn = txnSnap.data();
 
-  // Reverse from bill
   if (txn.studentId && txn.session && txn.month) {
     const safeId = String(txn.studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
     const billRef = doc(db, COL.monthlyBills, `${txn.session}_${txn.month}_${safeId}`);
@@ -1011,7 +992,6 @@ export async function deleteTransaction(transactionId, reason = "") {
       const amt = Number(txn.netAmount || 0);
 
       if (!txn.componentType || txn.componentType === "monthly") {
-        // Real payment — reduce totalPaid
         const newPaid = Math.max((bill.totalPaid || 0) - amt, 0);
         const newCarry = (bill.totalDue || 0) - newPaid;
         await updateDoc(billRef, {
@@ -1020,7 +1000,6 @@ export async function deleteTransaction(transactionId, reason = "") {
           status: newCarry <= 0 ? "PAID" : "PARTIAL",
         });
       } else {
-        // Add-on — reduce the corresponding bill field
         const fieldMap = {
           books: "booksBilled",
           kit: "kitFeeBilled",
