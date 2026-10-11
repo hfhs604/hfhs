@@ -53,6 +53,7 @@
   border-bottom: 1.5px solid #1a3d6d;
   padding-bottom: 4px;
   margin-bottom: 4px;
+  text-align: center;
 }
 .demand-slip-header-top {
   display: flex;
@@ -60,6 +61,7 @@
   font-size: 5.5px;
   font-weight: 700;
   color: #1f2937;
+  margin-bottom: 2px;
 }
 .demand-slip-header-row {
   display: flex;
@@ -98,6 +100,19 @@
   font-size: 5.5px;
   font-weight: 700;
   color: #1a3d6d;
+}
+.demand-slip-tagline {
+  margin: 3px 0 0;
+  font-size: 6px;
+  font-style: italic;
+  font-weight: 600;
+  color: #1a3d6d;
+  letter-spacing: 0.4px;
+}
+.demand-slip-contact {
+  margin: 1px 0 0;
+  font-size: 5.5px;
+  color: #4b5563;
 }
 
 /* Title bar */
