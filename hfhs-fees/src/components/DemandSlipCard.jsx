@@ -3,9 +3,10 @@ import schoolLogo from "../assets/school-logo.jpg";
 
 const SCHOOL = {
   name: "HOLY FAITH HIGH SCHOOL",
-  address: "Tarwara More, Siwan, Bihar – 841227",
-  contact: "+91-9934723574",
-  registrationNumber: "21812302021829794631",
+  address: "Tarwara More, Siwan, Bihar (841227)",
+  managed: "Run & Managed by: Saumya Foundation Trust",
+  udise: "10161201603",
+  regNo: "21812302021829794631",
   logoUrl: schoolLogo,
 };
 
@@ -15,7 +16,6 @@ const MONTH_NAMES = [
 ];
 
 function parseMonth(monthStr) {
-  // monthStr is "2026-10"
   if (!monthStr) return { monthName: "", year: "" };
   const [year, monthNum] = monthStr.split("-").map(Number);
   return {
@@ -61,11 +61,19 @@ export default function DemandSlipCard({ bill, student }) {
   return (
     <div className="demand-slip">
       <header className="demand-slip-header">
-        <img src={SCHOOL.logoUrl} alt="" className="demand-slip-logo" />
-        <div className="demand-slip-header-text">
-          <h3>{SCHOOL.name}</h3>
-          <p>{SCHOOL.address}</p>
-          <p>📞 {SCHOOL.contact}</p>
+        <div className="demand-slip-header-top">
+          <span>UDISE: 10161201603</span>
+          <span>Reg. No.: 21812302021829794631</span>
+        </div>
+        <div className="demand-slip-header-row">
+          <img src={SCHOOL.logoUrl} alt="" className="demand-slip-logo" />
+          <div className="demand-slip-header-text">
+            <h3 className="demand-slip-school-name">{SCHOOL.name}</h3>
+            <p className="demand-slip-address">Tarwara More, Siwan, Bihar (841227)</p>
+            <p className="demand-slip-managed">Run &amp; Managed by: Saumya Foundation Trust</p>
+            <p className="demand-slip-tagline">NURTURING FAITH ♦ BUILDING FUTURE</p>
+            <p className="demand-slip-contact">holyfaithsiwan604@gmail.com | +91-9934723574</p>
+          </div>
         </div>
       </header>
 
