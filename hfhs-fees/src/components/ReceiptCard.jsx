@@ -42,12 +42,19 @@ export default function ReceiptCard({ receipt, school }) {
   return (
     <div className="receipt-card">
       <header className="receipt-header">
-        <img src={school.logoUrl} alt="" className="receipt-logo" />
-        <div className="receipt-header-text">
-          <h2 className="receipt-school-name">{school.name}</h2>
-          <p className="receipt-tagline">{school.tagline}</p>
-          <p className="receipt-address">{school.address}</p>
-          <p className="receipt-reg">Reg. No.: {school.registrationNumber}</p>
+        <div className="receipt-header-top">
+          <span>UDISE: 10161201603</span>
+          <span>Reg. No. : 21812302021829794631</span>
+        </div>
+        <div className="receipt-header-row">
+          <img src={school.logoUrl} alt="" className="receipt-logo" />
+          <div className="receipt-header-text">
+            <h2 className="receipt-school-name">{school.name}</h2>
+            <p className="receipt-address">Tarwara More, Siwan, Bihar (841227)</p>
+            <p className="receipt-managed">Run &amp; Managed by: Saumya Foundation Trust</p>
+            <p className="receipt-tagline">NURTURING FAITH ♦ BUILDING FUTURE</p>
+            <p className="receipt-contact">holyfaithsiwan604@gmail.com | +91-9934723574</p>
+          </div>
         </div>
       </header>
 
