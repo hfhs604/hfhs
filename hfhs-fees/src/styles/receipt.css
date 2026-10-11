@@ -7,9 +7,7 @@
   background: #fff;
 }
 
-.receipt-toolbar {
-  display: none;
-}
+.receipt-toolbar { display: none; }
 
 .a4-page-portrait {
   background: #fff;
@@ -21,9 +19,7 @@
   box-sizing: border-box;
   page-break-after: always;
 }
-.a4-page-portrait:last-child {
-  page-break-after: auto;
-}
+.a4-page-portrait:last-child { page-break-after: auto; }
 
 .a4-grid-4 {
   display: grid;
@@ -32,7 +28,6 @@
   gap: 4mm;
   height: 100%;
 }
-
 .a4-cell-4 {
   border: 1px dashed #cbd5e1;
   border-radius: 3px;
@@ -40,10 +35,9 @@
   overflow: hidden;
   box-sizing: border-box;
 }
-.a4-cell-blank {
-  border-color: transparent;
-}
+.a4-cell-blank { border-color: transparent; }
 
+/* ---- Receipt card ---- */
 .receipt-card {
   display: flex;
   flex-direction: column;
@@ -53,17 +47,31 @@
   font-size: 10px;
 }
 
+/* ---- Header — matches school letterhead ---- */
 .receipt-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  border-bottom: 1.5px solid #1a3d6d;
+  padding-bottom: 5px;
+  margin-bottom: 5px;
+}
+.receipt-header-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 6.5px;
+  font-weight: 700;
+  color: #1f2937;
+  letter-spacing: 0.3px;
+}
+.receipt-header-row {
   display: flex;
   align-items: center;
   gap: 8px;
-  border-bottom: 1.5px solid #1a3d6d;
-  padding-bottom: 6px;
-  margin-bottom: 6px;
 }
 .receipt-logo {
-  width: 44px;
-  height: 44px;
+  width: 42px;
+  height: 42px;
   object-fit: contain;
   flex-shrink: 0;
 }
@@ -73,30 +81,30 @@
 }
 .receipt-school-name {
   margin: 0;
-  font-family: "Algerian", "Copperplate", "Lucida Blackletter", "Papyrus", Georgia, serif;
-  font-size: 18px;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 17px;
   font-weight: 700;
-  color: #1a3d6d;
-  letter-spacing: 0.8px;
-  line-height: 1.15;
-}
-.receipt-tagline {
-  margin: 2px 0 0;
-  font-size: 7px;
-  color: #6b7280;
-  font-style: italic;
+  color: #c8102e;
+  letter-spacing: 0.5px;
+  line-height: 1.1;
+  text-transform: uppercase;
 }
 .receipt-address {
-  margin: 1px 0 0;
+  margin: 2px 0 0;
   font-size: 8px;
-  color: #4b5563;
+  font-weight: 700;
+  color: #1a3d6d;
+  line-height: 1.2;
 }
-.receipt-reg {
+.receipt-managed {
   margin: 1px 0 0;
-  font-size: 7px;
-  color: #6b7280;
+  font-size: 7.5px;
+  font-weight: 700;
+  color: #1a3d6d;
+  line-height: 1.2;
 }
 
+/* ---- Meta & student rows ---- */
 .receipt-meta-row {
   display: flex;
   justify-content: space-between;
@@ -111,6 +119,7 @@
   margin-bottom: 6px;
 }
 
+/* ---- Particulars table ---- */
 .receipt-table {
   width: 100%;
   border-collapse: collapse;
@@ -128,6 +137,7 @@
   text-align: left;
 }
 
+/* ---- Summary ---- */
 .receipt-summary-block {
   margin-top: 6px;
   padding: 6px;
@@ -186,12 +196,6 @@
   margin: 0;
 }
 
-/* ---------------------------------------------------------------------------
-   Print page setup (isolation handled by printManager.css)
-   --------------------------------------------------------------------------- */
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 0;
-  }
+  @page { size: A4 portrait; margin: 0; }
 }
