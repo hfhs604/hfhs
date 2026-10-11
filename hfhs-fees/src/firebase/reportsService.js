@@ -397,3 +397,122 @@ export function exportToCSV(rows, filename) {
   a.click();
   URL.revokeObjectURL(url);
 }
+// ---------------------------------------------------------------------------
+// Parent / student name lookup — finds related students sharing a parent
+// ---------------------------------------------------------------------------
+
+/**
+ * Normalizes a name for comparison:
+ *  - trims, collapses internal whitespace
+ *  - lowercases
+ *  - strips punctuation
+ */
+function normalizeName(s) {
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .replace(/[.,'"]/g, "");
+}
+
+/**
+ * Returns every student in the session whose name / fatherName / motherName /
+ * guardianName contains the search term (case-insensitive substring match),
+ * PLUS every other student who shares a parent name with any of those matches.
+ *
+ * Result is grouped by parent name so siblings appear together.
+ */
+export async function findStudentsByParentName({ session, searchTerm } = {}) {
+  const term = String(searchTerm || "").trim();
+  if (!term) return { direct: [], groups: [] };
+
+  // 1. Load all students for the session (one query — session index already exists).
+  const all = await getAllStudents({ session });
+  if (all.length === 0) return { direct: [], groups: [] };
+
+  const needle = normalizeName(term);
+
+  // 2. Direct matches: name / father / mother / guardian contains the term.
+  const direct = all.filter((s) => {
+    const haystack = [
+      s.name,
+      s.fatherName,
+      s.motherName,
+      s.guardianName,
+    ]
+      .map(normalizeName)
+      .join(" | ");
+    return haystack.includes(needle);
+  });
+
+  // 3. Collect the set of parent names that appear in the direct matches.
+  const parentKeys = new Set();
+  direct.forEach((s) => {
+    if (s.fatherName) parentKeys.add(normalizeName(s.fatherName));
+    if (s.motherName) parentKeys.add(normalizeName(s.motherName));
+    if (s.guardianName && s.guardianName !== s.fatherName) {
+      parentKeys.add(normalizeName(s.guardianName));
+    }
+  });
+
+  // 4. Also include any student whose parent name matches the search term
+  //    directly (so a parent search pulls in all their children).
+  all.forEach((s) => {
+    const parents = [s.fatherName, s.motherName, s.guardianName]
+      .map(normalizeName)
+      .filter(Boolean);
+    if (parents.some((p) => p.includes(needle))) {
+      parents.forEach((p) => parentKeys.add(p));
+    }
+  });
+
+  // 5. Build groups: one group per parent name, listing all their children.
+  const groupsMap = new Map();
+
+  all.forEach((s) => {
+    const candidates = [
+      { key: normalizeName(s.fatherName), label: s.fatherName, kind: "Father" },
+      { key: normalizeName(s.motherName), label: s.motherName, kind: "Mother" },
+    ];
+    if (s.guardianName && s.guardianName !== s.fatherName) {
+      candidates.push({
+        key: normalizeName(s.guardianName),
+        label: s.guardianName,
+        kind: "Guardian",
+      });
+    }
+
+    candidates.forEach(({ key, label, kind }) => {
+      if (!key || !parentKeys.has(key)) return;
+      if (!groupsMap.has(key)) {
+        groupsMap.set(key, {
+          parentKey: key,
+          parentName: label,
+          relation: kind,
+          students: [],
+        });
+      }
+      groupsMap.get(key).students.push(s);
+    });
+  });
+
+  // 6. Sort groups by size (largest first), and students within a group by class.
+  const groups = Array.from(groupsMap.values())
+    .filter((g) => g.students.length > 0)
+    .sort((a, b) => {
+      if (b.students.length !== a.students.length) {
+        return b.students.length - a.students.length;
+      }
+      return String(a.parentName).localeCompare(String(b.parentName));
+    });
+
+  groups.forEach((g) => {
+    g.students.sort((a, b) =>
+      String(a.className).localeCompare(String(b.className), undefined, {
+        numeric: true,
+      })
+    );
+  });
+
+  return { direct, groups };
+}
