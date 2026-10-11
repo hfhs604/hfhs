@@ -10,6 +10,7 @@ import FeeDashboard from "./FeeDashboard";
 import StudentDirectory from "./StudentDirectory";
 import FeeStructureConfig from "./FeeStructureConfig";
 import FeeCollection from "./FeeCollection";
+import BatchFeeCollection from "./BatchFeeCollection";
 import PaymentHistory from "./PaymentHistory";
 import DueManagement from "./DueManagement";
 import DiscountManager from "./DiscountManager";
@@ -46,6 +47,11 @@ const NAV_SECTIONS = [
   {
     key: "collect",
     label: "Collect Fee",
+    roles: ["superAdmin", "admin", "accountant"],
+  },
+  {
+    key: "batch",
+    label: "Batch Collect",
     roles: ["superAdmin", "admin", "accountant"],
   },
   {
@@ -117,6 +123,7 @@ export default function FeeManagementApp({ onLogout }) {
   const [activeTab, setActiveTab] = useState("dashboard");
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [lastReceipt, setLastReceipt] = useState(null);
+  const [batchPreselected, setBatchPreselected] = useState([]);
 
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
@@ -145,48 +152,30 @@ export default function FeeManagementApp({ onLogout }) {
           return;
         }
 
-        // --------------------------------------------------
-        // 1. Load user role
-        // --------------------------------------------------
-
+        // ----- 1. Load user role -----
         console.log("Loading user role...");
-
         const userDoc = await getUserRoleOnce(user.uid);
-
         console.log("User role document:", userDoc);
 
         const resolvedRole = userDoc?.role || "student";
-
         if (cancelled) return;
 
         setRole(resolvedRole);
         setPermissions(userDoc?.permissions || {});
 
-        // --------------------------------------------------
-        // 2. Load academic sessions
-        // --------------------------------------------------
-
+        // ----- 2. Load academic sessions -----
         console.log("Loading academic sessions...");
-
         let sessionList = await withFirestoreRetry(() =>
           getAcademicSessions()
         );
-
         console.log("Academic sessions:", sessionList);
 
-        // --------------------------------------------------
-        // 3. Create first academic session if required
-        // --------------------------------------------------
-
+        // ----- 3. Create first session if required -----
         if (sessionList.length === 0 && resolvedRole === "superAdmin") {
           const firstSession = defaultSessionLabel();
-
           console.log("No academic session found. Creating:", firstSession);
-
           await createAcademicSession(firstSession);
-
           sessionList = await withFirestoreRetry(() => getAcademicSessions());
-
           console.log("Academic sessions after creation:", sessionList);
         }
 
@@ -200,15 +189,11 @@ export default function FeeManagementApp({ onLogout }) {
           null;
 
         setSession(activeSession);
-
         console.log("Active academic session:", activeSession);
-
         setLoading(false);
       } catch (err) {
         console.error("Fee Management initialization failed:", err);
-
         if (cancelled) return;
-
         setError(err);
         setLoading(false);
       }
@@ -221,10 +206,7 @@ export default function FeeManagementApp({ onLogout }) {
     };
   }, []);
 
-  // --------------------------------------------------
-  // ERROR SCREEN
-  // --------------------------------------------------
-
+  // ----- ERROR SCREEN -----
   if (error) {
     return (
       <div
@@ -233,9 +215,7 @@ export default function FeeManagementApp({ onLogout }) {
       >
         <div className="fm-card">
           <h2>Unable to load Fee Management</h2>
-
           <p>The application could not connect to the Firebase database.</p>
-
           <div
             style={{
               background: "#f5f5f5",
@@ -250,7 +230,6 @@ export default function FeeManagementApp({ onLogout }) {
               {error?.message || String(error)}
             </pre>
           </div>
-
           <div
             style={{
               display: "flex",
@@ -265,7 +244,6 @@ export default function FeeManagementApp({ onLogout }) {
             >
               Retry
             </button>
-
             {onLogout && (
               <button className="fm-nav-btn" onClick={onLogout}>
                 Log Out
@@ -277,10 +255,7 @@ export default function FeeManagementApp({ onLogout }) {
     );
   }
 
-  // --------------------------------------------------
-  // LOADING
-  // --------------------------------------------------
-
+  // ----- LOADING -----
   if (loading) {
     return (
       <div className="fm-empty-state" style={{ padding: 60 }}>
@@ -289,10 +264,7 @@ export default function FeeManagementApp({ onLogout }) {
     );
   }
 
-  // --------------------------------------------------
-  // STUDENT PORTAL
-  // --------------------------------------------------
-
+  // ----- STUDENT PORTAL -----
   if (role === "student") {
     return (
       <div className="fm-app">
@@ -300,49 +272,36 @@ export default function FeeManagementApp({ onLogout }) {
           <h1 className="fm-app-title">
             Holy Faith High School — Fee Portal
           </h1>
-
           {onLogout && (
             <button className="fm-nav-btn" onClick={onLogout}>
               Log Out
             </button>
           )}
         </div>
-
         <StudentPortal />
       </div>
     );
   }
 
-  // --------------------------------------------------
-  // ADMIN NAVIGATION
-  // --------------------------------------------------
-
+  // ----- ADMIN NAVIGATION -----
   const visibleTabs = NAV_SECTIONS.filter((s) => s.roles.includes(role));
 
   async function handleCreateSession() {
     try {
       const label = newSessionLabel.trim();
-
       if (!label) return;
 
       await createAcademicSession(label);
-
       const updatedSessions = await getAcademicSessions();
-
       setSessions(updatedSessions);
       setNewSessionLabel("");
     } catch (err) {
       console.error("Failed to create academic session:", err);
-
-      alert(
-        `Unable to create academic session.\n\n${err?.message || err}`
-      );
+      alert(`Unable to create academic session.\n\n${err?.message || err}`);
     }
   }
 
-  // --------------------------------------------------
-  // MAIN APPLICATION
-  // --------------------------------------------------
+  const currentMonth = new Date().toISOString().slice(0, 7);
 
   return (
     <div className="fm-app">
@@ -353,7 +312,6 @@ export default function FeeManagementApp({ onLogout }) {
             alt="Holy Faith High School"
             className="fm-app-logo"
           />
-
           <h1 className="fm-app-title">Fee Management</h1>
         </div>
 
@@ -415,6 +373,10 @@ export default function FeeManagementApp({ onLogout }) {
               setSelectedStudentId(id);
               setActiveTab("transactions");
             }}
+            onBatchCollect={(ids) => {
+              setBatchPreselected(ids);
+              setActiveTab("batch");
+            }}
           />
         )}
 
@@ -425,11 +387,10 @@ export default function FeeManagementApp({ onLogout }) {
         {activeTab === "collect" && (
           <FeeCollection
             session={session}
-            month={new Date().toISOString().slice(0, 7)}
+            month={currentMonth}
             role={role}
             onReceiptGenerated={(receipt, duplicateBlocked) => {
               setLastReceipt(receipt);
-
               if (duplicateBlocked) {
                 console.warn(
                   "Duplicate payment submission blocked; original receipt reused."
@@ -445,20 +406,26 @@ export default function FeeManagementApp({ onLogout }) {
               Payment recorded successfully ✓ — Receipt No.:{" "}
               {lastReceipt.receiptNumber}
             </h3>
-
             <ReceiptPrintSheet receipts={[lastReceipt]} />
           </div>
+        )}
+
+        {activeTab === "batch" && (
+          <BatchFeeCollection
+            session={session}
+            month={currentMonth}
+            preselectedIds={batchPreselected}
+            onDone={() => setBatchPreselected([])}
+          />
         )}
 
         {activeTab === "transactions" && (
           <div className="fm-card">
             <h2>Transactions</h2>
-
             <p className="fm-hint">
               Select a student from Students or Collect Fee to view their full
               transaction/payment history.
             </p>
-
             {selectedStudentId && (
               <PaymentHistory studentId={selectedStudentId} />
             )}
@@ -470,7 +437,6 @@ export default function FeeManagementApp({ onLogout }) {
         {activeTab === "advances" && (
           <div className="fm-card">
             <h2>Advances</h2>
-
             <p className="fm-hint">
               Students carrying an advance balance are flagged 🟢 across the
               Students, Due Fees, and Reports screens. Advance auto-applies the
@@ -493,7 +459,6 @@ export default function FeeManagementApp({ onLogout }) {
           <div>
             <div className="fm-card">
               <h2>Settings — Academic Sessions</h2>
-
               <div className="fm-search-row">
                 <input
                   placeholder="e.g. 2027-28"
@@ -507,7 +472,6 @@ export default function FeeManagementApp({ onLogout }) {
                   Create Session
                 </button>
               </div>
-
               <ul className="fm-result-list">
                 {sessions.map((s) => (
                   <li key={s.label}>
@@ -515,12 +479,9 @@ export default function FeeManagementApp({ onLogout }) {
                   </li>
                 ))}
               </ul>
-
               <hr />
-
               <AuditLogViewer />
             </div>
-
             <Settings session={session} />
           </div>
         )}
