@@ -299,40 +299,61 @@ export async function getTransactionHistoryReport(filters = {}) {
 
 export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}) {
   try {
-    const rows = await fetchTransactions({ session });
+    // Fetch all non-voided transactions for the session (existing index covers this).
+    let rows = [];
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, COL.transactions),
+          where("session", "==", session),
+          where("voided", "==", false)
+        )
+      );
+      rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    } catch (err) {
+      console.warn("getMonthlyCollectionTrend: query failed:", err.message);
+      return [];
+    }
 
+    // Build empty buckets for the last N months.
     const buckets = {};
     const now = new Date();
     for (let i = monthsBack - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = `${d.toLocaleString("default", {
-        month: "short",
-      })} ${d.getFullYear()}`;
+      const key = `${d.toLocaleString("default", { month: "short" })} ${d.getFullYear()}`;
       buckets[key] = 0;
     }
 
+    // Add each transaction to the correct bucket.
     rows.forEach((r) => {
-      const paidAt = r.paymentDate
-        ? new Date(r.paymentDate)
-        : r.createdAt?.toDate?.();
-      if (!paidAt) return;
-      const key = `${paidAt.toLocaleString("default", {
-        month: "short",
-      })} ${paidAt.getFullYear()}`;
-      if (key in buckets) buckets[key] += r.netAmount || 0;
+      // paymentDate can be: Firestore Timestamp, ISO string, or missing.
+      let paidAt = null;
+      if (r.paymentDate) {
+        if (typeof r.paymentDate.toDate === "function") {
+          paidAt = r.paymentDate.toDate();          // Firestore Timestamp
+        } else if (typeof r.paymentDate === "string") {
+          paidAt = new Date(r.paymentDate);         // ISO string
+        } else if (typeof r.paymentDate === "number") {
+          paidAt = new Date(r.paymentDate);         // epoch millis
+        }
+      }
+      if (!paidAt && r.createdAt?.toDate) {
+        paidAt = r.createdAt.toDate();              // fallback
+      }
+      if (!paidAt || isNaN(paidAt.getTime())) return; // skip unparseable rows
+
+      const key = `${paidAt.toLocaleString("default", { month: "short" })} ${paidAt.getFullYear()}`;
+      if (key in buckets) {
+        buckets[key] += Number(r.netAmount || 0);
+      }
     });
 
-    return Object.entries(buckets).map(([month, amount]) => ({
-      month,
-      amount,
-    }));
+    return Object.entries(buckets).map(([month, amount]) => ({ month, amount }));
   } catch (err) {
     console.warn("getMonthlyCollectionTrend failed:", err.message);
     return [];
   }
-}
-
-/**
+}/**
  * Fast count of students for the session — 1 read instead of N.
  */
 export async function getStudentCount(session) {
