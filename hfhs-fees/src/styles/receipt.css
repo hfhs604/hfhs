@@ -47,7 +47,7 @@
   font-size: 10px;
 }
 
-/* ---- Header — matches school letterhead ---- */
+/* ---- Header ---- */
 .receipt-header {
   display: flex;
   flex-direction: column;
@@ -55,6 +55,7 @@
   border-bottom: 1.5px solid #1a3d6d;
   padding-bottom: 5px;
   margin-bottom: 5px;
+  text-align: center;
 }
 .receipt-header-top {
   display: flex;
@@ -63,6 +64,7 @@
   font-weight: 700;
   color: #1f2937;
   letter-spacing: 0.3px;
+  margin-bottom: 2px;
 }
 .receipt-header-row {
   display: flex;
@@ -102,6 +104,20 @@
   font-weight: 700;
   color: #1a3d6d;
   line-height: 1.2;
+}
+.receipt-tagline {
+  margin: 4px 0 0;
+  font-size: 7.5px;
+  font-style: italic;
+  font-weight: 600;
+  color: #1a3d6d;
+  letter-spacing: 0.5px;
+}
+.receipt-contact {
+  margin: 2px 0 0;
+  font-size: 7px;
+  color: #4b5563;
+  letter-spacing: 0.2px;
 }
 
 /* ---- Meta & student rows ---- */
