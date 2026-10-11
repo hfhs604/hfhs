@@ -516,3 +516,97 @@ export async function findStudentsByParentName({ session, searchTerm } = {}) {
 
   return { direct, groups };
 }
+// ---------------------------------------------------------------------------
+// Parent / student name lookup — finds related students sharing a parent
+// ---------------------------------------------------------------------------
+
+function normalizeName(s) {
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .replace(/[.,'"]/g, "");
+}
+
+export async function findStudentsByParentName({ session, searchTerm } = {}) {
+  const term = String(searchTerm || "").trim();
+  if (!term) return { direct: [], groups: [] };
+
+  const all = await getAllStudents({ session });
+  if (all.length === 0) return { direct: [], groups: [] };
+
+  const needle = normalizeName(term);
+
+  const direct = all.filter((s) => {
+    const haystack = [s.name, s.fatherName, s.motherName, s.guardianName]
+      .map(normalizeName)
+      .join(" | ");
+    return haystack.includes(needle);
+  });
+
+  const parentKeys = new Set();
+  direct.forEach((s) => {
+    if (s.fatherName) parentKeys.add(normalizeName(s.fatherName));
+    if (s.motherName) parentKeys.add(normalizeName(s.motherName));
+    if (s.guardianName && s.guardianName !== s.fatherName) {
+      parentKeys.add(normalizeName(s.guardianName));
+    }
+  });
+
+  all.forEach((s) => {
+    const parents = [s.fatherName, s.motherName, s.guardianName]
+      .map(normalizeName)
+      .filter(Boolean);
+    if (parents.some((p) => p.includes(needle))) {
+      parents.forEach((p) => parentKeys.add(p));
+    }
+  });
+
+  const groupsMap = new Map();
+
+  all.forEach((s) => {
+    const candidates = [
+      { key: normalizeName(s.fatherName), label: s.fatherName, kind: "Father" },
+      { key: normalizeName(s.motherName), label: s.motherName, kind: "Mother" },
+    ];
+    if (s.guardianName && s.guardianName !== s.fatherName) {
+      candidates.push({
+        key: normalizeName(s.guardianName),
+        label: s.guardianName,
+        kind: "Guardian",
+      });
+    }
+
+    candidates.forEach(({ key, label, kind }) => {
+      if (!key || !parentKeys.has(key)) return;
+      if (!groupsMap.has(key)) {
+        groupsMap.set(key, {
+          parentKey: key,
+          parentName: label,
+          relation: kind,
+          students: [],
+        });
+      }
+      groupsMap.get(key).students.push(s);
+    });
+  });
+
+  const groups = Array.from(groupsMap.values())
+    .filter((g) => g.students.length > 0)
+    .sort((a, b) => {
+      if (b.students.length !== a.students.length) {
+        return b.students.length - a.students.length;
+      }
+      return String(a.parentName).localeCompare(String(b.parentName));
+    });
+
+  groups.forEach((g) => {
+    g.students.sort((a, b) =>
+      String(a.className).localeCompare(String(b.className), undefined, {
+        numeric: true,
+      })
+    );
+  });
+
+  return { direct, groups };
+}
