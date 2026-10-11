@@ -573,6 +573,31 @@ export async function getDashboardStats(session, month) {
     else studentsFullyPaid++;
   });
 
+  // 5. Payment method breakdown (all-time for this session, from transactions).
+  //    Uses the existing (session ASC, voided ASC) index — no new index required.
+  let paymentMethodBreakdown = {};
+  try {
+    const txnSnap = await getDocs(
+      query(
+        collection(db, COL.transactions),
+        where("session", "==", session),
+        where("voided", "==", false)
+      )
+    );
+    txnSnap.docs.forEach((d) => {
+      const t = d.data();
+      const method = t.paymentMethod || "Unknown";
+      paymentMethodBreakdown[method] =
+        (paymentMethodBreakdown[method] || 0) + Number(t.netAmount || 0);
+    });
+  } catch (err) {
+    console.warn(
+      "getDashboardStats: payment method breakdown failed:",
+      err.message
+    );
+    paymentMethodBreakdown = {};
+  }
+
   return {
     todayCollection: 0,
     monthCollection,
@@ -581,12 +606,11 @@ export async function getDashboardStats(session, month) {
     totalAdvance: 0,
     studentsWithDue,
     studentsFullyPaid,
-    paymentMethodBreakdown: {},
+    paymentMethodBreakdown,
     studentCount,
     month: actualMonth,
   };
-}
-// ---------------------------------------------------------------------------
+}// ---------------------------------------------------------------------------
 // Fee structures (backward compat)
 // ---------------------------------------------------------------------------
 export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
