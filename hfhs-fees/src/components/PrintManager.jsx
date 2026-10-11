@@ -10,18 +10,17 @@ export default function PrintManager({ active, onClose, type, children }) {
       return;
     }
 
-    // Open a new window with an empty document
     const w = window.open("", "_blank", "width=1000,height=800");
     if (!w) {
-      alert("Please allow pop-ups for this site to print.");
+      alert(
+        "Please allow pop-ups for this site to print. " +
+          "Click the pop-up blocked icon in the address bar and choose 'Always allow for this site'."
+      );
       return;
     }
 
-    // Determine page size by type
-    const pageSize =
-      type === "slip" ? "A4 landscape" : "A4 portrait";
+    const pageSize = type === "slip" ? "A4 landscape" : "A4 portrait";
 
-    // Serialize styles
     const stylesHtml = Array.from(
       document.querySelectorAll('link[rel="stylesheet"], style')
     )
@@ -33,7 +32,6 @@ export default function PrintManager({ active, onClose, type, children }) {
       })
       .join("\n");
 
-    // Grab the printable HTML
     const printableHtml = printRoot.innerHTML;
 
     w.document.open();
@@ -45,13 +43,11 @@ export default function PrintManager({ active, onClose, type, children }) {
           <title>Print</title>
           ${stylesHtml}
           <style>
-            /* Force the correct page size */
             @page {
               size: ${pageSize};
               margin: 0;
             }
 
-            /* Reset page background */
             html, body {
               margin: 0 !important;
               padding: 0 !important;
@@ -60,7 +56,7 @@ export default function PrintManager({ active, onClose, type, children }) {
               print-color-adjust: exact;
             }
 
-            /* The print container inside the new window is a plain block */
+            /* Neutralize any app-level layout wrappers */
             .print-only-container,
             .print-screen-preview,
             .print-overlay,
@@ -74,12 +70,48 @@ export default function PrintManager({ active, onClose, type, children }) {
               margin: 0 !important;
               background: #fff !important;
               box-shadow: none !important;
+              overflow: visible !important;
             }
 
-            /* Hide the app chrome if it slipped in */
             .print-overlay,
             .no-print {
               display: none !important;
+            }
+
+            /* Prevent the last page from being extra-blank */
+            html, body {
+              height: auto !important;
+              min-height: 0 !important;
+            }
+
+            /* Force every printed A4 page to break correctly */
+            .a4-page-portrait,
+            .a4-page-landscape,
+            .demand-a4-page {
+              page-break-after: always;
+              page-break-inside: avoid;
+              overflow: hidden;
+            }
+            .a4-page-portrait:last-child,
+            .a4-page-landscape:last-child,
+            .demand-a4-page:last-child {
+              page-break-after: auto;
+            }
+
+            /* The student print page should NOT force extra height */
+            .sp-page {
+              width: 210mm !important;
+              min-height: 0 !important;
+              height: auto !important;
+              padding: 14mm !important;
+              box-sizing: border-box !important;
+            }
+
+            /* Receipt cards should not force page breaks */
+            .receipt-print-root,
+            .demand-slip-root {
+              padding: 0 !important;
+              margin: 0 !important;
             }
           </style>
         </head>
@@ -90,7 +122,9 @@ export default function PrintManager({ active, onClose, type, children }) {
               setTimeout(function() {
                 window.focus();
                 window.print();
-              }, 300);
+                // Auto-close the print window after the dialog dismisses
+                setTimeout(function() { window.close(); }, 500);
+              }, 400);
             };
           </script>
         </body>
@@ -116,12 +150,10 @@ export default function PrintManager({ active, onClose, type, children }) {
         </div>
       </div>
 
-      {/* On-screen preview */}
       <div className="print-screen-preview">
         <div className="print-scroll">{children}</div>
       </div>
 
-      {/* Hidden container for print HTML extraction */}
       <div className="print-only-container">{children}</div>
     </>
   );
