@@ -1,15 +1,12 @@
 /* ===========================================================================
-   Demand Slip printing — 6 slips per A4 LANDSCAPE page (3 cols × 2 rows)
+   Demand Slip — 6 per A4 LANDSCAPE page
    =========================================================================== */
 
 .demand-slip-root {
   padding: 8px;
   background: #fff;
 }
-
-.demand-slip-toolbar {
-  display: none;
-}
+.demand-slip-toolbar { display: none; }
 
 .demand-a4-page {
   background: #fff;
@@ -21,9 +18,7 @@
   box-sizing: border-box;
   page-break-after: always;
 }
-.demand-a4-page:last-child {
-  page-break-after: auto;
-}
+.demand-a4-page:last-child { page-break-after: auto; }
 
 .demand-a4-grid {
   display: grid;
@@ -32,7 +27,6 @@
   gap: 3mm;
   height: 100%;
 }
-
 .demand-a4-cell {
   border: 1px dashed #cbd5e1;
   border-radius: 3px;
@@ -41,11 +35,9 @@
   font-size: 9px;
   box-sizing: border-box;
 }
-.demand-a4-cell-blank {
-  border-color: transparent;
-}
+.demand-a4-cell-blank { border-color: transparent; }
 
-/* ---- Demand slip card ---- */
+/* ---- Demand slip ---- */
 .demand-slip {
   display: flex;
   flex-direction: column;
@@ -56,33 +48,59 @@
 
 .demand-slip-header {
   display: flex;
-  align-items: center;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
   border-bottom: 1.5px solid #1a3d6d;
   padding-bottom: 4px;
   margin-bottom: 4px;
 }
+.demand-slip-header-top {
+  display: flex;
+  justify-content: space-between;
+  font-size: 5.5px;
+  font-weight: 700;
+  color: #1f2937;
+}
+.demand-slip-header-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
 .demand-slip-logo {
-  width: 26px;
-  height: 26px;
+  width: 28px;
+  height: 28px;
   object-fit: contain;
   flex-shrink: 0;
 }
-.demand-slip-header-text { flex: 1; text-align: center; }
-.demand-slip-header-text h3 {
-  margin: 0;
-  font-size: 10px;
-  color: #1a3d6d;
-  font-weight: 700;
-  line-height: 1.1;
-  letter-spacing: 0.3px;
+.demand-slip-header-text {
+  flex: 1;
+  text-align: center;
 }
-.demand-slip-header-text p {
+.demand-slip-school-name {
+  margin: 0;
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 11px;
+  font-weight: 700;
+  color: #c8102e;
+  letter-spacing: 0.4px;
+  line-height: 1.1;
+  text-transform: uppercase;
+}
+.demand-slip-address {
   margin: 1px 0 0;
-  font-size: 6.5px;
-  color: #4b5563;
+  font-size: 6px;
+  font-weight: 700;
+  color: #1a3d6d;
+  line-height: 1.15;
+}
+.demand-slip-managed {
+  margin: 1px 0 0;
+  font-size: 5.5px;
+  font-weight: 700;
+  color: #1a3d6d;
 }
 
+/* Title bar */
 .demand-slip-title {
   text-align: center;
   background: #1a3d6d;
@@ -145,16 +163,8 @@
   border-top: 1px dashed #cbd5e1;
   padding-top: 3px;
 }
-.demand-slip-footer strong {
-  color: #1a3d6d;
-}
+.demand-slip-footer strong { color: #1a3d6d; }
 
-/* ---------------------------------------------------------------------------
-   Print page setup (isolation handled by printManager.css)
-   --------------------------------------------------------------------------- */
 @media print {
-  @page {
-    size: A4 landscape;
-    margin: 0;
-  }
+  @page { size: A4 landscape; margin: 0; }
 }
