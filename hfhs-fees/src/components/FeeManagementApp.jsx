@@ -18,6 +18,7 @@ import AuditLogViewer from "./AuditLogViewer";
 import Settings from "./Settings";
 import StudentPortal from "./StudentPortal";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
+import RelatedStudentsLookup from "./RelatedStudentsLookup";
 import schoolLogo from "../assets/school-logo.jpg";
 import "../styles/feeManagement.css";
 
@@ -30,6 +31,11 @@ const NAV_SECTIONS = [
   {
     key: "students",
     label: "Students",
+    roles: ["superAdmin", "admin", "accountant"],
+  },
+  {
+    key: "family",
+    label: "Family Lookup",
     roles: ["superAdmin", "admin", "accountant"],
   },
   {
@@ -395,6 +401,16 @@ export default function FeeManagementApp({ onLogout }) {
           <StudentDirectory
             session={session}
             role={role}
+            onSelectStudent={(id) => {
+              setSelectedStudentId(id);
+              setActiveTab("transactions");
+            }}
+          />
+        )}
+
+        {activeTab === "family" && (
+          <RelatedStudentsLookup
+            session={session}
             onSelectStudent={(id) => {
               setSelectedStudentId(id);
               setActiveTab("transactions");
