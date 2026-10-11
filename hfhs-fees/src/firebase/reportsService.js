@@ -1,12 +1,19 @@
 /**
  * reportsService.js
  * Report queries + CSV export for the monthly billing model.
- * Optimized for minimal Firestore reads.
+ * Hardened: every read degrades gracefully; no function throws to the caller.
  */
 
 import { db } from "../firebase/config";
 import {
-  collection, getDocs, getCountFromServer, query, where, orderBy, limit as fsLimit, Timestamp,
+  collection,
+  getDocs,
+  getCountFromServer,
+  query,
+  where,
+  orderBy,
+  limit as fsLimit,
+  Timestamp,
 } from "firebase/firestore";
 
 const COL = {
@@ -25,8 +32,14 @@ function currentMonthKey(date = new Date()) {
 
 function toDateRangeClauses(field, fromDate, toDate) {
   const clauses = [];
-  if (fromDate) clauses.push(where(field, ">=", Timestamp.fromDate(new Date(fromDate))));
-  if (toDate) clauses.push(where(field, "<=", Timestamp.fromDate(new Date(toDate + "T23:59:59"))));
+  if (fromDate) {
+    clauses.push(where(field, ">=", Timestamp.fromDate(new Date(fromDate))));
+  }
+  if (toDate) {
+    clauses.push(
+      where(field, "<=", Timestamp.fromDate(new Date(toDate + "T23:59:59")))
+    );
+  }
   return clauses;
 }
 
@@ -39,47 +52,76 @@ export async function getAllStudentsWithBills({ session, className, month } = {}
   // 1. Load students (with filter + hard limit).
   let students = [];
   try {
-    let sClauses = [];
+    const sClauses = [];
     if (session) sClauses.push(where("session", "==", session));
     if (className) sClauses.push(where("className", "==", className));
 
     const sSnap = await getDocs(
       sClauses.length
-        ? query(collection(db, COL.students), ...sClauses, fsLimit(MAX_QUERY_RESULTS))
+        ? query(
+            collection(db, COL.students),
+            ...sClauses,
+            fsLimit(MAX_QUERY_RESULTS)
+          )
         : query(collection(db, COL.students), fsLimit(MAX_QUERY_RESULTS))
     );
     students = sSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    if (students.length === MAX_QUERY_RESULTS) {
+      console.warn(
+        `getAllStudentsWithBills: student query hit the ${MAX_QUERY_RESULTS}-doc cap.`
+      );
+    }
   } catch (err) {
-    console.error("getAllStudentsWithBills: students query failed:", err.message);
+    console.warn("getAllStudentsWithBills: students query failed:", err.message);
     students = [];
   }
 
   // 2. Load bills for the target month (with filter + hard limit).
   let bills = [];
   try {
-    let bClauses = [where("month", "==", targetMonth)];
+    const bClauses = [where("month", "==", targetMonth)];
     if (session) bClauses.push(where("session", "==", session));
+
     const bSnap = await getDocs(
-      query(collection(db, COL.monthlyBills), ...bClauses, fsLimit(MAX_QUERY_RESULTS))
+      query(
+        collection(db, COL.monthlyBills),
+        ...bClauses,
+        fsLimit(MAX_QUERY_RESULTS)
+      )
     );
     bills = bSnap.docs.map((d) => d.data());
+    if (bills.length === MAX_QUERY_RESULTS) {
+      console.warn(
+        `getAllStudentsWithBills: bill query hit the ${MAX_QUERY_RESULTS}-doc cap.`
+      );
+    }
   } catch (err) {
-    console.error("getAllStudentsWithBills: bills query failed:", err.message);
+    // This is the query that usually needs a composite index on
+    // (month ASC, session ASC). Log the full message so the dashboard's
+    // "Partial data" banner can show the Firestore index URL.
+    console.warn("getAllStudentsWithBills: bills query failed:", err.message);
+    console.warn(
+      "→ If this mentions an index, open the link in DevTools → Console to create it."
+    );
     bills = [];
   }
 
-  // 3. Merge students + bills
+  // 3. Merge students + bills.
   const billByStudent = {};
-  bills.forEach((b) => { billByStudent[b.studentId] = b; });
+  bills.forEach((b) => {
+    billByStudent[b.studentId] = b;
+  });
 
   return students.map((s) => {
     const bill = billByStudent[s.id];
     const totalDue = bill?.carriedForward || 0;
     const totalPaid = bill?.totalPaid || 0;
     const totalFee = bill?.totalDue || 0;
+
     let accountStatus = "PAID";
     if (totalDue > 0 && totalPaid > 0) accountStatus = "PARTIAL";
     else if (totalDue > 0) accountStatus = "DUE";
+
     return {
       ...s,
       month: targetMonth,
@@ -99,7 +141,13 @@ export async function getAllStudents(opts = {}) {
 // ---------------------------------------------------------------------------
 // Transaction-based reports
 // ---------------------------------------------------------------------------
-async function fetchTransactions({ fromDate, toDate, session, paymentMethod, className }) {
+async function fetchTransactions({
+  fromDate,
+  toDate,
+  session,
+  paymentMethod,
+  className,
+} = {}) {
   let clauses = [where("voided", "==", false)];
   if (session) clauses.push(where("session", "==", session));
   if (paymentMethod) clauses.push(where("paymentMethod", "==", paymentMethod));
@@ -121,44 +169,59 @@ async function fetchTransactions({ fromDate, toDate, session, paymentMethod, cla
       const allowed = new Set(classStudents.map((s) => s.id));
       rows = rows.filter((r) => allowed.has(r.studentId));
     }
+
+    if (rows.length === MAX_QUERY_RESULTS) {
+      console.warn(
+        `fetchTransactions: hit the ${MAX_QUERY_RESULTS}-doc cap; results truncated.`
+      );
+    }
+
     return rows;
   } catch (err) {
-    console.error("fetchTransactions failed (index missing?):", err.message);
-    throw new Error(
-      "Report query failed. Please ask the admin to create the required Firestore index. " +
-        "Details: " + err.message
+    console.warn("fetchTransactions failed:", err.message);
+    console.warn(
+      "→ If this mentions an index, open the link in DevTools → Console to create it."
     );
+    return [];
   }
 }
 
-export async function getCollectionReport(filters) {
+export async function getCollectionReport(filters = {}) {
   const rows = await fetchTransactions(filters);
   const totalCollected = rows.reduce((s, r) => s + (r.netAmount || 0), 0);
   return { rows, totalCollected, count: rows.length };
 }
 
-export async function getClassWiseCollectionReport({ session, month }) {
-  const students = await getAllStudentsWithBills({ session, month });
-  const byClass = {};
-  students.forEach((s) => {
-    const key = `${s.className}-${s.section || ""}`;
-    byClass[key] = byClass[key] || {
-      className: s.className,
-      section: s.section || "",
-      totalFee: 0,
-      totalPaid: 0,
-      totalDue: 0,
-    };
-    byClass[key].totalFee += s.totalFee || 0;
-    byClass[key].totalPaid += s.totalPaid || 0;
-    byClass[key].totalDue += s.totalDue || 0;
-  });
-  return Object.values(byClass).sort((a, b) =>
-    String(a.className).localeCompare(String(b.className))
-  );
+export async function getClassWiseCollectionReport({ session, month } = {}) {
+  try {
+    const students = await getAllStudentsWithBills({ session, month });
+    const byClass = {};
+
+    students.forEach((s) => {
+      const key = `${s.className}-${s.section || ""}`;
+      byClass[key] = byClass[key] || {
+        className: s.className,
+        section: s.section || "",
+        totalFee: 0,
+        totalPaid: 0,
+        totalDue: 0,
+      };
+      byClass[key].totalFee += s.totalFee || 0;
+      byClass[key].totalPaid += s.totalPaid || 0;
+      byClass[key].totalDue += s.totalDue || 0;
+    });
+
+    return Object.values(byClass).sort((a, b) =>
+      String(a.className).localeCompare(String(b.className))
+    );
+  } catch (err) {
+    console.warn("getClassWiseCollectionReport failed:", err.message);
+    return [];
+  }
 }
 
 export async function getStudentStatement(studentId) {
+  if (!studentId) return [];
   try {
     const snap = await getDocs(
       query(
@@ -170,16 +233,27 @@ export async function getStudentStatement(studentId) {
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
   } catch (err) {
     console.warn("getStudentStatement: retry without orderBy:", err.message);
-    const snap = await getDocs(
-      query(collection(db, COL.transactions), where("studentId", "==", studentId))
-    );
-    return snap.docs
-      .map((d) => ({ id: d.id, ...d.data() }))
-      .sort((a, b) => (a.createdAt?.toDate?.() || 0) - (b.createdAt?.toDate?.() || 0));
+    try {
+      const snap = await getDocs(
+        query(
+          collection(db, COL.transactions),
+          where("studentId", "==", studentId)
+        )
+      );
+      return snap.docs
+        .map((d) => ({ id: d.id, ...d.data() }))
+        .sort(
+          (a, b) =>
+            (a.createdAt?.toDate?.() || 0) - (b.createdAt?.toDate?.() || 0)
+        );
+    } catch (err2) {
+      console.warn("getStudentStatement failed completely:", err2.message);
+      return [];
+    }
   }
 }
 
-export async function getDueReport({ session, className, month }) {
+export async function getDueReport({ session, className, month } = {}) {
   const students = await getAllStudentsWithBills({ session, className, month });
   return students
     .filter((s) => s.totalDue > 0)
@@ -190,11 +264,12 @@ export async function getAdvanceReport() {
   return [];
 }
 
-export async function getPaymentMethodReport(filters) {
+export async function getPaymentMethodReport(filters = {}) {
   const rows = await fetchTransactions(filters);
   const byMethod = {};
   rows.forEach((r) => {
-    byMethod[r.paymentMethod] = (byMethod[r.paymentMethod] || 0) + (r.netAmount || 0);
+    const method = r.paymentMethod || "Unknown";
+    byMethod[method] = (byMethod[method] || 0) + (r.netAmount || 0);
   });
   return byMethod;
 }
@@ -204,7 +279,11 @@ export async function getDiscountReport({ fromDate, toDate } = {}) {
     const clauses = toDateRangeClauses("createdAt", fromDate, toDate);
     const snap = await getDocs(
       clauses.length
-        ? query(collection(db, COL.discounts), ...clauses, fsLimit(MAX_QUERY_RESULTS))
+        ? query(
+            collection(db, COL.discounts),
+            ...clauses,
+            fsLimit(MAX_QUERY_RESULTS)
+          )
         : query(collection(db, COL.discounts), fsLimit(MAX_QUERY_RESULTS))
     );
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
@@ -214,27 +293,43 @@ export async function getDiscountReport({ fromDate, toDate } = {}) {
   }
 }
 
-export async function getTransactionHistoryReport(filters) {
+export async function getTransactionHistoryReport(filters = {}) {
   return fetchTransactions(filters);
 }
 
-export async function getMonthlyCollectionTrend({ session, monthsBack = 6 }) {
-  const rows = await fetchTransactions({ session });
-  const buckets = {};
-  const now = new Date();
-  for (let i = monthsBack - 1; i >= 0; i--) {
-    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-    buckets[`${d.toLocaleString("default", { month: "short" })} ${d.getFullYear()}`] = 0;
+export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}) {
+  try {
+    const rows = await fetchTransactions({ session });
+
+    const buckets = {};
+    const now = new Date();
+    for (let i = monthsBack - 1; i >= 0; i--) {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+      const key = `${d.toLocaleString("default", {
+        month: "short",
+      })} ${d.getFullYear()}`;
+      buckets[key] = 0;
+    }
+
+    rows.forEach((r) => {
+      const paidAt = r.paymentDate
+        ? new Date(r.paymentDate)
+        : r.createdAt?.toDate?.();
+      if (!paidAt) return;
+      const key = `${paidAt.toLocaleString("default", {
+        month: "short",
+      })} ${paidAt.getFullYear()}`;
+      if (key in buckets) buckets[key] += r.netAmount || 0;
+    });
+
+    return Object.entries(buckets).map(([month, amount]) => ({
+      month,
+      amount,
+    }));
+  } catch (err) {
+    console.warn("getMonthlyCollectionTrend failed:", err.message);
+    return [];
   }
-  rows.forEach((r) => {
-    const paidAt = r.paymentDate
-      ? new Date(r.paymentDate)
-      : r.createdAt?.toDate?.();
-    if (!paidAt) return;
-    const key = `${paidAt.toLocaleString("default", { month: "short" })} ${paidAt.getFullYear()}`;
-    if (key in buckets) buckets[key] += r.netAmount || 0;
-  });
-  return Object.entries(buckets).map(([month, amount]) => ({ month, amount }));
 }
 
 /**
@@ -252,16 +347,28 @@ export async function getStudentCount(session) {
   }
 }
 
+// ---------------------------------------------------------------------------
+// CSV export
+// ---------------------------------------------------------------------------
 export function exportToCSV(rows, filename) {
-  if (!rows.length) return;
-  const headers = Object.keys(rows[0]).filter((k) => typeof rows[0][k] !== "object");
+  if (!rows || rows.length === 0) return;
+
+  const headers = Object.keys(rows[0]).filter(
+    (k) => typeof rows[0][k] !== "object"
+  );
+
   const csvLines = [
     headers.join(","),
     ...rows.map((row) =>
-      headers.map((h) => `"${String(row[h] ?? "").replace(/"/g, '""')}"`).join(",")
+      headers
+        .map((h) => `"${String(row[h] ?? "").replace(/"/g, '""')}"`)
+        .join(",")
     ),
   ];
-  const blob = new Blob([csvLines.join("\n")], { type: "text/csv;charset=utf-8;" });
+
+  const blob = new Blob([csvLines.join("\n")], {
+    type: "text/csv;charset=utf-8;",
+  });
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
