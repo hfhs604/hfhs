@@ -9,17 +9,14 @@ import "../styles/feeManagement.css";
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
 /**
- * Batch fee collection.
+ * Batch fee collection — records one payment per selected student,
+ * generating one receipt per student. Reuses collectPayment() unchanged.
  *
  * Props:
- *   session         — active academic session
- *   month           — billing month (YYYY-MM)
- *   preselectedIds  — optional array of student document IDs to prefill
- *   onDone          — optional callback after all receipts are generated
- *
- * Uses your existing collectPayment() once per student, so every receipt is
- * a normal HFHS receipt and every bill update happens inside its own
- * Firestore transaction. Idempotency keys prevent double-submission.
+ *   session        — active academic session (e.g. "2026-27")
+ *   month          — billing month in YYYY-MM form
+ *   preselectedIds — optional array of student doc IDs to prefill
+ *   onDone         — optional callback after a successful batch
  */
 export default function BatchFeeCollection({
   session,
@@ -28,12 +25,14 @@ export default function BatchFeeCollection({
   onDone,
 }) {
   const [allStudents, setAllStudents] = useState([]);
-  const [selectedIds, setSelectedIds] = useState(() => new Set(preselectedIds));
+  const [selectedIds, setSelectedIds] = useState(
+    () => new Set(preselectedIds)
+  );
   const [search, setSearch] = useState("");
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [searchError, setSearchError] = useState(null);
 
-  // Per-student form rows: { [studentId]: { amount, method, ref, discount, lateFee, remarks, bill, loadingBill } }
+  // Per-student row state, keyed by student doc ID.
   const [rows, setRows] = useState({});
 
   const [paymentDate, setPaymentDate] = useState(
@@ -43,10 +42,10 @@ export default function BatchFeeCollection({
   const [sharedRemarks, setSharedRemarks] = useState("");
 
   const [submitting, setSubmitting] = useState(false);
-  const [results, setResults] = useState(null); // { receipts, errors }
+  const [results, setResults] = useState(null);
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
 
-  // Load all students for the session.
+  // -------- Load all students for the session --------
   useEffect(() => {
     let active = true;
     setLoadingStudents(true);
@@ -60,59 +59,77 @@ export default function BatchFeeCollection({
         if (!active) return;
         setSearchError(err.message || "Could not load students.");
       })
-      .finally(() => active && setLoadingStudents(false));
+      .finally(() => {
+        if (active) setLoadingStudents(false);
+      });
     return () => {
       active = false;
     };
   }, [session]);
 
-  // When selection changes, ensure each selected student has a row + bill.
+  // -------- When selection changes, ensure each selected student has a row --------
   useEffect(() => {
     let active = true;
-    selectedIds.forEach(async (id) => {
-      if (rows[id] && !rows[id].loadingBill && rows[id].bill !== undefined) return;
-      setRows((prev) => ({
-        ...prev,
-        [id]: {
-          ...(prev[id] || {}),
-          amount: prev[id]?.amount || "",
-          method: prev[id]?.method || sharedMethod,
-          ref: prev[id]?.ref || "",
-          discount: prev[id]?.discount || 0,
-          lateFee: prev[id]?.lateFee || 0,
-          remarks: prev[id]?.remarks || "",
-          bill: undefined,
-          loadingBill: true,
-        },
-      }));
-      try {
-        const bill = await getMonthlyBill(session, month, id);
-        if (!active) return;
+
+    (async () => {
+      for (const id of selectedIds) {
+        const existing = rows[id];
+        if (existing && !existing.loadingBill && existing.bill !== undefined) {
+          continue;
+        }
+
         setRows((prev) => ({
           ...prev,
           [id]: {
-            ...prev[id],
-            bill,
-            loadingBill: false,
-            // Prefill the amount with the current outstanding balance, if any.
-            amount:
-              prev[id]?.amount ||
-              (bill?.carriedForward ? String(bill.carriedForward) : ""),
+            amount: prev[id]?.amount ?? "",
+            method: prev[id]?.method ?? sharedMethod,
+            ref: prev[id]?.ref ?? "",
+            discount: prev[id]?.discount ?? 0,
+            lateFee: prev[id]?.lateFee ?? 0,
+            remarks: prev[id]?.remarks ?? "",
+            bill: undefined,
+            loadingBill: true,
+            billError: null,
           },
         }));
-      } catch (err) {
-        if (!active) return;
-        setRows((prev) => ({
-          ...prev,
-          [id]: { ...prev[id], bill: null, loadingBill: false, billError: err.message },
-        }));
+
+        try {
+          const bill = await getMonthlyBill(session, month, id);
+          if (!active) return;
+          setRows((prev) => ({
+            ...prev,
+            [id]: {
+              ...prev[id],
+              bill,
+              loadingBill: false,
+              amount:
+                prev[id]?.amount && prev[id].amount !== ""
+                  ? prev[id].amount
+                  : bill?.carriedForward
+                  ? String(bill.carriedForward)
+                  : "",
+            },
+          }));
+        } catch (err) {
+          if (!active) return;
+          setRows((prev) => ({
+            ...prev,
+            [id]: {
+              ...prev[id],
+              bill: null,
+              loadingBill: false,
+              billError: err.message || String(err),
+            },
+          }));
+        }
       }
-    });
+    })();
+
     return () => {
       active = false;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, session, month]);
+  }, [selectedIds, session, month, sharedMethod]);
 
   function toggleStudent(id) {
     setSelectedIds((prev) => {
@@ -140,19 +157,17 @@ export default function BatchFeeCollection({
 
   const selectedList = allStudents.filter((s) => selectedIds.has(s.id));
 
-  const grandTotal = selectedList.reduce((sum, s) => {
-    const r = rows[s.id] || {};
-    return sum + Number(r.amount || 0);
-  }, 0);
+  const grandTotal = selectedList.reduce(
+    (sum, s) => sum + Number(rows[s.id]?.amount || 0),
+    0
+  );
 
   async function handleSubmit() {
     if (submitting) return;
     if (selectedList.length === 0) return;
 
-    // Validate amounts.
     for (const s of selectedList) {
-      const r = rows[s.id] || {};
-      const amt = Number(r.amount || 0);
+      const amt = Number(rows[s.id]?.amount || 0);
       if (amt <= 0) {
         alert(`Enter an amount greater than 0 for ${s.name}.`);
         return;
@@ -160,10 +175,12 @@ export default function BatchFeeCollection({
     }
 
     const confirmed = window.confirm(
-      `Record ${selectedList.length} payment${selectedList.length !== 1 ? "s" : ""}?\n\n` +
+      `Record ${selectedList.length} payment${
+        selectedList.length !== 1 ? "s" : ""
+      }?\n\n` +
         `Total: ₹${grandTotal.toLocaleString()}\n` +
         `Month: ${month}\n\n` +
-        `Each student will receive their own receipt. This cannot be undone from here.`
+        `Each student will receive their own receipt.`
     );
     if (!confirmed) return;
 
@@ -181,7 +198,7 @@ export default function BatchFeeCollection({
           session,
           month,
           idempotencyKey: uuidv4(),
-          amountReceived: Number(r.amount),
+          amountReceived: Number(r.amount || 0),
           paymentDate,
           paymentMethod: r.method || sharedMethod,
           referenceNumber: r.ref || "",
@@ -191,7 +208,6 @@ export default function BatchFeeCollection({
           remarks: [r.remarks, sharedRemarks].filter(Boolean).join(" · "),
         });
 
-        // Attach student name to the receipt so it prints correctly.
         const enriched = {
           ...res.receipt,
           studentName: res.receipt.studentName || s.name,
@@ -202,7 +218,10 @@ export default function BatchFeeCollection({
         };
         receipts.push(enriched);
       } catch (err) {
-        errors.push({ student: s.name, message: err.message || String(err) });
+        errors.push({
+          student: s.name,
+          message: err.message || String(err),
+        });
       }
     }
 
@@ -213,7 +232,7 @@ export default function BatchFeeCollection({
       setReceiptsToPrint(receipts);
     }
 
-    if (errors.length === 0 && onDone) {
+    if (errors.length === 0 && typeof onDone === "function") {
       onDone(receipts);
     }
   }
@@ -231,18 +250,19 @@ export default function BatchFeeCollection({
       <div className="fm-row-header">
         <h2>Batch Fee Collection</h2>
         <span className="fm-subtle">
-          Billing month: <strong>{month}</strong> · Session: <strong>{session}</strong>
+          Billing month: <strong>{month}</strong> · Session:{" "}
+          <strong>{session}</strong>
         </span>
       </div>
 
       <p className="fm-hint">
-        Select two or more students (e.g., siblings) and record one payment per
+        Select two or more students (e.g. siblings) and record one payment per
         student in a single pass. Each student gets their own receipt.
       </p>
 
       {searchError && <p className="fm-error">{searchError}</p>}
 
-      {/* ---------------- Student picker ---------------- */}
+      {/* ---------- Student picker ---------- */}
       <div className="fm-search-row">
         <input
           type="text"
@@ -253,9 +273,7 @@ export default function BatchFeeCollection({
         <button
           type="button"
           className="fm-secondary-btn"
-          onClick={() => {
-            setSearch("");
-          }}
+          onClick={() => setSearch("")}
         >
           Clear
         </button>
@@ -311,8 +329,15 @@ export default function BatchFeeCollection({
         </div>
       )}
 
-      {/* ---------------- Shared settings ---------------- */}
-      <div style={{ marginTop: 18, display: "flex", gap: 16, flexWrap: "wrap" }}>
+      {/* ---------- Shared settings ---------- */}
+      <div
+        style={{
+          marginTop: 18,
+          display: "flex",
+          gap: 16,
+          flexWrap: "wrap",
+        }}
+      >
         <label className="fm-inline-label">
           Payment Date
           <input
@@ -343,7 +368,7 @@ export default function BatchFeeCollection({
         </label>
       </div>
 
-      {/* ---------------- Per-student amounts ---------------- */}
+      {/* ---------- Selected students ---------- */}
       {selectedList.length > 0 && (
         <>
           <h3 style={{ marginTop: 22 }}>
@@ -391,14 +416,18 @@ export default function BatchFeeCollection({
                           type="number"
                           min="0"
                           value={r.amount ?? ""}
-                          onChange={(e) => updateRow(s.id, "amount", e.target.value)}
+                          onChange={(e) =>
+                            updateRow(s.id, "amount", e.target.value)
+                          }
                           style={{ width: 100 }}
                         />
                       </td>
                       <td>
                         <select
                           value={r.method || sharedMethod}
-                          onChange={(e) => updateRow(s.id, "method", e.target.value)}
+                          onChange={(e) =>
+                            updateRow(s.id, "method", e.target.value)
+                          }
                         >
                           {PAYMENT_METHODS.map((m) => (
                             <option key={m}>{m}</option>
@@ -409,7 +438,9 @@ export default function BatchFeeCollection({
                         <input
                           type="text"
                           value={r.ref || ""}
-                          onChange={(e) => updateRow(s.id, "ref", e.target.value)}
+                          onChange={(e) =>
+                            updateRow(s.id, "ref", e.target.value)
+                          }
                           style={{ width: 120 }}
                         />
                       </td>
@@ -418,7 +449,9 @@ export default function BatchFeeCollection({
                           type="number"
                           min="0"
                           value={r.discount ?? 0}
-                          onChange={(e) => updateRow(s.id, "discount", e.target.value)}
+                          onChange={(e) =>
+                            updateRow(s.id, "discount", e.target.value)
+                          }
                           style={{ width: 80 }}
                         />
                       </td>
@@ -427,7 +460,9 @@ export default function BatchFeeCollection({
                           type="number"
                           min="0"
                           value={r.lateFee ?? 0}
-                          onChange={(e) => updateRow(s.id, "lateFee", e.target.value)}
+                          onChange={(e) =>
+                            updateRow(s.id, "lateFee", e.target.value)
+                          }
                           style={{ width: 80 }}
                         />
                       </td>
@@ -435,7 +470,9 @@ export default function BatchFeeCollection({
                         <input
                           type="text"
                           value={r.remarks || ""}
-                          onChange={(e) => updateRow(s.id, "remarks", e.target.value)}
+                          onChange={(e) =>
+                            updateRow(s.id, "remarks", e.target.value)
+                          }
                           style={{ width: 160 }}
                         />
                       </td>
@@ -461,6 +498,8 @@ export default function BatchFeeCollection({
               display: "flex",
               justifyContent: "space-between",
               alignItems: "center",
+              flexWrap: "wrap",
+              gap: 12,
             }}
           >
             <strong style={{ fontSize: "1.1em" }}>
@@ -492,6 +531,7 @@ export default function BatchFeeCollection({
         </>
       )}
 
+      {/* ---------- Result summary ---------- */}
       {results && (
         <div style={{ marginTop: 20 }}>
           {results.receipts.length > 0 && (
