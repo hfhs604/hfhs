@@ -44,12 +44,23 @@ function toDateRangeClauses(field, fromDate, toDate) {
 }
 
 // ---------------------------------------------------------------------------
+// Name normalization + related-student lookup
+// (Kept here at the top so it's declared exactly once.)
+// ---------------------------------------------------------------------------
+function normalizeName(s) {
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .replace(/[.,'"]/g, "");
+}
+
+// ---------------------------------------------------------------------------
 // Students + bills (joined view)
 // ---------------------------------------------------------------------------
 export async function getAllStudentsWithBills({ session, className, month } = {}) {
   const targetMonth = month || currentMonthKey();
 
-  // 1. Load students (with filter + hard limit).
   let students = [];
   try {
     const sClauses = [];
@@ -76,7 +87,6 @@ export async function getAllStudentsWithBills({ session, className, month } = {}
     students = [];
   }
 
-  // 2. Load bills for the target month (with filter + hard limit).
   let bills = [];
   try {
     const bClauses = [where("month", "==", targetMonth)];
@@ -96,9 +106,6 @@ export async function getAllStudentsWithBills({ session, className, month } = {}
       );
     }
   } catch (err) {
-    // This is the query that usually needs a composite index on
-    // (month ASC, session ASC). Log the full message so the dashboard's
-    // "Partial data" banner can show the Firestore index URL.
     console.warn("getAllStudentsWithBills: bills query failed:", err.message);
     console.warn(
       "→ If this mentions an index, open the link in DevTools → Console to create it."
@@ -106,7 +113,6 @@ export async function getAllStudentsWithBills({ session, className, month } = {}
     bills = [];
   }
 
-  // 3. Merge students + bills.
   const billByStudent = {};
   bills.forEach((b) => {
     billByStudent[b.studentId] = b;
@@ -299,7 +305,6 @@ export async function getTransactionHistoryReport(filters = {}) {
 
 export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}) {
   try {
-    // Fetch all non-voided transactions for the session (existing index covers this).
     let rows = [];
     try {
       const snap = await getDocs(
@@ -315,47 +320,50 @@ export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}
       return [];
     }
 
-    // Build empty buckets for the last N months.
     const buckets = {};
     const now = new Date();
     for (let i = monthsBack - 1; i >= 0; i--) {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const key = `${d.toLocaleString("default", { month: "short" })} ${d.getFullYear()}`;
+      const key = `${d.toLocaleString("default", {
+        month: "short",
+      })} ${d.getFullYear()}`;
       buckets[key] = 0;
     }
 
-    // Add each transaction to the correct bucket.
     rows.forEach((r) => {
-      // paymentDate can be: Firestore Timestamp, ISO string, or missing.
       let paidAt = null;
       if (r.paymentDate) {
         if (typeof r.paymentDate.toDate === "function") {
-          paidAt = r.paymentDate.toDate();          // Firestore Timestamp
+          paidAt = r.paymentDate.toDate();
         } else if (typeof r.paymentDate === "string") {
-          paidAt = new Date(r.paymentDate);         // ISO string
+          paidAt = new Date(r.paymentDate);
         } else if (typeof r.paymentDate === "number") {
-          paidAt = new Date(r.paymentDate);         // epoch millis
+          paidAt = new Date(r.paymentDate);
         }
       }
       if (!paidAt && r.createdAt?.toDate) {
-        paidAt = r.createdAt.toDate();              // fallback
+        paidAt = r.createdAt.toDate();
       }
-      if (!paidAt || isNaN(paidAt.getTime())) return; // skip unparseable rows
+      if (!paidAt || isNaN(paidAt.getTime())) return;
 
-      const key = `${paidAt.toLocaleString("default", { month: "short" })} ${paidAt.getFullYear()}`;
+      const key = `${paidAt.toLocaleString("default", {
+        month: "short",
+      })} ${paidAt.getFullYear()}`;
       if (key in buckets) {
         buckets[key] += Number(r.netAmount || 0);
       }
     });
 
-    return Object.entries(buckets).map(([month, amount]) => ({ month, amount }));
+    return Object.entries(buckets).map(([month, amount]) => ({
+      month,
+      amount,
+    }));
   } catch (err) {
     console.warn("getMonthlyCollectionTrend failed:", err.message);
     return [];
   }
-}/**
- * Fast count of students for the session — 1 read instead of N.
- */
+}
+
 export async function getStudentCount(session) {
   try {
     const snap = await getCountFromServer(
@@ -369,165 +377,8 @@ export async function getStudentCount(session) {
 }
 
 // ---------------------------------------------------------------------------
-// CSV export
+// Related-student lookup — declared ONCE, near its usage
 // ---------------------------------------------------------------------------
-export function exportToCSV(rows, filename) {
-  if (!rows || rows.length === 0) return;
-
-  const headers = Object.keys(rows[0]).filter(
-    (k) => typeof rows[0][k] !== "object"
-  );
-
-  const csvLines = [
-    headers.join(","),
-    ...rows.map((row) =>
-      headers
-        .map((h) => `"${String(row[h] ?? "").replace(/"/g, '""')}"`)
-        .join(",")
-    ),
-  ];
-
-  const blob = new Blob([csvLines.join("\n")], {
-    type: "text/csv;charset=utf-8;",
-  });
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename.endsWith(".csv") ? filename : `${filename}.csv`;
-  a.click();
-  URL.revokeObjectURL(url);
-}
-// ---------------------------------------------------------------------------
-// Parent / student name lookup — finds related students sharing a parent
-// ---------------------------------------------------------------------------
-
-/**
- * Normalizes a name for comparison:
- *  - trims, collapses internal whitespace
- *  - lowercases
- *  - strips punctuation
- */
-function normalizeName(s) {
-  return String(s || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase()
-    .replace(/[.,'"]/g, "");
-}
-
-/**
- * Returns every student in the session whose name / fatherName / motherName /
- * guardianName contains the search term (case-insensitive substring match),
- * PLUS every other student who shares a parent name with any of those matches.
- *
- * Result is grouped by parent name so siblings appear together.
- */
-export async function findStudentsByParentName({ session, searchTerm } = {}) {
-  const term = String(searchTerm || "").trim();
-  if (!term) return { direct: [], groups: [] };
-
-  // 1. Load all students for the session (one query — session index already exists).
-  const all = await getAllStudents({ session });
-  if (all.length === 0) return { direct: [], groups: [] };
-
-  const needle = normalizeName(term);
-
-  // 2. Direct matches: name / father / mother / guardian contains the term.
-  const direct = all.filter((s) => {
-    const haystack = [
-      s.name,
-      s.fatherName,
-      s.motherName,
-      s.guardianName,
-    ]
-      .map(normalizeName)
-      .join(" | ");
-    return haystack.includes(needle);
-  });
-
-  // 3. Collect the set of parent names that appear in the direct matches.
-  const parentKeys = new Set();
-  direct.forEach((s) => {
-    if (s.fatherName) parentKeys.add(normalizeName(s.fatherName));
-    if (s.motherName) parentKeys.add(normalizeName(s.motherName));
-    if (s.guardianName && s.guardianName !== s.fatherName) {
-      parentKeys.add(normalizeName(s.guardianName));
-    }
-  });
-
-  // 4. Also include any student whose parent name matches the search term
-  //    directly (so a parent search pulls in all their children).
-  all.forEach((s) => {
-    const parents = [s.fatherName, s.motherName, s.guardianName]
-      .map(normalizeName)
-      .filter(Boolean);
-    if (parents.some((p) => p.includes(needle))) {
-      parents.forEach((p) => parentKeys.add(p));
-    }
-  });
-
-  // 5. Build groups: one group per parent name, listing all their children.
-  const groupsMap = new Map();
-
-  all.forEach((s) => {
-    const candidates = [
-      { key: normalizeName(s.fatherName), label: s.fatherName, kind: "Father" },
-      { key: normalizeName(s.motherName), label: s.motherName, kind: "Mother" },
-    ];
-    if (s.guardianName && s.guardianName !== s.fatherName) {
-      candidates.push({
-        key: normalizeName(s.guardianName),
-        label: s.guardianName,
-        kind: "Guardian",
-      });
-    }
-
-    candidates.forEach(({ key, label, kind }) => {
-      if (!key || !parentKeys.has(key)) return;
-      if (!groupsMap.has(key)) {
-        groupsMap.set(key, {
-          parentKey: key,
-          parentName: label,
-          relation: kind,
-          students: [],
-        });
-      }
-      groupsMap.get(key).students.push(s);
-    });
-  });
-
-  // 6. Sort groups by size (largest first), and students within a group by class.
-  const groups = Array.from(groupsMap.values())
-    .filter((g) => g.students.length > 0)
-    .sort((a, b) => {
-      if (b.students.length !== a.students.length) {
-        return b.students.length - a.students.length;
-      }
-      return String(a.parentName).localeCompare(String(b.parentName));
-    });
-
-  groups.forEach((g) => {
-    g.students.sort((a, b) =>
-      String(a.className).localeCompare(String(b.className), undefined, {
-        numeric: true,
-      })
-    );
-  });
-
-  return { direct, groups };
-}
-// ---------------------------------------------------------------------------
-// Parent / student name lookup — finds related students sharing a parent
-// ---------------------------------------------------------------------------
-
-function normalizeName(s) {
-  return String(s || "")
-    .trim()
-    .replace(/\s+/g, " ")
-    .toLowerCase()
-    .replace(/[.,'"]/g, "");
-}
-
 export async function findStudentsByParentName({ session, searchTerm } = {}) {
   const term = String(searchTerm || "").trim();
   if (!term) return { direct: [], groups: [] };
@@ -609,4 +460,34 @@ export async function findStudentsByParentName({ session, searchTerm } = {}) {
   });
 
   return { direct, groups };
+}
+
+// ---------------------------------------------------------------------------
+// CSV export
+// ---------------------------------------------------------------------------
+export function exportToCSV(rows, filename) {
+  if (!rows || rows.length === 0) return;
+
+  const headers = Object.keys(rows[0]).filter(
+    (k) => typeof rows[0][k] !== "object"
+  );
+
+  const csvLines = [
+    headers.join(","),
+    ...rows.map((row) =>
+      headers
+        .map((h) => `"${String(row[h] ?? "").replace(/"/g, '""')}"`)
+        .join(",")
+    ),
+  ];
+
+  const blob = new Blob([csvLines.join("\n")], {
+    type: "text/csv;charset=utf-8;",
+  });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename.endsWith(".csv") ? filename : `${filename}.csv`;
+  a.click();
+  URL.revokeObjectURL(url);
 }
