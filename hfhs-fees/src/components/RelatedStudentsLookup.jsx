@@ -2,7 +2,11 @@ import React, { useState } from "react";
 import { findStudentsByParentName } from "../firebase/reportsService";
 import "../styles/feeManagement.css";
 
-export default function RelatedStudentsLookup({ session, onSelectStudent }) {
+export default function RelatedStudentsLookup({
+  session,
+  onSelectStudent,
+  onBatchCollect,
+}) {
   const [term, setTerm] = useState("");
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState(null);
@@ -137,7 +141,9 @@ export default function RelatedStudentsLookup({ session, onSelectStudent }) {
                     style={{
                       display: "flex",
                       justifyContent: "space-between",
-                      alignItems: "baseline",
+                      alignItems: "center",
+                      gap: 12,
+                      flexWrap: "wrap",
                       marginBottom: 8,
                     }}
                   >
@@ -148,6 +154,17 @@ export default function RelatedStudentsLookup({ session, onSelectStudent }) {
                       {g.relation} · {g.students.length}{" "}
                       {g.students.length === 1 ? "student" : "students"}
                     </span>
+                    {onBatchCollect && g.students.length > 1 && (
+                      <button
+                        type="button"
+                        className="fm-primary-btn"
+                        onClick={() =>
+                          onBatchCollect(g.students.map((s) => s.id))
+                        }
+                      >
+                        💰 Collect fees for all {g.students.length}
+                      </button>
+                    )}
                   </div>
 
                   <div className="fm-table-scroll">
