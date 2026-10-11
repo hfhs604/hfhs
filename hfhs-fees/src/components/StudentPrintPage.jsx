@@ -4,10 +4,14 @@ import "../styles/studentPrint.css";
 
 const SCHOOL = {
   name: "HOLY FAITH HIGH SCHOOL",
-  tagline: "Tarwara More, Siwan, Bihar – 841227",
-  registrationNumber: "21812302021829794631",
+  tagline: "NURTURING FAITH ♦ BUILDING FUTURE",
+  address: "Tarwara More, Siwan, Bihar (841227)",
+  managed: "Run & Managed by: Saumya Foundation Trust",
+  udise: "10161201603",
+  regNo: "21812302021829794631",
   email: "holyfaithsiwan604@gmail.com",
   contact: "+91-9934723574",
+  registrationNumber: "21812302021829794631",
 };
 
 function formatDate(v) {
@@ -44,21 +48,26 @@ export default function StudentPrintPage({ student }) {
 
   return (
     <div className="sp-page">
-      <header className="sp-header">
-        <img src={schoolLogo} alt="" className="sp-logo" />
-        <div className="sp-header-text">
-          <h1>{SCHOOL.name}</h1>
-          <p className="sp-subtitle">{SCHOOL.tagline}</p>
-          <p className="sp-meta">
-            Reg. No.: {SCHOOL.registrationNumber} &nbsp;|&nbsp;
-            {SCHOOL.email} &nbsp;|&nbsp; {SCHOOL.contact}
-          </p>
+      <header className="sp-header-wrap">
+        <div className="sp-header-top">
+          <span>UDISE: 10161201603</span>
+          <span>Reg. No. : 21812302021829794631</span>
         </div>
-        <img
-          src={student.photoUrl || schoolLogo}
-          alt=""
-          className={`sp-photo ${student.photoUrl ? "" : "sp-photo-placeholder"}`}
-        />
+        <div className="sp-header-row">
+          <img src={schoolLogo} alt="" className="sp-logo" />
+          <div className="sp-header-text">
+            <h1>{SCHOOL.name}</h1>
+            <p className="sp-address">Tarwara More, Siwan, Bihar (841227)</p>
+            <p className="sp-managed">Run &amp; Managed by: Saumya Foundation Trust</p>
+            <p className="sp-tagline">NURTURING FAITH ♦ BUILDING FUTURE</p>
+            <p className="sp-contact">holyfaithsiwan604@gmail.com | +91-9934723574</p>
+          </div>
+          <img
+            src={student.photoUrl || schoolLogo}
+            alt=""
+            className={`sp-photo ${student.photoUrl ? "" : "sp-photo-placeholder"}`}
+          />
+        </div>
       </header>
 
       <div className="sp-title-bar">STUDENT INFORMATION</div>
