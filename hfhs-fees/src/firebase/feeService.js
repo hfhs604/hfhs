@@ -118,42 +118,84 @@ export async function getStudentFeeProfile(studentId) {
 }
 
 /**
- * Server-side prefix search on name OR admissionNumber.
+ * Case-insensitive prefix search on name OR admissionNumber.
+ * Firestore range queries are case-sensitive, so we:
+ *   1. Uppercase the term and match against the stored (uppercase) name.
+ *   2. Also try a title-case variant in case some names were stored mixed-case.
+ *   3. Merge and de-duplicate results.
+ *   4. If nothing matched, fall back to a client-side substring scan
+ *      (limited to 500 docs) so odd casings and parent-name substrings work.
  * Reads at most ~20 docs per branch.
  */
 export async function searchStudents(term) {
-  const t = (term || "").trim();
-  if (!t) return [];
+  const raw = (term || "").trim();
+  if (!raw) return [];
 
   const results = new Map();
 
-  // Name prefix search (case-sensitive in Firestore; user must match case)
-  try {
-    const nameQuery = query(
-      collection(db, COL.students),
-      where("name", ">=", t),
-      where("name", "<=", t + "\uf8ff"),
-      fsLimit(20)
-    );
-    const snap = await getDocs(nameQuery);
-    snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
-  } catch (err) {
-    console.warn("searchStudents: name query failed:", err.message);
+  // Build the set of case variants to try.
+  // "palak" -> ["PALAK", "Palak", "palak"]
+  const upper = raw.toUpperCase();
+  const title = raw
+    .toLowerCase()
+    .split(/\s+/)
+    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(" ");
+  const lower = raw.toLowerCase();
+
+  const nameVariants = Array.from(new Set([upper, title, lower]));
+
+  for (const variant of nameVariants) {
+    try {
+      const nameQuery = query(
+        collection(db, COL.students),
+        where("name", ">=", variant),
+        where("name", "<=", variant + "\uf8ff"),
+        fsLimit(20)
+      );
+      const snap = await getDocs(nameQuery);
+      snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
+    } catch (err) {
+      console.warn(`searchStudents: name query failed for "${variant}":`, err.message);
+    }
   }
 
-  // Admission number prefix (only if term is numeric)
-  if (/^\d+$/.test(t)) {
+  // Admission number prefix (only if the term is numeric).
+  if (/^\d+$/.test(raw)) {
     try {
       const admQuery = query(
         collection(db, COL.students),
-        where("admissionNumber", ">=", t),
-        where("admissionNumber", "<=", t + "\uf8ff"),
+        where("admissionNumber", ">=", raw),
+        where("admissionNumber", "<=", raw + "\uf8ff"),
         fsLimit(20)
       );
       const snap = await getDocs(admQuery);
       snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
     } catch (err) {
       console.warn("searchStudents: admissionNumber query failed:", err.message);
+    }
+  }
+
+  // Client-side fallback: if the prefix queries returned nothing, scan once
+  // and match by case-insensitive substring across name + parents' names.
+  // This catches surnames ("Tiwari"), odd casings, and parent names.
+  if (results.size === 0 && raw.length >= 2) {
+    try {
+      const snap = await getDocs(
+        query(collection(db, COL.students), fsLimit(500))
+      );
+      const needle = raw.toLowerCase();
+      snap.forEach((d) => {
+        const s = d.data();
+        const hay = `${s.name || ""} ${s.fatherName || ""} ${s.motherName || ""} ${
+          s.guardianName || ""
+        }`.toLowerCase();
+        if (hay.includes(needle)) {
+          results.set(d.id, { id: d.id, ...s });
+        }
+      });
+    } catch (err) {
+      console.warn("searchStudents: fallback scan failed:", err.message);
     }
   }
 
@@ -573,7 +615,7 @@ export async function getDashboardStats(session, month) {
     else studentsFullyPaid++;
   });
 
-  // 5. Payment method breakdown (all-time for this session, from transactions).
+  // 5. Payment method breakdown (all-time for this session).
   //    Uses the existing (session ASC, voided ASC) index — no new index required.
   let paymentMethodBreakdown = {};
   try {
@@ -610,7 +652,9 @@ export async function getDashboardStats(session, month) {
     studentCount,
     month: actualMonth,
   };
-}// ---------------------------------------------------------------------------
+}
+
+// ---------------------------------------------------------------------------
 // Fee structures (backward compat)
 // ---------------------------------------------------------------------------
 export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
