@@ -20,6 +20,7 @@ import Settings from "./Settings";
 import StudentPortal from "./StudentPortal";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import RelatedStudentsLookup from "./RelatedStudentsLookup";
+import AdvancesList from "./AdvancesList";
 import schoolLogo from "../assets/school-logo.jpg";
 import "../styles/feeManagement.css";
 
@@ -67,7 +68,7 @@ const NAV_SECTIONS = [
   {
     key: "advances",
     label: "Advances",
-    roles: ["superAdmin", "admin"],
+    roles: ["superAdmin", "admin", "accountant"],
   },
   {
     key: "discounts",
@@ -86,10 +87,6 @@ const NAV_SECTIONS = [
   },
 ];
 
-/**
- * Retries a Firestore read a few times with a short backoff when it fails
- * with a transient "client is offline" error.
- */
 async function withFirestoreRetry(fn, retries = 3, delayMs = 700) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
@@ -108,10 +105,8 @@ async function withFirestoreRetry(fn, retries = 3, delayMs = 700) {
 
 function defaultSessionLabel() {
   const now = new Date();
-
   const startYear =
     now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
-
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`;
 }
 
@@ -146,13 +141,10 @@ export default function FeeManagementApp({ onLogout }) {
         console.log("Firebase project:", auth.app.options.projectId);
 
         if (!user) {
-          if (!cancelled) {
-            setLoading(false);
-          }
+          if (!cancelled) setLoading(false);
           return;
         }
 
-        // ----- 1. Load user role -----
         console.log("Loading user role...");
         const userDoc = await getUserRoleOnce(user.uid);
         console.log("User role document:", userDoc);
@@ -163,14 +155,12 @@ export default function FeeManagementApp({ onLogout }) {
         setRole(resolvedRole);
         setPermissions(userDoc?.permissions || {});
 
-        // ----- 2. Load academic sessions -----
         console.log("Loading academic sessions...");
         let sessionList = await withFirestoreRetry(() =>
           getAcademicSessions()
         );
         console.log("Academic sessions:", sessionList);
 
-        // ----- 3. Create first session if required -----
         if (sessionList.length === 0 && resolvedRole === "superAdmin") {
           const firstSession = defaultSessionLabel();
           console.log("No academic session found. Creating:", firstSession);
@@ -434,16 +424,7 @@ export default function FeeManagementApp({ onLogout }) {
 
         {activeTab === "due" && <DueManagement session={session} />}
 
-        {activeTab === "advances" && (
-          <div className="fm-card">
-            <h2>Advances</h2>
-            <p className="fm-hint">
-              Students carrying an advance balance are flagged 🟢 across the
-              Students, Due Fees, and Reports screens. Advance auto-applies the
-              next time a fee is generated for that student.
-            </p>
-          </div>
-        )}
+        {activeTab === "advances" && <AdvancesList session={session} />}
 
         {activeTab === "discounts" && (
           <DiscountManager
