@@ -1,7 +1,9 @@
 /**
  * reportsService.js
  * Report queries + CSV export for the monthly billing model.
- * Hardened: every read degrades gracefully; no function throws to the caller.
+ *
+ * INVARIANT: collection/revenue reports only ever count real payments.
+ * Charge transactions (isCharge=true) are excluded from all money totals.
  */
 
 import { db } from "../firebase/config";
@@ -23,7 +25,6 @@ const COL = {
   monthlyBills: "monthlyBills",
 };
 
-// Hard cap to prevent accidental full-collection scans.
 const MAX_QUERY_RESULTS = 500;
 
 function currentMonthKey(date = new Date()) {
@@ -43,10 +44,6 @@ function toDateRangeClauses(field, fromDate, toDate) {
   return clauses;
 }
 
-// ---------------------------------------------------------------------------
-// Name normalization + related-student lookup
-// (Kept here at the top so it's declared exactly once.)
-// ---------------------------------------------------------------------------
 function normalizeName(s) {
   return String(s || "")
     .trim()
@@ -107,9 +104,6 @@ export async function getAllStudentsWithBills({ session, className, month } = {}
     }
   } catch (err) {
     console.warn("getAllStudentsWithBills: bills query failed:", err.message);
-    console.warn(
-      "→ If this mentions an index, open the link in DevTools → Console to create it."
-    );
     bills = [];
   }
 
@@ -145,7 +139,7 @@ export async function getAllStudents(opts = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Transaction-based reports
+// Transaction-based reports (payments only)
 // ---------------------------------------------------------------------------
 async function fetchTransactions({
   fromDate,
@@ -168,7 +162,10 @@ async function fetchTransactions({
         fsLimit(MAX_QUERY_RESULTS)
       )
     );
-    let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+    // Exclude charge transactions client-side (safe for legacy docs lacking isCharge).
+    let rows = snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .filter((r) => r.isCharge !== true && Number(r.netAmount || 0) > 0);
 
     if (className) {
       const classStudents = await getAllStudents({ className });
@@ -185,9 +182,6 @@ async function fetchTransactions({
     return rows;
   } catch (err) {
     console.warn("fetchTransactions failed:", err.message);
-    console.warn(
-      "→ If this mentions an index, open the link in DevTools → Console to create it."
-    );
     return [];
   }
 }
@@ -274,6 +268,7 @@ export async function getPaymentMethodReport(filters = {}) {
   const rows = await fetchTransactions(filters);
   const byMethod = {};
   rows.forEach((r) => {
+    if (r.isCharge === true) return; // belt-and-braces; already filtered
     const method = r.paymentMethod || "Unknown";
     byMethod[method] = (byMethod[method] || 0) + (r.netAmount || 0);
   });
@@ -299,8 +294,45 @@ export async function getDiscountReport({ fromDate, toDate } = {}) {
   }
 }
 
+/**
+ * Transaction History: INCLUDES charges (marked in feeType) so the ledger
+ * is complete. Money totals in other reports remain charge-free.
+ */
 export async function getTransactionHistoryReport(filters = {}) {
-  return fetchTransactions(filters);
+  const { fromDate, toDate, session, className } = filters || {};
+  let clauses = [where("voided", "==", false)];
+  if (session) clauses.push(where("session", "==", session));
+  clauses = clauses.concat(toDateRangeClauses("createdAt", fromDate, toDate));
+
+  try {
+    const snap = await getDocs(
+      query(
+        collection(db, COL.transactions),
+        ...clauses,
+        orderBy("createdAt", "desc"),
+        fsLimit(MAX_QUERY_RESULTS)
+      )
+    );
+    let rows = snap.docs.map((d) => {
+      const r = { id: d.id, ...d.data() };
+      if (r.isCharge === true) {
+        r.netAmount = r.chargedAmount || 0;
+        r.feeType = `${r.feeType || "Charge"} (charge)`;
+        r.paymentMethod = "—";
+      }
+      return r;
+    });
+
+    if (className) {
+      const classStudents = await getAllStudents({ className });
+      const allowed = new Set(classStudents.map((s) => s.id));
+      rows = rows.filter((r) => allowed.has(r.studentId));
+    }
+    return rows;
+  } catch (err) {
+    console.warn("getTransactionHistoryReport failed:", err.message);
+    return [];
+  }
 }
 
 export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}) {
@@ -331,6 +363,8 @@ export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}
     }
 
     rows.forEach((r) => {
+      if (r.isCharge === true) return; // charges aren't collection
+
       let paidAt = null;
       if (r.paymentDate) {
         if (typeof r.paymentDate.toDate === "function") {
@@ -377,7 +411,7 @@ export async function getStudentCount(session) {
 }
 
 // ---------------------------------------------------------------------------
-// Related-student lookup — declared ONCE, near its usage
+// Related-student lookup
 // ---------------------------------------------------------------------------
 export async function findStudentsByParentName({ session, searchTerm } = {}) {
   const term = String(searchTerm || "").trim();
