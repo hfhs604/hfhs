@@ -4,45 +4,64 @@ on:
   workflow_dispatch:
     inputs:
       dry_run:
-        description: "Dry run (preview only)"
+        description: "Dry run (preview only — no changes)"
         required: true
         default: "true"
         type: choice
         options: ["true", "false"]
       confirm_reset:
-        description: "Type YES to confirm the reset"
+        description: "Type YES to confirm the reset (ignored if dry_run=true)"
         required: true
         default: "NO"
         type: string
       confirm_phrase:
-        description: 'Type DELETE EVERYTHING (exact)'
+        description: 'Type DELETE EVERYTHING (exact phrase, ignored if dry_run=true)'
         required: true
         default: ""
         type: string
       session:
-        description: "Session label"
+        description: "Academic session label"
         required: true
         default: "2026-27"
       first_month:
-        description: "First month (YYYY-MM)"
+        description: "First month of session (YYYY-MM)"
         required: true
         default: "2026-04"
       create_first_bills:
-        description: "Create first-month bills per student"
+        description: "Create first-month bill for each student"
         required: true
         default: "true"
         type: choice
         options: ["true", "false"]
+      default_transport_amount:
+        description: "Amount billed when Transport = Y"
+        required: true
+        default: "800"
+        type: choice
+        options: ["800", "1500"]
 
 jobs:
   reset:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
+
       - run: pip install firebase-admin
+
+      - name: Show inputs
+        run: |
+          echo "dry_run                  = ${{ inputs.dry_run }}"
+          echo "session                  = ${{ inputs.session }}"
+          echo "first_month              = ${{ inputs.first_month }}"
+          echo "create_first_bills       = ${{ inputs.create_first_bills }}"
+          echo "confirm_reset            = ${{ inputs.confirm_reset }}"
+          echo "confirm_phrase           = ${{ inputs.confirm_phrase }}"
+          echo "default_transport_amount = ${{ inputs.default_transport_amount }}"
+
       - name: Run factory reset
         env:
           FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
@@ -50,6 +69,7 @@ jobs:
           SESSION: ${{ inputs.session }}
           FIRST_MONTH: ${{ inputs.first_month }}
           CREATE_FIRST_BILLS: ${{ inputs.create_first_bills }}
+          DEFAULT_TRANSPORT_AMOUNT: ${{ inputs.default_transport_amount }}
           DRY_RUN: ${{ inputs.dry_run }}
           CONFIRM_RESET: ${{ inputs.confirm_reset }}
           CONFIRM_PHRASE: ${{ inputs.confirm_phrase }}
