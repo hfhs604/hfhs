@@ -1,5 +1,7 @@
 /* ===========================================================================
-   feeManagement.css - Dark Sidebar, Sub-tabs, & Footer
+   feeManagement.css - Final Consolidated Version
+   Features: Dark Sidebar, Toggle animations, Sub-tabs, Fixed Footer, 
+             Clean Tables, Single-Page Dashboard
    =========================================================================== */
 
 :root {
@@ -262,7 +264,7 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Cards, Forms, Tables, & UI Elements
+   Cards & Headers
    --------------------------------------------------------------------------- */
 .fm-card {
   background: var(--card-bg);
@@ -279,10 +281,129 @@ body {
   color: var(--text-main);
 }
 
+.fm-row-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 16px;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+.fm-row-header h2 {
+  margin: 0;
+}
+
+/* ---------------------------------------------------------------------------
+   Forms, Filters & Inputs
+   --------------------------------------------------------------------------- */
+.fm-search-row {
+  display: flex;
+  gap: 12px;
+  margin-bottom: 16px;
+}
+
+.fm-search-row input {
+  flex: 1;
+  padding: 10px 16px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
+.fm-search-row button {
+  background: var(--sidebar-bg);
+  color: #fff;
+  border: none;
+  padding: 10px 24px;
+  border-radius: 6px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.fm-filter-row {
+  display: flex;
+  gap: 16px;
+  margin: 16px 0 24px 0;
+  flex-wrap: wrap;
+  align-items: flex-end;
+}
+
+.fm-inline-label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.fm-inline-label input,
+.fm-inline-label select {
+  padding: 8px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 150px;
+  background: #fff;
+}
+
+.fm-inline-label strong {
+  color: var(--danger-red);
+  font-size: 16px;
+}
+
+/* Payment Form Grid */
+.fm-payment-form {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin: 16px 0;
+}
+
+.fm-payment-form label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-muted);
+  font-weight: 500;
+}
+
+.fm-payment-form input,
+.fm-payment-form select,
+.fm-payment-form textarea {
+  padding: 10px 12px;
+  border: 1px solid var(--border-color);
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+}
+
+.fm-payment-form input:focus,
+.fm-payment-form select:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+}
+
+.fm-full-width {
+  grid-column: 1 / -1;
+}
+
+/* ---------------------------------------------------------------------------
+   Tables
+   --------------------------------------------------------------------------- */
+.fm-table-scroll {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
 .fm-table {
   width: 100%;
   border-collapse: collapse;
-  margin-top: 12px;
+  min-width: 800px; /* Prevents squishing on smaller screens */
 }
 
 .fm-table th {
@@ -293,17 +414,48 @@ body {
   font-weight: 600;
   font-size: 13px;
   text-transform: uppercase;
+  background: #f8fafc;
+  white-space: nowrap;
 }
 
 .fm-table td {
   padding: 14px 16px;
   border-bottom: 1px solid var(--border-color);
   font-size: 14px;
+  white-space: nowrap;
+}
+
+/* Right-align numeric columns in tables (Money) */
+.fm-table th:nth-child(n+4),
+.fm-table td:nth-child(n+4) {
+  text-align: right;
 }
 
 .fm-table tr:hover td {
   background-color: #f8fafc;
 }
+
+.fm-due-cell {
+  color: var(--danger-red);
+  font-weight: 700;
+}
+
+/* ---------------------------------------------------------------------------
+   Badges & Buttons
+   --------------------------------------------------------------------------- */
+.fm-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.fm-badge-paid { background: #dcfce7; color: #166534; }
+.fm-badge-partial { background: #fef9c3; color: #854d0e; }
+.fm-badge-due { background: #fee2e2; color: #991b1b; }
+.fm-badge-advance { background: #dbeafe; color: #1e40af; }
 
 .fm-primary-btn {
   background: var(--primary-blue);
@@ -332,62 +484,102 @@ body {
   cursor: pointer;
 }
 
-.fm-search-row {
-  display: flex;
-  gap: 12px;
-  margin-bottom: 16px;
+.fm-secondary-btn:hover {
+  background: #f8fafc;
 }
 
-.fm-search-row input {
-  flex: 1;
-  padding: 10px 16px;
-  border: 1px solid var(--border-color);
+.fm-btn-sm {
+  padding: 6px 12px;
   border-radius: 6px;
-  font-size: 14px;
-}
-
-.fm-badge {
-  display: inline-block;
-  padding: 4px 10px;
-  border-radius: 20px;
   font-size: 12px;
-  font-weight: 700;
-  text-transform: uppercase;
+  font-weight: 600;
+  border: 1px solid var(--border-color);
+  background: #fff;
+  cursor: pointer;
 }
 
-.fm-badge-paid { background: #dcfce7; color: #166534; }
-.fm-badge-partial { background: #fef9c3; color: #854d0e; }
-.fm-badge-due { background: #fee2e2; color: #991b1b; }
-.fm-badge-advance { background: #dbeafe; color: #1e40af; }
+.fm-btn-sm:hover { background: #f8fafc; }
+.fm-btn-danger { color: var(--danger-red); border-color: #fecaca; }
+.fm-btn-danger:hover { background: #fee2e2; }
 
-.fm-dashboard-grid {
+/* ---------------------------------------------------------------------------
+   Single-Page Dashboard Layout
+   --------------------------------------------------------------------------- */
+.fm-dashboard-container {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  height: 100%;
+}
+
+/* Top row of stat cards */
+.fm-dashboard-stats {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: 20px;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 12px;
 }
 
 .fm-stat-card {
   background: var(--card-bg);
   border-radius: 12px;
-  padding: 20px;
+  padding: 16px;
   border: 1px solid var(--border-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
 }
 
 .fm-stat-label {
-  margin: 0 0 8px;
-  font-size: 13px;
+  margin: 0 0 6px;
+  font-size: 12px;
   color: var(--text-muted);
   text-transform: uppercase;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fm-stat-value {
   margin: 0;
-  font-size: 26px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--text-main);
 }
 
+.fm-stat-card.fm-due .fm-stat-value { color: var(--danger-red); }
+.fm-stat-card.fm-advance .fm-stat-value { color: var(--success-green); }
+
+/* Bottom row of Charts (Sits side-by-side) */
+.fm-dashboard-charts {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 16px;
+  flex: 1;
+}
+
+.fm-chart-card {
+  display: flex;
+  flex-direction: column;
+  padding: 16px;
+  margin-bottom: 0;
+}
+
+.fm-chart-card h3 {
+  margin: 0 0 12px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-main);
+}
+
+/* Force charts to shrink and fit within the view */
+.fm-chart-card .recharts-responsive-container {
+  flex: 1;
+  min-height: 200px;
+  max-height: 250px; 
+}
+
+/* ---------------------------------------------------------------------------
+   Bill Layout (Collect Fee)
+   --------------------------------------------------------------------------- */
 .fm-bill-two-col {
   display: grid;
   grid-template-columns: 1.5fr 1fr;
@@ -398,6 +590,49 @@ body {
   padding: 20px;
 }
 
+.fm-bill-table td {
+  padding: 6px 0;
+  font-size: 14px;
+  color: var(--text-main);
+  border-bottom: none;
+}
+
+.fm-stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.fm-stat-cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 12px;
+  background: #fff;
+  border-radius: 8px;
+  border: 1px solid var(--border-color);
+}
+
+.fm-stat-cell-label {
+  font-size: 11px;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+
+.fm-stat-cell-value {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-main);
+}
+
+.fm-stat-cell-balance .fm-stat-cell-value {
+  color: var(--danger-red);
+}
+
+/* ---------------------------------------------------------------------------
+   Modals & Utilities
+   --------------------------------------------------------------------------- */
 .fm-modal-overlay {
   position: fixed;
   inset: 0;
@@ -419,19 +654,50 @@ body {
   overflow-y: auto;
 }
 
+.fm-empty-state {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 15px;
+}
+
+.fm-hint { color: var(--text-muted); font-size: 13px; margin-bottom: 12px; }
+.fm-error { color: var(--danger-red); font-size: 14px; font-weight: 500; background: #fee2e2; padding: 12px; border-radius: 8px; }
+.fm-success { color: #065f46; font-size: 14px; font-weight: 500; background: #d1fae5; padding: 12px; border-radius: 8px; }
+
 /* ---------------------------------------------------------------------------
-   Responsive & Print
+   Responsive Adjustments
    --------------------------------------------------------------------------- */
+@media (max-width: 1024px) {
+  .fm-dashboard-charts {
+    grid-template-columns: 1fr;
+  }
+}
+
 @media (max-width: 768px) {
   .fm-app { flex-direction: column; }
   .fm-sidebar { width: 100%; height: auto; }
   .fm-sidebar-nav { flex-direction: row; overflow-x: auto; }
   .fm-nav-btn { white-space: nowrap; }
   .fm-bill-two-col { grid-template-columns: 1fr; }
+  .fm-payment-form { grid-template-columns: 1fr; }
 }
 
+/* ---------------------------------------------------------------------------
+   Print Rules (Hide UI elements)
+   --------------------------------------------------------------------------- */
 @media print {
-  .fm-sidebar, .fm-top-header, .fm-subtabs { display: none !important; }
-  .fm-main-wrapper { overflow: visible !important; }
-  .fm-main { padding: 0 !important; overflow: visible !important; }
+  .fm-sidebar, 
+  .fm-top-header, 
+  .fm-subtabs,
+  .fm-footer,
+  button { 
+    display: none !important; 
+  }
+  .fm-app, .fm-main-wrapper, .fm-main { 
+    overflow: visible !important; 
+    height: auto !important; 
+    padding: 0 !important; 
+    margin: 0 !important;
+  }
 }
