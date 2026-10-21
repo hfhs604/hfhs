@@ -226,13 +226,13 @@ export default function Reports({ session }) {
         </button>
         {rows && rows.length > 0 && (
           <>
-            <button onClick={() => window.print()}>Print</button>
-            <button onClick={() => exportToCSV(rows, reportType.replace(/\s+/g, "_"))}>Export CSV</button>
+            <button className="fm-secondary-btn" onClick={() => window.print()}>Print</button>
+            <button className="fm-secondary-btn" onClick={() => exportToCSV(rows, reportType.replace(/\s+/g, "_"))}>Export CSV</button>
           </>
         )}
       </div>
 
-      {summary && <p style={{ fontWeight: 500 }}>{summary}</p>}
+      {summary && <p style={{ fontWeight: 500, marginBottom: 16 }}>{summary}</p>}
 
       {rows && (
         rows.length === 0 ? (
@@ -251,7 +251,7 @@ export default function Reports({ session }) {
                     {activeColumns.map((c) => {
                       const raw = row[c.key];
                       const val = c.format ? c.format(raw) : (raw ?? "—");
-                      return <td key={c.key}>{String(val)}</td>;
+                      return <td key={c.key} className="wrap-text">{String(val)}</td>;
                     })}
                   </tr>
                 ))}
