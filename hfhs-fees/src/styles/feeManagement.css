@@ -1,7 +1,5 @@
 /* ===========================================================================
-   feeManagement.css - Final Consolidated Version
-   Features: Dark Sidebar, Toggle animations, Sub-tabs, Fixed Footer, 
-             Clean Tables, Single-Page Dashboard
+   feeManagement.css - Final Consolidated & Fluid Layout
    =========================================================================== */
 
 :root {
@@ -210,13 +208,14 @@ body {
 .fm-main {
   flex: 1;
   overflow-y: auto;
+  overflow-x: hidden; /* Prevents horizontal page scroll */
   padding: 24px;
   display: flex;
   flex-direction: column;
 }
 
 .fm-content-inner {
-  flex: 1; /* Pushes footer to bottom */
+  flex: 1;
   display: flex;
   flex-direction: column;
 }
@@ -235,7 +234,7 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Sub-tabs (For combining pages)
+   Sub-tabs
    --------------------------------------------------------------------------- */
 .fm-subtabs {
   display: flex;
@@ -243,6 +242,7 @@ body {
   margin-bottom: 20px;
   border-bottom: 1px solid var(--border-color);
   padding-bottom: 12px;
+  flex-wrap: wrap;
 }
 
 .fm-subtab-btn {
@@ -301,10 +301,12 @@ body {
   display: flex;
   gap: 12px;
   margin-bottom: 16px;
+  flex-wrap: wrap;
 }
 
 .fm-search-row input {
   flex: 1;
+  min-width: 200px;
   padding: 10px 16px;
   border: 1px solid var(--border-color);
   border-radius: 6px;
@@ -391,7 +393,7 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Tables
+   Tables (Fluid & Non-Scrolling)
    --------------------------------------------------------------------------- */
 .fm-table-scroll {
   width: 100%;
@@ -403,29 +405,29 @@ body {
 .fm-table {
   width: 100%;
   border-collapse: collapse;
-  min-width: 800px; /* Prevents squishing on smaller screens */
+  table-layout: auto;
 }
 
 .fm-table th {
   text-align: left;
-  padding: 12px 16px;
+  padding: 10px 12px;
   border-bottom: 2px solid var(--border-color);
   color: var(--text-muted);
   font-weight: 600;
-  font-size: 13px;
+  font-size: 11px;
   text-transform: uppercase;
   background: #f8fafc;
   white-space: nowrap;
 }
 
 .fm-table td {
-  padding: 14px 16px;
+  padding: 10px 12px;
   border-bottom: 1px solid var(--border-color);
-  font-size: 14px;
-  white-space: nowrap;
+  font-size: 13px;
+  vertical-align: middle;
 }
 
-/* Right-align numeric columns in tables (Money) */
+/* Right-align numeric columns */
 .fm-table th:nth-child(n+4),
 .fm-table td:nth-child(n+4) {
   text-align: right;
@@ -438,6 +440,13 @@ body {
 .fm-due-cell {
   color: var(--danger-red);
   font-weight: 700;
+}
+
+/* Allow specific columns to wrap text instead of stretching the table */
+.wrap-text {
+  white-space: normal !important;
+  word-wrap: break-word;
+  min-width: 120px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -512,7 +521,6 @@ body {
   height: 100%;
 }
 
-/* Top row of stat cards */
 .fm-dashboard-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
@@ -548,7 +556,6 @@ body {
 .fm-stat-card.fm-due .fm-stat-value { color: var(--danger-red); }
 .fm-stat-card.fm-advance .fm-stat-value { color: var(--success-green); }
 
-/* Bottom row of Charts (Sits side-by-side) */
 .fm-dashboard-charts {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
@@ -570,7 +577,6 @@ body {
   color: var(--text-main);
 }
 
-/* Force charts to shrink and fit within the view */
 .fm-chart-card .recharts-responsive-container {
   flex: 1;
   min-height: 200px;
@@ -669,9 +675,7 @@ body {
    Responsive Adjustments
    --------------------------------------------------------------------------- */
 @media (max-width: 1024px) {
-  .fm-dashboard-charts {
-    grid-template-columns: 1fr;
-  }
+  .fm-dashboard-charts { grid-template-columns: 1fr; }
 }
 
 @media (max-width: 768px) {
@@ -684,20 +688,9 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Print Rules (Hide UI elements)
+   Print Rules
    --------------------------------------------------------------------------- */
 @media print {
-  .fm-sidebar, 
-  .fm-top-header, 
-  .fm-subtabs,
-  .fm-footer,
-  button { 
-    display: none !important; 
-  }
-  .fm-app, .fm-main-wrapper, .fm-main { 
-    overflow: visible !important; 
-    height: auto !important; 
-    padding: 0 !important; 
-    margin: 0 !important;
-  }
+  .fm-sidebar, .fm-top-header, .fm-subtabs, .fm-footer, button { display: none !important; }
+  .fm-app, .fm-main-wrapper, .fm-main { overflow: visible !important; height: auto !important; padding: 0 !important; margin: 0 !important; }
 }
