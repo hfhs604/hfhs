@@ -52,15 +52,22 @@ export default function PaymentHistory({ studentId }) {
   }
 
   async function handleDelete(txn) {
+    const isCharge = txn.isCharge === true;
+    const amount = isCharge ? txn.chargedAmount : txn.netAmount;
     const ok = window.confirm(
-      `Delete this transaction?\n\n` +
-        `Amount: ₹${txn.netAmount || 0}\n` +
-        `Type: ${txn.componentType || "monthly"}\n` +
-        `Date: ${txn.paymentDate ? new Date(txn.paymentDate).toLocaleDateString() : "—"}\n\n` +
+      `${isCharge ? "Delete this charge?" : "Delete this transaction?"}\n\n` +
+        `Amount: ₹${amount || 0}\n` +
+        `Type: ${txn.feeType || txn.componentType || "monthly"}${isCharge ? " (charge)" : ""}\n` +
+        `Date: ${
+          txn.paymentDate
+            ? new Date(txn.paymentDate).toLocaleDateString()
+            : txn.createdAt?.toDate?.().toLocaleDateString?.() || "—"
+        }\n\n` +
         `This will:\n` +
-        `• Remove the transaction\n` +
-        `• Reverse it from the bill\n` +
-        `• Delete the receipt\n` +
+        (isCharge
+          ? `• Remove the charge from the bill\n`
+          : `• Reverse the payment from the bill\n`) +
+        `• Delete the ${isCharge ? "charge slip" : "receipt"}\n` +
         `• Log the action in the audit trail\n\n` +
         `This cannot be undone.`
     );
@@ -70,7 +77,7 @@ export default function PaymentHistory({ studentId }) {
     setMsg("");
     try {
       await deleteTransaction(txn.id, "Manual correction");
-      setMsg("✅ Transaction deleted and bill reversed.");
+      setMsg(`✅ ${isCharge ? "Charge" : "Transaction"} deleted and bill updated.`);
       await loadHistory();
     } catch (err) {
       setMsg(`❌ ${err.message}`);
@@ -105,43 +112,60 @@ export default function PaymentHistory({ studentId }) {
               </tr>
             </thead>
             <tbody>
-              {history.map((t) => (
-                <tr
-                  key={t.id}
-                  style={t.voided ? { opacity: 0.5, textDecoration: "line-through" } : undefined}
-                >
-                  <td>{t.paymentDate ? new Date(t.paymentDate).toLocaleDateString() : "—"}</td>
-                  <td>₹{t.amountReceived}</td>
-                  <td>{t.feeType}</td>
-                  <td>{t.paymentMethod}</td>
-                  <td>{t.referenceNumber || "—"}</td>
-                  <td>₹{t.discount || 0}</td>
-                  <td>₹{t.lateFee || 0}</td>
-                  <td>{t.collectedByEmail || t.collectedBy}</td>
-                  <td>{t.remarks || "—"}</td>
-                  <td style={{ whiteSpace: "nowrap" }}>
-                    {!t.voided && t.receiptRef && (
-                      <button
-                        className="fm-link-btn"
-                        onClick={() => openReceipt(t)}
-                        style={{ marginRight: 8 }}
-                      >
-                        View / Print
-                      </button>
-                    )}
-                    {isSuperAdmin && !t.voided && (
-                      <button
-                        className="fm-link-btn fm-danger-link"
-                        onClick={() => handleDelete(t)}
-                        disabled={busyId === t.id}
-                      >
-                        {busyId === t.id ? "Deleting…" : "Delete"}
-                      </button>
-                    )}
-                    {t.voided && <span title={t.voidReason}>Voided</span>}
-                  </td>
-                </tr>
-              ))}
+              {history.map((t) => {
+                const isCharge = t.isCharge === true;
+                return (
+                  <tr
+                    key={t.id}
+                    style={
+                      isCharge
+                        ? { background: "#f0f7ff" }
+                        : t.voided
+                        ? { opacity: 0.5, textDecoration: "line-through" }
+                        : undefined
+                    }
+                  >
+                    <td>
+                      {t.paymentDate
+                        ? new Date(t.paymentDate).toLocaleDateString()
+                        : t.createdAt?.toDate?.().toLocaleDateString?.() || "—"}
+                    </td>
+                    <td>
+                      {isCharge
+                        ? `₹${t.chargedAmount || 0} (charge)`
+                        : `₹${t.amountReceived || 0}`}
+                    </td>
+                    <td>{t.feeType}</td>
+                    <td>{isCharge ? "—" : t.paymentMethod}</td>
+                    <td>{t.referenceNumber || "—"}</td>
+                    <td>{isCharge ? "—" : `₹${t.discount || 0}`}</td>
+                    <td>{isCharge ? "—" : `₹${t.lateFee || 0}`}</td>
+                    <td>{t.collectedByEmail || t.collectedBy}</td>
+                    <td>{t.remarks || "—"}</td>
+                    <td style={{ whiteSpace: "nowrap" }}>
+                      {!t.voided && t.receiptRef && (
+                        <button
+                          className="fm-link-btn"
+                          onClick={() => openReceipt(t)}
+                          style={{ marginRight: 8 }}
+                        >
+                          {isCharge ? "View Slip" : "View / Print"}
+                        </button>
+                      )}
+                      {isSuperAdmin && !t.voided && (
+                        <button
+                          className="fm-link-btn fm-danger-link"
+                          onClick={() => handleDelete(t)}
+                          disabled={busyId === t.id}
+                        >
+                          {busyId === t.id ? "Deleting…" : "Delete"}
+                        </button>
+                      )}
+                      {t.voided && <span title={t.voidReason}>Voided</span>}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         </div>
