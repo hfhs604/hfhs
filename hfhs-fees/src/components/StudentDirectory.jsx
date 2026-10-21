@@ -196,7 +196,6 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
       }
     });
 
-    // Ensure transport fields are populated correctly
     populated.transportOpted = student.transportOpted || false;
     populated.transportAmount = student.transportAmount || 0;
 
@@ -870,82 +869,84 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
       ) : students.length === 0 ? (
         <p className="fm-empty-state">No students found.</p>
       ) : (
-        <table className="fm-table">
-          <thead>
-            <tr>
-              <th></th>
-              <th>Name</th>
-              <th>Adm#</th>
-              <th>Roll</th>
-              <th>Class</th>
-              <th>Guardian</th>
-              <th>Mobile</th>
-              <th>Status</th>
-              <th>Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {students.map((s) => (
-              <tr key={s.id}>
-                <td>
-                  {s.photoUrl ? (
-                    <img src={s.photoUrl} alt="" width="32" height="32"
-                      style={{ borderRadius: "50%", objectFit: "cover" }} />
-                  ) : (
-                    <div style={{
-                      width: 32, height: 32, borderRadius: "50%",
-                      background: "#e5e7eb", display: "inline-block"
-                    }} />
-                  )}
-                </td>
-                <td onClick={() => onSelectStudent?.(s.id)}
-                  style={onSelectStudent ? { cursor: "pointer" } : undefined}>
-                  {s.name}
-                </td>
-                <td>{s.admissionNumber}</td>
-                <td>{s.rollNumber ?? "—"}</td>
-                <td>{s.className}{s.section ? `-${s.section}` : ""}</td>
-                <td>{s.guardianName || s.fatherName || "—"}</td>
-                <td>{s.mobileNumber || s.fatherMobile || "—"}</td>
-                <td>
-                  <span className={`fm-badge fm-badge-${(s.accountStatus || "PAID").toLowerCase()}`}>
-                    {s.accountStatus || "PAID"}
-                  </span>
-                </td>
-                <td style={{ whiteSpace: "nowrap" }}>
-                  <button
-                    type="button"
-                    className="fm-btn-sm fm-btn-print"
-                    onClick={() => setPrintStudent(s)}
-                    style={{ marginRight: 6 }}
-                  >
-                    🖨 Print
-                  </button>
-                  {canEdit && (
+        <div className="fm-table-scroll">
+          <table className="fm-table">
+            <thead>
+              <tr>
+                <th style={{ width: 40 }}></th>
+                <th>Name</th>
+                <th>Adm#</th>
+                <th>Roll</th>
+                <th>Class</th>
+                <th>Guardian</th>
+                <th>Mobile</th>
+                <th>Status</th>
+                <th>Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {students.map((s) => (
+                <tr key={s.id}>
+                  <td>
+                    {s.photoUrl ? (
+                      <img src={s.photoUrl} alt="" width="32" height="32"
+                        style={{ borderRadius: "50%", objectFit: "cover" }} />
+                    ) : (
+                      <div style={{
+                        width: 32, height: 32, borderRadius: "50%",
+                        background: "#e5e7eb", display: "inline-block"
+                      }} />
+                    )}
+                  </td>
+                  <td className="wrap-text" onClick={() => onSelectStudent?.(s.id)}
+                    style={onSelectStudent ? { cursor: "pointer", fontWeight: 600 } : { fontWeight: 600 }}>
+                    {s.name}
+                  </td>
+                  <td>{s.admissionNumber}</td>
+                  <td>{s.rollNumber ?? "—"}</td>
+                  <td>{s.className}{s.section ? `-${s.section}` : ""}</td>
+                  <td className="wrap-text">{s.guardianName || s.fatherName || "—"}</td>
+                  <td>{s.mobileNumber || s.fatherMobile || "—"}</td>
+                  <td>
+                    <span className={`fm-badge fm-badge-${(s.accountStatus || "PAID").toLowerCase()}`}>
+                      {s.accountStatus || "PAID"}
+                    </span>
+                  </td>
+                  <td style={{ whiteSpace: "nowrap" }}>
                     <button
                       type="button"
-                      className="fm-btn-sm fm-btn-edit"
-                      onClick={() => openEdit(s)}
+                      className="fm-btn-sm"
+                      onClick={() => setPrintStudent(s)}
                       style={{ marginRight: 6 }}
                     >
-                      ✏ Edit
+                      🖨
                     </button>
-                  )}
-                  {canDelete && (
-                    <button
-                      type="button"
-                      className="fm-btn-sm fm-btn-danger"
-                      onClick={() => handleDelete(s)}
-                      disabled={deleteBusy === s.id}
-                    >
-                      {deleteBusy === s.id ? "…" : "🗑 Delete"}
-                    </button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+                    {canEdit && (
+                      <button
+                        type="button"
+                        className="fm-btn-sm"
+                        onClick={() => openEdit(s)}
+                        style={{ marginRight: 6 }}
+                      >
+                        ✏
+                      </button>
+                    )}
+                    {canDelete && (
+                      <button
+                        type="button"
+                        className="fm-btn-sm fm-btn-danger"
+                        onClick={() => handleDelete(s)}
+                        disabled={deleteBusy === s.id}
+                      >
+                        {deleteBusy === s.id ? "…" : "🗑"}
+                      </button>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       <PrintManager
