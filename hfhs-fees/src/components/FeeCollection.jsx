@@ -110,24 +110,12 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     const items = [];
     if (!b) return items;
 
-    if ((b.tuitionBilled || 0) > 0) {
-      items.push({ label: feeTypeLabel || "Tuition Fee", amount: b.tuitionBilled });
-    }
-    if ((b.transportBilled || 0) > 0) {
-      items.push({ label: "Transport Fee", amount: b.transportBilled });
-    }
-    if ((b.devFeeBilled || 0) > 0) {
-      items.push({ label: "Development Fee", amount: b.devFeeBilled });
-    }
-    if ((b.booksBilled || 0) > 0) {
-      items.push({ label: "Books Fee", amount: b.booksBilled });
-    }
-    if ((b.previousYearBilled || 0) > 0) {
-      items.push({ label: "Previous Year Balance", amount: b.previousYearBilled });
-    }
-    if ((b.kitFeeBilled || 0) > 0) {
-      items.push({ label: "Admission / Kit Fee", amount: b.kitFeeBilled });
-    }
+    if ((b.tuitionBilled || 0) > 0) items.push({ label: feeTypeLabel || "Tuition Fee", amount: b.tuitionBilled });
+    if ((b.transportBilled || 0) > 0) items.push({ label: "Transport Fee", amount: b.transportBilled });
+    if ((b.devFeeBilled || 0) > 0) items.push({ label: "Development Fee", amount: b.devFeeBilled });
+    if ((b.booksBilled || 0) > 0) items.push({ label: "Books Fee", amount: b.booksBilled });
+    if ((b.previousYearBilled || 0) > 0) items.push({ label: "Previous Year Balance", amount: b.previousYearBilled });
+    if ((b.kitFeeBilled || 0) > 0) items.push({ label: "Admission / Kit Fee", amount: b.kitFeeBilled });
     return items;
   }
 
@@ -256,15 +244,15 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
   }
 
   return (
-    <div className="fm-card fm-collect-compact">
-      <div className="fm-collect-header">
+    <div className="fm-card">
+      <div className="fm-row-header">
         <h2>Collect Fee</h2>
         <span className="fm-subtle">Billing month: <strong>{month}</strong></span>
       </div>
 
       {flash && <div className="fm-flash">{flash}</div>}
 
-      <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
+      <form onSubmit={handleSearch} className="fm-search-row">
         <input
           type="text"
           placeholder="Search by name or admission no."
@@ -275,7 +263,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
       </form>
 
       {results.length > 0 && !selectedStudent && (
-        <ul className="fm-result-list fm-result-list-compact">
+        <ul className="fm-result-list">
           {results.map((s) => (
             <li key={s.id} onClick={() => selectStudent(s)}>
               <strong>{s.name}</strong> — Adm# {s.admissionNumber} — Class {s.className}
@@ -286,7 +274,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
       {selectedStudent && (
         <>
-          <div className="fm-student-header fm-student-header-compact">
+          <div className="fm-student-header">
             <h3>{selectedStudent.name}</h3>
             <p>
               Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}
@@ -297,14 +285,14 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
           {loadingBill && <p className="fm-subtle">Loading bill…</p>}
 
           {bill && (
-            <div className="fm-bill-two-col fm-bill-two-col-compact">
-              <div className="fm-bill-left">
-                <table className="fm-bill-table fm-bill-table-compact">
+            <div className="fm-bill-two-col">
+              <div>
+                <table className="fm-bill-table" style={{ width: "100%" }}>
                   <tbody>
                     {bill.previousDue > 0 && (
                       <tr className="fm-row-prev">
-                        <td>Previous Due</td>
-                        <td align="right">₹{bill.previousDue}</td>
+                        <td style={{ color: "#dc2626" }}>Previous Due</td>
+                        <td align="right" style={{ color: "#dc2626" }}>₹{bill.previousDue}</td>
                       </tr>
                     )}
                     <tr>
@@ -321,22 +309,18 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                       <tr><td>Books (charge)</td><td align="right">₹{bill.booksBilled}</td></tr>
                     )}
                     {bill.previousYearBilled > 0 && (
-                      <tr><td>Previous Year Balance (charge)</td><td align="right">₹{bill.previousYearBilled}</td></tr>
+                      <tr><td>Previous Year (charge)</td><td align="right">₹{bill.previousYearBilled}</td></tr>
                     )}
                     {bill.kitFeeBilled > 0 && (
-                      <tr><td>Admission / Kit Fee (charge)</td><td align="right">₹{bill.kitFeeBilled}</td></tr>
+                      <tr><td>Kit Fee (charge)</td><td align="right">₹{bill.kitFeeBilled}</td></tr>
                     )}
                   </tbody>
                 </table>
-                <p style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
-                  Adding Books / Kit / Previous Year / Transport increases the bill.
-                  It does <strong>not</strong> record a payment.
-                </p>
               </div>
 
-              <div className="fm-bill-right fm-bill-right-compact">
+              <div>
                 <div className="fm-bill-session-line">
-                  <span>Session Paid (till date)</span>
+                  <span>Session Paid</span>
                   <strong>₹{sessionPaid}</strong>
                 </div>
 
@@ -367,7 +351,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="fm-payment-form fm-payment-form-compact">
+          <form onSubmit={handleSubmit} className="fm-payment-form">
             <label>
               Fee Type
               <select value={form.feeType}
@@ -424,22 +408,22 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
           </form>
 
           {error && <p className="fm-error">{error}</p>}
-          {addonMsg && <p className="fm-addon-msg">{addonMsg}</p>}
+          {addonMsg && <p className="fm-hint" style={{ color: "#1d4ed8", fontWeight: 500 }}>{addonMsg}</p>}
 
           <div className="fm-action-row">
             {canManageAddons && (
               <div className="fm-action-addons">
                 <button type="button" className="fm-addon-btn" disabled={addonBusy}
                   onClick={() => promptForAmount("books")}>
-                  📚 + Books (charge)
+                  📚 + Books
                 </button>
                 <button type="button" className="fm-addon-btn" disabled={addonBusy}
                   onClick={() => promptForAmount("previousYear")}>
-                  📜 + Prev Year (charge)
+                  📜 + Prev Year
                 </button>
                 <button type="button" className="fm-addon-btn" disabled={addonBusy}
                   onClick={() => promptForAmount("kit")}>
-                  👕 + Kit (charge)
+                  👕 + Kit
                 </button>
               </div>
             )}
@@ -475,15 +459,8 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
       {promptSlot && (
         <div className="fm-modal-overlay">
           <div className="fm-modal" style={{ maxWidth: 380 }}>
-            <h3>
-              {promptSlot === "books" && "Add Books Fee (charge)"}
-              {promptSlot === "previousYear" && "Add Previous Year Balance (charge)"}
-              {promptSlot === "kit" && "Add Admission / Kit Fee (charge)"}
-            </h3>
-            <p style={{ margin: "12px 0", fontSize: 14, color: "#4b5563" }}>
-              Enter the amount in ₹. This will be added to the student's bill as a
-              charge — it will <strong>not</strong> be recorded as a payment.
-            </p>
+            <h3>Add Charge</h3>
+            <p className="fm-hint">This will be added to the student's bill as a charge — it will not be recorded as a payment.</p>
             <input
               type="number"
               min="1"
@@ -492,41 +469,19 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
               onChange={(e) => setPromptValue(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && confirmPrompt()}
               disabled={promptConfirming}
-              style={{
-                width: "100%",
-                padding: 10,
-                border: "1px solid #ccc",
-                borderRadius: 6,
-                fontSize: 15,
-              }}
+              style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, marginTop: 12 }}
             />
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
-              <button
-                type="button"
-                className="fm-secondary-btn"
-                onClick={cancelPrompt}
-                disabled={promptConfirming}
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                className="fm-primary-btn"
-                onClick={confirmPrompt}
-                disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}
-              >
-                {promptConfirming ? "Adding…" : `Charge ₹${promptValue || 0}`}
+              <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>Cancel</button>
+              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}>
+                {promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}
               </button>
             </div>
           </div>
         </div>
       )}
 
-      <PrintManager
-        active={!!receiptPopup}
-        onClose={() => setReceiptPopup(null)}
-        type="receipt"
-      >
+      <PrintManager active={!!receiptPopup} onClose={() => setReceiptPopup(null)} type="receipt">
         {receiptPopup && <ReceiptPrintSheet receipts={[receiptPopup]} />}
       </PrintManager>
     </div>
