@@ -88,14 +88,14 @@ export default function DueManagement({ session }) {
 
   return (
     <div className="fm-card">
-      <h2>Due Fees</h2>
-      <p className="fm-hint">
-        Students with an outstanding balance for the selected month.
-      </p>
+      <div className="fm-row-header">
+        <h2>Outstanding Dues</h2>
+        <span className="fm-subtle">Students with an unpaid balance for the selected month.</span>
+      </div>
 
       <div className="fm-filter-row">
         <label className="fm-inline-label">
-          Month
+          Billing Month
           <input
             type="month"
             value={month}
@@ -104,7 +104,7 @@ export default function DueManagement({ session }) {
         </label>
 
         <label className="fm-inline-label">
-          Class
+          Filter by Class
           <select
             value={className}
             onChange={(e) => setClassName(e.target.value)}
@@ -116,50 +116,44 @@ export default function DueManagement({ session }) {
           </select>
         </label>
 
-        <div className="fm-inline-label">
-          <span>Total outstanding</span>
-          <strong style={{ fontSize: "1.1em" }}>
-            ₹{totalDue.toLocaleString()}
-          </strong>
+        <div className="fm-inline-label" style={{ marginLeft: "auto", marginRight: "20px" }}>
+          <span>Total Outstanding</span>
+          <strong>₹{totalDue.toLocaleString()}</strong>
         </div>
 
         <button
           className="fm-primary-btn"
           onClick={printBulkSlips}
           disabled={printing || bills.length === 0}
-          style={{ marginLeft: "auto" }}
         >
-          {printing
-            ? "Preparing…"
-            : `🖨 Print Demand Slips (${bills.length})`}
+          {printing ? "Preparing…" : `🖨 Print Demand Slips (${bills.length})`}
         </button>
       </div>
 
       {loading ? (
         <p className="fm-empty-state">Loading…</p>
       ) : error ? (
-        <p className="fm-empty-state" style={{ color: "#c62828" }}>
-          {error}
-        </p>
+        <p className="fm-error">{error}</p>
       ) : bills.length === 0 ? (
-        <p className="fm-empty-state">
-          No students with outstanding dues for this filter.
-        </p>
+        <div className="fm-empty-state" style={{ background: "#f8fafc", padding: 40, borderRadius: 8 }}>
+          <h3>No outstanding dues</h3>
+          <p>All students are fully paid for the selected filters.</p>
+        </div>
       ) : (
         <div className="fm-table-scroll">
           <table className="fm-table">
             <thead>
               <tr>
-                <th>Student</th>
-                <th>Adm#</th>
-                <th>Class</th>
-                <th>Previous Due</th>
+                <th style={{ width: "20%" }}>Student</th>
+                <th style={{ width: "8%" }}>Adm#</th>
+                <th style={{ width: "8%" }}>Class</th>
+                <th>Prev Due</th>
                 <th>Tuition</th>
                 <th>Transport</th>
                 <th>Other</th>
-                <th>Total Due</th>
+                <th>Total Bill</th>
                 <th>Paid</th>
-                <th>Balance</th>
+                <th style={{ color: "#dc2626" }}>Balance</th>
                 <th></th>
               </tr>
             </thead>
@@ -172,22 +166,25 @@ export default function DueManagement({ session }) {
                   (b.kitFeeBilled || 0);
                 return (
                   <tr key={b.id}>
-                    <td>{b.studentName || "—"}</td>
+                    <td className="wrap-text" style={{ fontWeight: 600 }}>
+                      {b.studentName || "—"}
+                    </td>
                     <td>{b.studentId || "—"}</td>
                     <td>{b.className || "—"}</td>
                     <td>₹{b.previousDue || 0}</td>
                     <td>₹{b.tuitionBilled || 0}</td>
-                    <td>₹{b.transportBilled || 0}</td>
-                    <td>₹{other}</td>
+                    <td>{b.transportBilled > 0 ? `₹${b.transportBilled}` : "—"}</td>
+                    <td>{other > 0 ? `₹${other}` : "—"}</td>
                     <td>₹{b.totalDue || 0}</td>
-                    <td>₹{b.totalPaid || 0}</td>
+                    <td style={{ color: "#16a34a" }}>₹{b.totalPaid || 0}</td>
                     <td className="fm-due-cell">
-                      🔴 ₹{b.carriedForward || 0}
+                      ₹{b.carriedForward || 0}
                     </td>
                     <td>
                       <button
                         type="button"
-                        className="fm-link-btn"
+                        className="fm-secondary-btn"
+                        style={{ padding: "6px 12px", fontSize: 12 }}
                         onClick={() => printOneSlip(b)}
                         disabled={printing}
                       >
