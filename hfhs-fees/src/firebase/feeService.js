@@ -2,6 +2,12 @@
  * feeService.js
  * Fee Management data layer for Holy Faith High School.
  * Optimized for minimal Firestore reads.
+ *
+ * INVARIANTS:
+ *  - `totalPaid` on a monthlyBills doc changes ONLY from collectPayment() (real cash).
+ *  - Charges (Books, Kit, Previous Year, Transport) create feeTransactions with
+ *    isCharge=true, chargedAmount=amt, amountReceived=0, netAmount=0,
+ *    paymentMethod=null. They increase totalDue/carriedForward, never totalPaid.
  */
 
 import { db, auth } from "../firebase/config";
@@ -292,7 +298,7 @@ export async function listBillsForMonth(session, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Payment collection
+// Payment collection (REAL PAYMENTS ONLY)
 // ---------------------------------------------------------------------------
 export async function collectPayment({
   studentId, amountReceived,
@@ -326,6 +332,7 @@ export async function collectPayment({
     tx.set(txnRef, {
       studentId, session, month,
       componentType: "monthly",
+      isCharge: false,
       amountReceived: amount,
       discount: Number(discount), lateFee: Number(lateFee),
       netAmount,
@@ -363,6 +370,7 @@ export async function collectPayment({
     className: student.className,
     guardianName: student.guardianName || student.fatherName,
     session, month, feeType,
+    isCharge: false,
     amountReceived: Number(amountReceived),
     discount: Number(discount), lateFee: Number(lateFee),
     previousDue: result.bill.previousDue || 0,
@@ -380,11 +388,21 @@ export async function collectPayment({
 }
 
 // ---------------------------------------------------------------------------
-// Add-on fees
+// Add-on fees (CHARGES — not payments)
 // ---------------------------------------------------------------------------
+/**
+ * Adds a CHARGE to a student's bill (Books, Kit, Previous Year, Transport).
+ *
+ * Critical: a charge is NOT a payment. We:
+ *   - write a feeTransactions doc with isCharge=true, chargedAmount=amt,
+ *     amountReceived=0, netAmount=0, paymentMethod=null
+ *   - increment the relevant *Billed field and totalDue/carriedForward
+ *   - DO NOT touch totalPaid
+ *   - issue a "charge slip" receipt (isCharge: true)
+ */
 async function addLineItem({
   studentId, session, month, amount, field, componentType, feeType, remarks,
-  paymentMethod = "Cash", paymentDate, idempotencyKey,
+  paymentDate, idempotencyKey,
 }) {
   const user = currentUser();
   const safeStudentId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
@@ -393,73 +411,111 @@ async function addLineItem({
 
   const result = await runTransaction(db, async (tx) => {
     const idemSnap = await tx.get(idemRef);
-    if (idemSnap.exists()) return { alreadyProcessed: true, receiptId: idemSnap.data().receiptId };
+    if (idemSnap.exists()) {
+      return { alreadyProcessed: true, receiptId: idemSnap.data().receiptId };
+    }
+
     const billSnap = await tx.get(billRef);
-    if (!billSnap.exists()) throw new Error("No bill for this month — run Start New Month first.");
+    if (!billSnap.exists()) {
+      throw new Error("No bill for this month — run Start New Month first.");
+    }
     const bill = billSnap.data();
 
     const amt = Number(amount);
-    const newDue = (bill.totalDue || 0) + amt;
+    if (!amt || amt <= 0) throw new Error("Charge amount must be greater than 0.");
+
     const newFieldValue = (bill[field] || 0) + amt;
+    const newDue = (bill.totalDue || 0) + amt;
+    const newPaid = bill.totalPaid || 0;        // UNCHANGED — charge ≠ payment
+    const newCarry = newDue - newPaid;
 
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
 
     tx.set(txnRef, {
-      studentId, session, month, componentType,
-      amountReceived: amt, netAmount: amt,
-      paymentDate: Timestamp.fromDate(new Date(paymentDate)),
-      paymentMethod, feeType, remarks,
-      collectedBy: user.uid, collectedByEmail: user.email || null,
+      studentId, session, month,
+      componentType,
+      isCharge: true,
+      chargedAmount: amt,
+      amountReceived: 0,
+      netAmount: 0,
+      discount: 0,
+      lateFee: 0,
+      paymentDate: paymentDate
+        ? Timestamp.fromDate(new Date(paymentDate))
+        : serverTimestamp(),
+      paymentMethod: null,
+      referenceNumber: null,
+      feeType,
+      remarks: remarks || null,
+      collectedBy: user.uid,
+      collectedByEmail: user.email || null,
       receiptRef: receiptRef.id,
       createdAt: serverTimestamp(),
       voided: false,
     });
-
-    const newPaid = bill.totalPaid || 0;
-    const newCarry = newDue - newPaid;
 
     tx.update(billRef, {
       [field]: newFieldValue,
       totalDue: newDue,
       totalPaid: newPaid,
       carriedForward: newCarry,
-      status: newCarry <= 0 ? "PAID" : "PARTIAL",
+      status: newCarry <= 0 ? "PAID" : (newPaid > 0 ? "PARTIAL" : "DUE"),
     });
 
     tx.set(idemRef, { receiptId: receiptRef.id, createdAt: serverTimestamp() });
-    return { alreadyProcessed: false, receiptRef, txnRef, bill, amt, newPaid };
+    return { alreadyProcessed: false, receiptRef, txnRef, bill, amt, newPaid, newDue };
   });
 
   if (result.alreadyProcessed) {
     const snap = await getDoc(doc(db, COL.receipts, result.receiptId));
     return { receiptId: result.receiptId, receipt: snap.data(), duplicateBlocked: true };
   }
+
   const receiptNumber = await generateReceiptNumber(session);
   const student = await getStudentFeeProfile(studentId);
+
   const receiptData = {
-    receiptNumber, studentId,
+    receiptNumber,
+    studentId,
     studentName: student.name,
     admissionNumber: student.admissionNumber,
     className: student.className,
     guardianName: student.guardianName || student.fatherName,
-    session, month, feeType,
-    amountReceived: result.amt,
-    previousDue: result.bill.previousDue || 0,
-    remainingDue: Math.max((result.bill.totalDue + result.amt) - result.newPaid, 0),
-    paymentMethod, paymentDate, createdAt: serverTimestamp(),
+    session, month,
+    feeType,
     componentType,
+    isCharge: true,
+    chargedAmount: result.amt,
+    amountReceived: 0,
+    discount: 0,
+    lateFee: 0,
+    previousDue: result.bill.previousDue || 0,
+    remainingDue: Math.max(result.newDue - result.newPaid, 0),
+    paymentMethod: null,
+    referenceNumber: null,
+    paymentDate: null,
+    createdAt: serverTimestamp(),
   };
+
   await setDoc(doc(db, COL.receipts, result.receiptRef.id), receiptData);
   await writeAuditLog({
-    action: `ADD_${componentType.toUpperCase()}`,
-    studentId, newValue: { amount: result.amt, receiptNumber },
+    action: `CHARGE_ADDED_${componentType.toUpperCase()}`,
+    studentId,
+    newValue: { amount: result.amt, receiptNumber, isCharge: true },
     transactionRef: result.txnRef.id,
   });
-  return { receiptId: result.receiptRef.id, receipt: receiptData, duplicateBlocked: false };
+
+  return {
+    receiptId: result.receiptRef.id,
+    receipt: receiptData,
+    duplicateBlocked: false,
+  };
 }
 
-export async function addTransportFee({ studentId, amount, session, month, paymentDate, paymentMethod, idempotencyKey }) {
+export async function addTransportFee({
+  studentId, amount, session, month, paymentDate, idempotencyKey,
+}) {
   const amt = Number(amount);
   if (amt < 800 || amt > 1500) {
     throw new Error("Transport must be between ₹800 and ₹1500.");
@@ -468,37 +524,43 @@ export async function addTransportFee({ studentId, amount, session, month, payme
     studentId, session, month, amount: amt,
     field: "transportBilled", componentType: "transport",
     feeType: "Transport", remarks: "Transport fee",
-    paymentDate, paymentMethod, idempotencyKey,
+    paymentDate, idempotencyKey,
   });
 }
 
-export async function addBooksFee({ studentId, amount, session, month, paymentDate, paymentMethod = "Cash", idempotencyKey }) {
+export async function addBooksFee({
+  studentId, amount, session, month, paymentDate, idempotencyKey,
+}) {
   if (Number(amount) <= 0) throw new Error("Books amount must be greater than 0.");
   return addLineItem({
     studentId, session, month, amount,
     field: "booksBilled", componentType: "books",
     feeType: "Books", remarks: "Books fee",
-    paymentDate, paymentMethod, idempotencyKey,
+    paymentDate, idempotencyKey,
   });
 }
 
-export async function addPreviousYearBalance({ studentId, amount, session, month, paymentDate, paymentMethod = "Cash", idempotencyKey }) {
+export async function addPreviousYearBalance({
+  studentId, amount, session, month, paymentDate, idempotencyKey,
+}) {
   if (Number(amount) <= 0) throw new Error("Previous year balance must be greater than 0.");
   return addLineItem({
     studentId, session, month, amount,
     field: "previousYearBilled", componentType: "previousYear",
     feeType: "Previous Year Balance", remarks: "Previous year dues",
-    paymentDate, paymentMethod, idempotencyKey,
+    paymentDate, idempotencyKey,
   });
 }
 
-export async function addKitFee({ studentId, amount, session, month, paymentDate, paymentMethod = "Cash", idempotencyKey }) {
+export async function addKitFee({
+  studentId, amount, session, month, paymentDate, idempotencyKey,
+}) {
   if (Number(amount) <= 0) throw new Error("Kit amount must be greater than 0.");
   return addLineItem({
     studentId, session, month, amount,
     field: "kitFeeBilled", componentType: "kit",
     feeType: "Admission / Kit", remarks: "Admission / Tie / Belt / Batch / Diary",
-    paymentDate, paymentMethod, idempotencyKey,
+    paymentDate, idempotencyKey,
   });
 }
 
@@ -607,7 +669,6 @@ export async function getDashboardStats(session, month) {
     }
   });
 
-  // Payment method breakdown + today's collection (all-time for this session).
   let paymentMethodBreakdown = {};
   let todayCollection = 0;
 
@@ -631,8 +692,12 @@ export async function getDashboardStats(session, month) {
 
     txnSnap.docs.forEach((d) => {
       const t = d.data();
+      // Charges are NOT money received.
+      if (t.isCharge === true) return;
+
       const method = t.paymentMethod || "Other";
       const amt = Number(t.netAmount || 0);
+      if (amt <= 0) return;
 
       paymentMethodBreakdown[method] =
         (paymentMethodBreakdown[method] || 0) + amt;
@@ -740,16 +805,16 @@ export async function getStudentPaymentSummary(studentId, session, month) {
 
     snap.docs.forEach((d) => {
       const t = d.data();
+      if (t.isCharge === true) return;                 // charges aren't payments
       if (session && t.session !== session) return;
       if (t.voided === true) return;
       if (t.componentType && t.componentType !== "monthly") return;
 
       const amt = Number(t.netAmount || 0);
-      sessionTotal += amt;
+      if (amt <= 0) return;
 
-      if (month && t.month === month) {
-        monthTotal += amt;
-      }
+      sessionTotal += amt;
+      if (month && t.month === month) monthTotal += amt;
 
       const paidAt =
         t.paymentDate && typeof t.paymentDate.toDate === "function"
@@ -857,313 +922,4 @@ export async function getUserRoleOnce(uid, retries = 3, delayMs = 700) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const snap = await getDoc(ref);
-      return snap.exists() ? snap.data() : null;
-    } catch (err) {
-      const isOffline = err?.code === "unavailable" || err?.message?.includes("client is offline");
-      if (!isOffline || attempt === retries - 1) throw err;
-      await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
-    }
-  }
-}
-export const getUserRole = getUserRoleOnce;
-
-// ---------------------------------------------------------------------------
-// Admission number auto-increment
-// ---------------------------------------------------------------------------
-export async function peekNextAdmissionNumber() {
-  try {
-    const counterRef = doc(db, COL.counters, "admissionNumber");
-    const snap = await getDoc(counterRef);
-    const current = snap.exists() ? snap.data().value : 0;
-    return current + 1;
-  } catch (err) {
-    console.warn("peekNextAdmissionNumber failed:", err.message);
-    return 1;
-  }
-}
-
-export async function reserveAdmissionNumber() {
-  const counterRef = doc(db, COL.counters, "admissionNumber");
-  const next = await runTransaction(db, async (tx) => {
-    const snap = await tx.get(counterRef);
-    const current = snap.exists() ? snap.data().value : 0;
-    const value = current + 1;
-    tx.set(counterRef, { value }, { merge: true });
-    return value;
-  });
-  return String(next);
-}
-
-// ---------------------------------------------------------------------------
-// Full student update
-// ---------------------------------------------------------------------------
-export async function updateStudentFull(studentId, updates) {
-  const user = currentUser();
-
-  const userDoc = await getDoc(doc(db, "users", user.uid));
-  const role = userDoc.exists() ? userDoc.data().role : null;
-  if (!["superAdmin", "admin", "accountant"].includes(role)) {
-    throw new Error("You don't have permission to edit students.");
-  }
-
-  const ref = doc(db, COL.students, studentId);
-  const before = await getDoc(ref);
-  if (!before.exists()) throw new Error("Student not found.");
-
-  await updateDoc(ref, {
-    ...updates,
-    updatedBy: user.uid,
-    updatedAt: serverTimestamp(),
-  });
-
-  await writeAuditLog({
-    action: "STUDENT_UPDATED",
-    studentId,
-    previousValue: before.data(),
-    newValue: updates,
-  });
-
-  return true;
-}
-
-// ---------------------------------------------------------------------------
-// Delete student + all related data
-// ---------------------------------------------------------------------------
-export async function deleteStudentCompletely(studentId, studentName) {
-  const user = currentUser();
-
-  const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (!userDoc.exists() || userDoc.data().role !== "superAdmin") {
-    throw new Error("Only a Super Admin can delete a student.");
-  }
-
-  const studentRef = doc(db, COL.students, studentId);
-  const studentSnap = await getDoc(studentRef);
-  if (!studentSnap.exists()) throw new Error("Student not found.");
-
-  const student = studentSnap.data();
-  const summary = {
-    studentId,
-    name: student.name || studentName || "Unknown",
-    admissionNumber: student.admissionNumber || null,
-    billsDeleted: 0,
-    transactionsDeleted: 0,
-    receiptsDeleted: 0,
-    discountsDeleted: 0,
-  };
-
-  // Best-effort: delete Firebase Storage images for this student.
-  try {
-    const { deleteStudentPhoto } = await import("./photoService");
-    await deleteStudentPhoto(studentId);
-  } catch (err) {
-    console.warn("Could not delete student images:", err.message);
-  }
-
-  await deleteDoc(studentRef);
-
-  try {
-    const billsSnap = await getDocs(
-      query(collection(db, COL.monthlyBills), where("studentId", "==", studentId))
-    );
-    for (const d of billsSnap.docs) {
-      await deleteDoc(doc(db, COL.monthlyBills, d.id));
-      summary.billsDeleted++;
-    }
-  } catch (err) {
-    console.warn("Could not delete bills:", err.message);
-  }
-
-  try {
-    const txnsSnap = await getDocs(
-      query(collection(db, COL.transactions), where("studentId", "==", studentId))
-    );
-    for (const d of txnsSnap.docs) {
-      await deleteDoc(doc(db, COL.transactions, d.id));
-      summary.transactionsDeleted++;
-    }
-  } catch (err) {
-    console.warn("Could not delete transactions:", err.message);
-  }
-
-  try {
-    const receiptsSnap = await getDocs(
-      query(collection(db, COL.receipts), where("studentId", "==", studentId))
-    );
-    for (const d of receiptsSnap.docs) {
-      await deleteDoc(doc(db, COL.receipts, d.id));
-      summary.receiptsDeleted++;
-    }
-  } catch (err) {
-    console.warn("Could not delete receipts:", err.message);
-  }
-
-  try {
-    const discountsSnap = await getDocs(
-      query(collection(db, COL.discounts), where("studentId", "==", studentId))
-    );
-    for (const d of discountsSnap.docs) {
-      await deleteDoc(doc(db, COL.discounts, d.id));
-      summary.discountsDeleted++;
-    }
-  } catch (err) {
-    console.warn("Could not delete discounts:", err.message);
-  }
-
-  await writeAuditLog({
-    action: "STUDENT_DELETED",
-    studentId,
-    previousValue: {
-      name: student.name,
-      admissionNumber: student.admissionNumber,
-      className: student.className,
-      session: student.session,
-    },
-    newValue: {
-      deletedBy: user.email || user.uid,
-      deletedAt: new Date().toISOString(),
-      summary,
-    },
-  });
-
-  return summary;
-}
-
-// ---------------------------------------------------------------------------
-// Transport fee management
-// ---------------------------------------------------------------------------
-export async function setStudentTransport(studentId, amount) {
-  const user = currentUser();
-  const userDoc = await getDoc(doc(db, "users", user.uid));
-  const role = userDoc.exists() ? userDoc.data().role : null;
-  if (role !== "superAdmin") {
-    throw new Error("Only a Super Admin can change transport settings.");
-  }
-
-  const amt = Number(amount);
-  if (amt !== 0 && (amt < 800 || amt > 1500)) {
-    throw new Error("Transport must be 0 (off) or between ₹800 and ₹1500.");
-  }
-
-  const studentRef = doc(db, COL.students, studentId);
-  const before = await getDoc(studentRef);
-  if (!before.exists()) throw new Error("Student not found.");
-
-  await updateDoc(studentRef, {
-    transportOpted: amt > 0,
-    transportAmount: amt,
-  });
-
-  const month = monthKey();
-  const session = before.data().session;
-  if (session) {
-    const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
-    const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId}`);
-    const billSnap = await getDoc(billRef);
-    if (billSnap.exists()) {
-      const bill = billSnap.data();
-      const oldTransport = bill.transportBilled || 0;
-      if ((bill.totalPaid || 0) === 0) {
-        const newTotalDue = (bill.totalDue || 0) - oldTransport + amt;
-        const newCarry = newTotalDue - (bill.totalPaid || 0);
-        await updateDoc(billRef, {
-          transportBilled: amt,
-          totalDue: newTotalDue,
-          carriedForward: newCarry,
-        });
-      }
-    }
-  }
-
-  await writeAuditLog({
-    action: "TRANSPORT_UPDATED",
-    studentId,
-    previousValue: {
-      transportOpted: before.data().transportOpted,
-      transportAmount: before.data().transportAmount,
-    },
-    newValue: { transportOpted: amt > 0, transportAmount: amt },
-  });
-
-  return { transportOpted: amt > 0, transportAmount: amt };
-}
-
-// ---------------------------------------------------------------------------
-// Delete a single transaction (super admin only)
-// ---------------------------------------------------------------------------
-export async function deleteTransaction(transactionId, reason = "") {
-  const user = currentUser();
-
-  const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (!userDoc.exists() || userDoc.data().role !== "superAdmin") {
-    throw new Error("Only a Super Admin can delete a transaction.");
-  }
-
-  const txnRef = doc(db, COL.transactions, transactionId);
-  const txnSnap = await getDoc(txnRef);
-  if (!txnSnap.exists()) throw new Error("Transaction not found.");
-
-  const txn = txnSnap.data();
-
-  if (txn.studentId && txn.session && txn.month) {
-    const safeId = String(txn.studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
-    const billRef = doc(db, COL.monthlyBills, `${txn.session}_${txn.month}_${safeId}`);
-    const billSnap = await getDoc(billRef);
-    if (billSnap.exists()) {
-      const bill = billSnap.data();
-      const amt = Number(txn.netAmount || 0);
-
-      if (!txn.componentType || txn.componentType === "monthly") {
-        const newPaid = Math.max((bill.totalPaid || 0) - amt, 0);
-        const newCarry = (bill.totalDue || 0) - newPaid;
-        await updateDoc(billRef, {
-          totalPaid: newPaid,
-          carriedForward: newCarry,
-          status: newCarry <= 0 ? "PAID" : "PARTIAL",
-        });
-      } else {
-        const fieldMap = {
-          books: "booksBilled",
-          kit: "kitFeeBilled",
-          previousYear: "previousYearBilled",
-          transport: "transportBilled",
-        };
-        const field = fieldMap[txn.componentType];
-        if (field) {
-          const newFieldValue = Math.max((bill[field] || 0) - amt, 0);
-          const newDue = Math.max((bill.totalDue || 0) - amt, 0);
-          const newCarry = newDue - (bill.totalPaid || 0);
-          await updateDoc(billRef, {
-            [field]: newFieldValue,
-            totalDue: newDue,
-            carriedForward: newCarry,
-            status: newCarry <= 0 ? "PAID" : "PARTIAL",
-          });
-        }
-      }
-    }
-  }
-
-  await deleteDoc(txnRef);
-
-  if (txn.receiptRef) {
-    try {
-      await deleteDoc(doc(db, COL.receipts, txn.receiptRef));
-    } catch (err) {
-      console.warn("Could not delete receipt:", err.message);
-    }
-  }
-
-  await writeAuditLog({
-    action: "TRANSACTION_DELETED",
-    studentId: txn.studentId || null,
-    previousValue: txn,
-    newValue: {
-      deletedBy: user.email || user.uid,
-      reason: reason || "Not specified",
-      deletedAt: new Date().toISOString(),
-    },
-  });
-
-  return { success: true };
-}
+      return snap.exists() ? snap.data() : null
