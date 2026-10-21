@@ -1,5 +1,5 @@
 /* ===========================================================================
-   feeManagement.css - Compact "Zoomed Out" Layout
+   feeManagement.css - Final Complete Version
    =========================================================================== */
 
 :root {
@@ -28,8 +28,7 @@
 body {
   margin: 0;
   background-color: var(--bg-main);
-  /* Shrink the base font size to make everything look zoomed out */
-  font-size: 12px; 
+  font-size: 13px; /* Base size to keep the app compact */
 }
 
 /* ---------------------------------------------------------------------------
@@ -44,10 +43,10 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Sidebar Navigation (Compact)
+   Sidebar Navigation
    --------------------------------------------------------------------------- */
 .fm-sidebar {
-  width: 220px; /* Reduced from 260px */
+  width: 240px;
   background-color: var(--sidebar-bg);
   color: var(--sidebar-text);
   display: flex;
@@ -64,24 +63,24 @@ body {
 }
 
 .fm-sidebar-header {
-  padding: 16px; /* Reduced padding */
+  padding: 20px 16px;
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   border-bottom: 1px solid rgba(255,255,255,0.05);
 }
 
 .fm-sidebar-logo {
-  width: 32px; /* Smaller logo */
-  height: 32px;
-  border-radius: 6px;
+  width: 36px;
+  height: 36px;
+  border-radius: 8px;
   object-fit: cover;
   background: #fff;
   padding: 2px;
 }
 
 .fm-sidebar-title {
-  font-size: 1em;
+  font-size: 1.1em;
   font-weight: 700;
   color: #ffffff;
   margin: 0;
@@ -92,24 +91,24 @@ body {
 .fm-sidebar-nav {
   flex: 1;
   overflow-y: auto;
-  padding: 12px 8px;
+  padding: 16px 12px;
   display: flex;
   flex-direction: column;
-  gap: 2px;
+  gap: 4px;
 }
 
 .fm-nav-btn {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   width: 100%;
-  padding: 10px 12px; /* Tighter padding */
+  padding: 10px 16px;
   border: none;
   background: transparent;
   color: var(--sidebar-text);
   font-size: 13px;
   font-weight: 500;
-  border-radius: 6px;
+  border-radius: 8px;
   cursor: pointer;
   text-align: left;
   transition: all 0.2s ease;
@@ -128,29 +127,30 @@ body {
 }
 
 .fm-sidebar-footer {
-  padding: 16px;
+  padding: 20px 16px;
   border-top: 1px solid rgba(255,255,255,0.05);
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: 12px;
 }
 
 .fm-sidebar-session {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 11px;
+  gap: 6px;
+  font-size: 12px;
   color: var(--sidebar-text);
+  font-weight: 500;
 }
 
 .fm-sidebar-session select {
-  padding: 6px;
-  border-radius: 4px;
+  padding: 8px;
+  border-radius: 6px;
   background: var(--sidebar-hover);
   color: #fff;
   border: 1px solid rgba(255,255,255,0.1);
   outline: none;
-  font-size: 12px;
+  font-size: 13px;
 }
 
 .fm-logout-btn {
@@ -161,7 +161,7 @@ body {
   border-radius: 6px;
   cursor: pointer;
   font-weight: 600;
-  font-size: 12px;
+  font-size: 13px;
   transition: all 0.2s;
 }
 
@@ -183,8 +183,8 @@ body {
 .fm-top-header {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 20px; /* Reduced padding */
+  gap: 16px;
+  padding: 16px 24px;
   background: var(--card-bg);
   border-bottom: 1px solid var(--border-color);
   flex-shrink: 0;
@@ -193,14 +193,15 @@ body {
 .fm-sidebar-toggle {
   background: none;
   border: none;
-  font-size: 20px;
+  font-size: 22px;
   color: var(--sidebar-bg);
   cursor: pointer;
-  padding: 4px;
+  padding: 6px;
   display: flex;
   align-items: center;
   justify-content: center;
-  border-radius: 4px;
+  border-radius: 6px;
+  transition: background 0.2s;
 }
 
 .fm-sidebar-toggle:hover {
@@ -211,15 +212,15 @@ body {
   flex: 1;
   overflow-y: auto;
   overflow-x: hidden;
-  padding: 16px 24px; /* Tighter padding */
+  padding: 24px;
   display: flex;
   flex-direction: column;
-  align-items: center;
+  align-items: center; /* Centers the max-width content */
 }
 
 .fm-content-inner {
   width: 100%;
-  max-width: 1200px; /* Keeps it from stretching too far */
+  max-width: 1100px; /* Prevents it from stretching to 100% width on 50% zoom */
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -230,11 +231,13 @@ body {
    --------------------------------------------------------------------------- */
 .fm-footer {
   width: 100%;
-  max-width: 1200px;
+  max-width: 1100px;
   text-align: center;
-  padding: 16px;
-  font-size: 11px;
+  padding: 24px;
+  font-size: 12px;
   color: var(--text-muted);
+  font-weight: 500;
+  letter-spacing: 0.5px;
   margin-top: auto;
 }
 
@@ -243,18 +246,18 @@ body {
    --------------------------------------------------------------------------- */
 .fm-subtabs {
   display: flex;
-  gap: 6px;
-  margin-bottom: 16px;
-  padding-bottom: 10px;
+  gap: 8px;
+  margin-bottom: 20px;
   border-bottom: 1px solid var(--border-color);
+  padding-bottom: 12px;
 }
 
 .fm-subtab-btn {
   background: transparent;
   border: 1px solid var(--border-color);
-  padding: 6px 12px;
-  border-radius: 16px;
-  font-size: 12px;
+  padding: 8px 16px;
+  border-radius: 20px;
+  font-size: 13px;
   font-weight: 500;
   color: var(--text-muted);
   cursor: pointer;
@@ -268,20 +271,20 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Cards & Layout Grids
+   Cards & Headers
    --------------------------------------------------------------------------- */
 .fm-card {
   background: var(--card-bg);
-  border-radius: 8px;
-  padding: 16px 20px; /* Much tighter */
-  box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+  border-radius: 12px;
+  padding: 24px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   border: 1px solid var(--border-color);
-  margin-bottom: 16px;
+  margin-bottom: 20px;
 }
 
 .fm-card h2 {
-  margin: 0 0 12px;
-  font-size: 1.2em;
+  margin: 0 0 16px;
+  font-size: 1.25em;
   color: var(--text-main);
 }
 
@@ -289,9 +292,9 @@ body {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 12px;
+  margin-bottom: 16px;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 12px;
 }
 
 .fm-row-header h2 {
@@ -299,37 +302,36 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Forms & Inputs (Compact)
+   Forms, Filters & Inputs
    --------------------------------------------------------------------------- */
 .fm-search-row {
   display: flex;
-  gap: 8px;
-  margin-bottom: 12px;
+  gap: 12px;
+  margin-bottom: 16px;
 }
 
 .fm-search-row input {
   flex: 1;
-  padding: 8px 12px;
+  padding: 10px 16px;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 13px;
+  border-radius: 6px;
+  font-size: 14px;
 }
 
 .fm-search-row button {
   background: var(--sidebar-bg);
   color: #fff;
   border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: 10px 24px;
+  border-radius: 6px;
   font-weight: 600;
-  font-size: 13px;
   cursor: pointer;
 }
 
 .fm-filter-row {
   display: flex;
-  gap: 12px;
-  margin: 12px 0 16px 0;
+  gap: 16px;
+  margin: 16px 0 24px 0;
   flex-wrap: wrap;
   align-items: flex-end;
 }
@@ -337,100 +339,143 @@ body {
 .fm-inline-label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
-  font-size: 12px;
+  gap: 6px;
+  font-size: 13px;
   color: var(--text-muted);
   font-weight: 600;
 }
 
 .fm-inline-label input,
 .fm-inline-label select {
-  padding: 6px 10px;
+  padding: 8px 12px;
   border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 13px;
-  min-width: 130px;
+  border-radius: 6px;
+  font-size: 14px;
+  min-width: 150px;
   background: #fff;
 }
 
 .fm-inline-label strong {
   color: var(--danger-red);
-  font-size: 14px;
-}
-
-/* Bill Split Layout */
-.fm-bill-two-col {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 16px;
-  background: #f8fafc;
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  padding: 16px;
-  margin-bottom: 16px;
-}
-
-.fm-bill-table td {
-  padding: 4px 0;
-  font-size: 13px;
-  color: var(--text-main);
+  font-size: 16px;
 }
 
 /* Payment Form Grid */
 .fm-payment-form {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 12px;
-  margin: 12px 0;
-  max-width: 800px; /* Prevents form from getting too wide */
+  gap: 16px;
+  margin: 20px 0;
+  max-width: 900px;
 }
 
 .fm-payment-form label {
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 6px;
   font-size: 12px;
-  color: var(--text-muted);
-  font-weight: 500;
+  color: #475569;
+  font-weight: 600;
 }
 
 .fm-payment-form input,
 .fm-payment-form select,
 .fm-payment-form textarea {
-  padding: 8px 10px;
-  border: 1px solid var(--border-color);
-  border-radius: 4px;
-  font-size: 13px;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 8px;
+  font-size: 14px;
   background: #fff;
+  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
-/* Stats Grid */
+.fm-payment-form input:focus,
+.fm-payment-form select:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.fm-full-width {
+  grid-column: 1 / -1;
+}
+
+/* ---------------------------------------------------------------------------
+   Bill Split Layout (Collect Fee)
+   --------------------------------------------------------------------------- */
+.fm-bill-two-col {
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 24px;
+  background: #f8fafc;
+  border: 1px solid var(--border-color);
+  border-radius: 12px;
+  padding: 20px;
+  margin-bottom: 20px;
+}
+
+.fm-bill-table td {
+  padding: 6px 0;
+  font-size: 13px;
+  color: var(--text-main);
+  border-bottom: none;
+}
+
+.fm-bill-session-line {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 12px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border-color);
+}
+
+/* Premium Stat Boxes */
 .fm-stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 10px;
+  gap: 12px;
 }
 
 .fm-stat-cell {
-  padding: 10px;
-  background: #fff;
-  border-radius: 6px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  gap: 6px;
+  padding: 12px 14px;
+  background: #ffffff;
+  border-radius: 8px;
   border: 1px solid var(--border-color);
+  box-shadow: 0 1px 2px rgba(0,0,0,0.02);
 }
 
 .fm-stat-cell-label {
   font-size: 10px;
   color: var(--text-muted);
   text-transform: uppercase;
-  font-weight: 600;
+  letter-spacing: 0.5px;
+  font-weight: 700;
 }
 
 .fm-stat-cell-value {
-  font-size: 16px;
-  font-weight: 700;
+  font-size: 18px;
+  font-weight: 800;
   color: var(--text-main);
+  line-height: 1.1;
 }
 
+.fm-stat-cell-sub {
+  font-size: 10px;
+  color: #94a3b8;
+  margin-top: 2px;
+}
+
+.fm-stat-cell-balance {
+  background: #fef2f2;
+  border-color: #fecaca;
+}
+.fm-stat-cell-balance .fm-stat-cell-label {
+  color: #b91c1c;
+}
 .fm-stat-cell-balance .fm-stat-cell-value {
   color: var(--danger-red);
 }
@@ -441,7 +486,7 @@ body {
 .fm-table-scroll {
   width: 100%;
   overflow-x: auto;
-  border-radius: 6px;
+  border-radius: 8px;
   border: 1px solid var(--border-color);
 }
 
@@ -452,26 +497,30 @@ body {
 
 .fm-table th {
   text-align: left;
-  padding: 8px 12px;
+  padding: 10px 16px;
   border-bottom: 2px solid var(--border-color);
   color: var(--text-muted);
   font-weight: 600;
-  font-size: 10px;
+  font-size: 11px;
   text-transform: uppercase;
   background: #f8fafc;
   white-space: nowrap;
 }
 
 .fm-table td {
-  padding: 8px 12px;
+  padding: 12px 16px;
   border-bottom: 1px solid var(--border-color);
-  font-size: 12px;
+  font-size: 13px;
   vertical-align: middle;
 }
 
 .fm-table th:nth-child(n+4),
 .fm-table td:nth-child(n+4) {
   text-align: right;
+}
+
+.fm-table tr:hover td {
+  background-color: #f8fafc;
 }
 
 .fm-due-cell {
@@ -481,6 +530,7 @@ body {
 
 .wrap-text {
   white-space: normal !important;
+  word-wrap: break-word;
 }
 
 /* ---------------------------------------------------------------------------
@@ -489,56 +539,64 @@ body {
 .fm-dashboard-container {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
   height: 100%;
 }
 
 .fm-dashboard-stats {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
-  gap: 10px;
+  gap: 12px;
 }
 
 .fm-stat-card {
   background: var(--card-bg);
-  border-radius: 8px;
-  padding: 12px;
+  border-radius: 12px;
+  padding: 16px;
   border: 1px solid var(--border-color);
+  box-shadow: 0 1px 3px rgba(0,0,0,0.02);
 }
 
 .fm-stat-label {
-  margin: 0 0 4px;
-  font-size: 10px;
+  margin: 0 0 6px;
+  font-size: 11px;
   color: var(--text-muted);
   text-transform: uppercase;
   font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .fm-stat-value {
   margin: 0;
-  font-size: 18px;
+  font-size: 20px;
   font-weight: 700;
   color: var(--text-main);
 }
 
+.fm-stat-card.fm-due .fm-stat-value { color: var(--danger-red); }
+.fm-stat-card.fm-advance .fm-stat-value { color: var(--success-green); }
+
 .fm-dashboard-charts {
   display: grid;
   grid-template-columns: repeat(3, 1fr);
-  gap: 12px;
+  gap: 16px;
   flex: 1;
 }
 
 .fm-chart-card {
   display: flex;
   flex-direction: column;
-  padding: 12px;
+  padding: 16px;
   margin-bottom: 0;
 }
 
 .fm-chart-card h3 {
-  margin: 0 0 8px;
-  font-size: 12px;
+  margin: 0 0 12px;
+  font-size: 13px;
   font-weight: 600;
+  color: var(--text-main);
 }
 
 .fm-chart-card .recharts-responsive-container {
@@ -548,17 +606,32 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Buttons
+   Badges & Buttons
    --------------------------------------------------------------------------- */
+.fm-badge {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 20px;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.fm-badge-paid { background: #dcfce7; color: #166534; }
+.fm-badge-partial { background: #fef9c3; color: #854d0e; }
+.fm-badge-due { background: #fee2e2; color: #991b1b; }
+.fm-badge-advance { background: #dbeafe; color: #1e40af; }
+
 .fm-primary-btn {
   background: var(--primary-blue);
   color: #fff;
   border: none;
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: 10px 20px;
+  border-radius: 6px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
+  transition: background 0.2s;
 }
 
 .fm-primary-btn:hover:not(:disabled) {
@@ -569,31 +642,113 @@ body {
   background: #fff;
   color: var(--text-main);
   border: 1px solid var(--border-color);
-  padding: 8px 16px;
-  border-radius: 4px;
+  padding: 10px 20px;
+  border-radius: 6px;
   font-size: 13px;
   font-weight: 500;
   cursor: pointer;
 }
 
+.fm-secondary-btn:hover {
+  background: #f8fafc;
+}
+
 .fm-btn-sm {
-  padding: 4px 8px;
-  border-radius: 4px;
-  font-size: 11px;
+  padding: 6px 12px;
+  border-radius: 6px;
+  font-size: 12px;
   font-weight: 600;
   border: 1px solid var(--border-color);
   background: #fff;
   cursor: pointer;
 }
 
+.fm-btn-sm:hover { background: #f8fafc; }
 .fm-btn-danger { color: var(--danger-red); border-color: #fecaca; }
+.fm-btn-danger:hover { background: #fee2e2; }
 
-/* Responsive */
+.fm-addon-btn {
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border-color);
+  background: #fff;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-main);
+  cursor: pointer;
+}
+
+/* ---------------------------------------------------------------------------
+   Modals & Utilities
+   --------------------------------------------------------------------------- */
+.fm-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+  z-index: 9000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.fm-modal {
+  background: #fff;
+  border-radius: 12px;
+  padding: 24px;
+  max-width: 440px;
+  width: 100%;
+  max-height: 90vh;
+  overflow-y: auto;
+}
+
+.fm-empty-state {
+  padding: 40px 16px;
+  text-align: center;
+  color: var(--text-muted);
+  font-size: 14px;
+}
+
+.fm-hint { color: var(--text-muted); font-size: 12px; margin-bottom: 12px; }
+.fm-error { color: var(--danger-red); font-size: 13px; font-weight: 500; background: #fee2e2; padding: 12px; border-radius: 8px; }
+.fm-success { color: #065f46; font-size: 13px; font-weight: 500; background: #d1fae5; padding: 12px; border-radius: 8px; }
+
+.fm-flash {
+  position: fixed;
+  top: 20px;
+  left: 50%;
+  transform: translateX(-50%);
+  background: var(--success-green);
+  color: #fff;
+  padding: 10px 22px;
+  border-radius: 8px;
+  font-weight: 600;
+  font-size: 13px;
+  z-index: 99999;
+  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.25);
+}
+
+/* ---------------------------------------------------------------------------
+   Responsive Adjustments
+   --------------------------------------------------------------------------- */
 @media (max-width: 1024px) {
   .fm-dashboard-charts { grid-template-columns: 1fr; }
 }
+
 @media (max-width: 768px) {
   .fm-app { flex-direction: column; }
+  .fm-sidebar { width: 100%; height: auto; }
+  .fm-sidebar-nav { flex-direction: row; overflow-x: auto; }
+  .fm-nav-btn { white-space: nowrap; }
   .fm-bill-two-col { grid-template-columns: 1fr; }
   .fm-payment-form { grid-template-columns: 1fr; }
+}
+
+/* ---------------------------------------------------------------------------
+   Print Rules
+   --------------------------------------------------------------------------- */
+@media print {
+  .fm-sidebar, .fm-top-header, .fm-subtabs, .fm-footer, button { display: none !important; }
+  .fm-app, .fm-main-wrapper, .fm-main { overflow: visible !important; height: auto !important; padding: 0 !important; margin: 0 !important; }
+  .fm-content-inner { max-width: 100% !important; }
 }
