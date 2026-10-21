@@ -336,7 +336,6 @@ body {
   align-items: flex-end;
 }
 
-/* Specific style for top-level filter labels */
 .fm-inline-label {
   display: flex;
   flex-direction: column;
@@ -559,7 +558,7 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Tables
+   Tables (Header and Body matched in size)
    --------------------------------------------------------------------------- */
 .fm-table-scroll {
   width: 100%;
@@ -573,9 +572,10 @@ body {
   border-collapse: collapse;
 }
 
+/* Header */
 .fm-table th {
   text-align: left;
-  padding: 10px 16px;
+  padding: 8px 12px;
   border-bottom: 2px solid var(--border-color);
   color: var(--text-muted);
   font-weight: 600;
@@ -585,11 +585,13 @@ body {
   white-space: nowrap;
 }
 
+/* Body - matched to header size */
 .fm-table td {
-  padding: 12px 16px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border-color);
-  font-size: 13px;
+  font-size: 11px;
   vertical-align: middle;
+  color: var(--text-main);
 }
 
 .fm-table th:nth-child(n+4),
