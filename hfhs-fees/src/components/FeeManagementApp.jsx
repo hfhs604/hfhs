@@ -16,7 +16,7 @@ import DueManagement from "./DueManagement";
 import DiscountManager from "./DiscountManager";
 import Reports from "./Reports";
 import AuditLogViewer from "./AuditLogViewer";
-import Settings from "./Settings";
+import Settings from "./Settings"; // <--- Imported here
 import StudentPortal from "./StudentPortal";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import RelatedStudentsLookup from "./RelatedStudentsLookup";
@@ -24,7 +24,6 @@ import AdvancesList from "./AdvancesList";
 import schoolLogo from "../assets/school-logo.jpg";
 import "../styles/feeManagement.css";
 
-// MINIMIZED NAVIGATION (6 main tabs)
 const NAV_SECTIONS = [
   { key: "dashboard", label: "Dashboard", roles: ["superAdmin", "admin", "accountant"] },
   { key: "students", label: "Students", roles: ["superAdmin", "admin", "accountant"] },
@@ -61,10 +60,9 @@ export default function FeeManagementApp({ onLogout }) {
   const [sessions, setSessions] = useState([]);
   const [activeTab, setActiveTab] = useState("dashboard");
   
-  // Sub-tab states
-  const [collectTab, setCollectTab] = useState("single"); // single | batch
-  const [duesTab, setDuesTab] = useState("due"); // due | advance
-  const [settingsTab, setSettingsTab] = useState("sessions"); // sessions | structure
+  const [collectTab, setCollectTab] = useState("single");
+  const [duesTab, setDuesTab] = useState("due");
+  const [settingsTab, setSettingsTab] = useState("sessions");
 
   const [selectedStudentId, setSelectedStudentId] = useState(null);
   const [lastReceipt, setLastReceipt] = useState(null);
@@ -74,7 +72,6 @@ export default function FeeManagementApp({ onLogout }) {
   const [error, setError] = useState(null);
   const [newSessionLabel, setNewSessionLabel] = useState("");
   
-  // Sidebar toggle state
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
 
   useEffect(() => {
@@ -142,7 +139,6 @@ export default function FeeManagementApp({ onLogout }) {
     return <div style={{ padding: 60, textAlign: "center", color: "#64748b" }}>Loading Fee Management…</div>;
   }
 
-  // ----- STUDENT PORTAL -----
   if (role === "student") {
     return (
       <div className="fm-app">
@@ -164,7 +160,6 @@ export default function FeeManagementApp({ onLogout }) {
     );
   }
 
-  // ----- ADMIN NAVIGATION -----
   const visibleTabs = NAV_SECTIONS.filter((s) => s.roles.includes(role));
   const currentMonth = new Date().toISOString().slice(0, 7);
 
@@ -184,7 +179,6 @@ export default function FeeManagementApp({ onLogout }) {
   return (
     <div className="fm-app">
       
-      {/* SIDEBAR */}
       <aside className={`fm-sidebar ${isSidebarOpen ? "" : "closed"}`}>
         <div className="fm-sidebar-header">
           <img src={schoolLogo} alt="Logo" className="fm-sidebar-logo" />
@@ -220,10 +214,7 @@ export default function FeeManagementApp({ onLogout }) {
         </div>
       </aside>
 
-      {/* MAIN CONTENT */}
       <div className="fm-main-wrapper">
-        
-        {/* TOP HEADER WITH TOGGLE BUTTON */}
         <header className="fm-top-header">
           <button 
             className="fm-sidebar-toggle" 
@@ -240,10 +231,8 @@ export default function FeeManagementApp({ onLogout }) {
         <main className="fm-main">
           <div className="fm-content-inner">
             
-            {/* 1. DASHBOARD */}
             {activeTab === "dashboard" && <FeeDashboard session={session} />}
 
-            {/* 2. STUDENTS */}
             {activeTab === "students" && (
               <StudentDirectory
                 session={session}
@@ -255,7 +244,6 @@ export default function FeeManagementApp({ onLogout }) {
               />
             )}
 
-            {/* 3. FEE COLLECTION (Single & Batch) */}
             {activeTab === "collect" && (
               <div>
                 <div className="fm-subtabs">
@@ -301,7 +289,6 @@ export default function FeeManagementApp({ onLogout }) {
               </div>
             )}
 
-            {/* 4. DUES & ADVANCES */}
             {activeTab === "dues" && (
               <div>
                 <div className="fm-subtabs">
@@ -324,15 +311,12 @@ export default function FeeManagementApp({ onLogout }) {
               </div>
             )}
 
-            {/* 5. REPORTS (Includes transactions, discounts, etc.) */}
             {activeTab === "reports" && (
               <div>
-                {/* Note: You can add the Family Lookup here if needed, or inside the Reports component */}
                 <Reports session={session} />
               </div>
             )}
 
-            {/* 6. SETTINGS (Sessions, Audit, & Fee Structure) */}
             {activeTab === "settings" && (
               <div>
                 <div className="fm-subtabs">
@@ -351,25 +335,34 @@ export default function FeeManagementApp({ onLogout }) {
                 </div>
 
                 {settingsTab === "sessions" && (
-                  <div className="fm-card">
-                    <h2>Settings — Academic Sessions</h2>
-                    <div className="fm-search-row">
-                      <input
-                        placeholder="e.g. 2027-28"
-                        value={newSessionLabel}
-                        onChange={(e) => setNewSessionLabel(e.target.value)}
-                      />
-                      <button className="fm-primary-btn" onClick={handleCreateSession}>
-                        Create Session
-                      </button>
+                  <div>
+                    {/* THE MISSING MONTHLY BILLING BUTTON IS HERE */}
+                    <Settings session={session} />
+
+                    <div className="fm-card" style={{ marginTop: 20 }}>
+                      <h2>Academic Sessions</h2>
+                      <div className="fm-search-row">
+                        <input
+                          placeholder="e.g. 2027-28"
+                          value={newSessionLabel}
+                          onChange={(e) => setNewSessionLabel(e.target.value)}
+                        />
+                        <button className="fm-primary-btn" onClick={handleCreateSession}>
+                          Create Session
+                        </button>
+                      </div>
+                      <ul className="fm-result-list" style={{ paddingLeft: 0, listStyle: "none" }}>
+                        {sessions.map((s) => (
+                          <li key={s.label} style={{ padding: "8px 0", borderBottom: "1px solid #eee" }}>
+                            {s.label} {s.isActive ? <span style={{color: "#16a34a", fontWeight: 600}}>(active)</span> : ""}
+                          </li>
+                        ))}
+                      </ul>
                     </div>
-                    <ul className="fm-result-list">
-                      {sessions.map((s) => (
-                        <li key={s.label}>{s.label} {s.isActive ? "(active)" : ""}</li>
-                      ))}
-                    </ul>
-                    <hr style={{ margin: "24px 0", border: "none", borderTop: "1px solid #e2e8f0" }} />
-                    <AuditLogViewer />
+
+                    <div style={{ marginTop: 20 }}>
+                      <AuditLogViewer />
+                    </div>
                   </div>
                 )}
                 {settingsTab === "structure" && <FeeStructureConfig session={session} />}
@@ -378,7 +371,6 @@ export default function FeeManagementApp({ onLogout }) {
 
           </div>
           
-          {/* FOOTER */}
           <footer className="fm-footer">
             All rights reserved © Holy Faith High School
           </footer>
