@@ -922,4 +922,314 @@ export async function getUserRoleOnce(uid, retries = 3, delayMs = 700) {
   for (let attempt = 0; attempt < retries; attempt++) {
     try {
       const snap = await getDoc(ref);
-      return snap.exists() ? snap.data() : null
+      return snap.exists() ? snap.data() : null;
+    } catch (err) {
+      const isOffline = err?.code === "unavailable" || err?.message?.includes("client is offline");
+      if (!isOffline || attempt === retries - 1) throw err;
+      await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
+    }
+  }
+}
+export const getUserRole = getUserRoleOnce;
+
+// ---------------------------------------------------------------------------
+// Admission number auto-increment
+// ---------------------------------------------------------------------------
+export async function peekNextAdmissionNumber() {
+  try {
+    const counterRef = doc(db, COL.counters, "admissionNumber");
+    const snap = await getDoc(counterRef);
+    const current = snap.exists() ? snap.data().value : 0;
+    return current + 1;
+  } catch (err) {
+    console.warn("peekNextAdmissionNumber failed:", err.message);
+    return 1;
+  }
+}
+
+export async function reserveAdmissionNumber() {
+  const counterRef = doc(db, COL.counters, "admissionNumber");
+  const next = await runTransaction(db, async (tx) => {
+    const snap = await tx.get(counterRef);
+    const current = snap.exists() ? snap.data().value : 0;
+    const value = current + 1;
+    tx.set(counterRef, { value }, { merge: true });
+    return value;
+  });
+  return String(next);
+}
+
+// ---------------------------------------------------------------------------
+// Full student update
+// ---------------------------------------------------------------------------
+export async function updateStudentFull(studentId, updates) {
+  const user = currentUser();
+
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  const role = userDoc.exists() ? userDoc.data().role : null;
+  if (!["superAdmin", "admin", "accountant"].includes(role)) {
+    throw new Error("You don't have permission to edit students.");
+  }
+
+  const ref = doc(db, COL.students, studentId);
+  const before = await getDoc(ref);
+  if (!before.exists()) throw new Error("Student not found.");
+
+  await updateDoc(ref, {
+    ...updates,
+    updatedBy: user.uid,
+    updatedAt: serverTimestamp(),
+  });
+
+  await writeAuditLog({
+    action: "STUDENT_UPDATED",
+    studentId,
+    previousValue: before.data(),
+    newValue: updates,
+  });
+
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+// Delete student + all related data
+// ---------------------------------------------------------------------------
+export async function deleteStudentCompletely(studentId, studentName) {
+  const user = currentUser();
+
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  if (!userDoc.exists() || userDoc.data().role !== "superAdmin") {
+    throw new Error("Only a Super Admin can delete a student.");
+  }
+
+  const studentRef = doc(db, COL.students, studentId);
+  const studentSnap = await getDoc(studentRef);
+  if (!studentSnap.exists()) throw new Error("Student not found.");
+
+  const student = studentSnap.data();
+  const summary = {
+    studentId,
+    name: student.name || studentName || "Unknown",
+    admissionNumber: student.admissionNumber || null,
+    billsDeleted: 0,
+    transactionsDeleted: 0,
+    receiptsDeleted: 0,
+    discountsDeleted: 0,
+  };
+
+  try {
+    const { deleteStudentPhoto } = await import("./photoService");
+    await deleteStudentPhoto(studentId);
+  } catch (err) {
+    console.warn("Could not delete student images:", err.message);
+  }
+
+  await deleteDoc(studentRef);
+
+  try {
+    const billsSnap = await getDocs(
+      query(collection(db, COL.monthlyBills), where("studentId", "==", studentId))
+    );
+    for (const d of billsSnap.docs) {
+      await deleteDoc(doc(db, COL.monthlyBills, d.id));
+      summary.billsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete bills:", err.message);
+  }
+
+  try {
+    const txnsSnap = await getDocs(
+      query(collection(db, COL.transactions), where("studentId", "==", studentId))
+    );
+    for (const d of txnsSnap.docs) {
+      await deleteDoc(doc(db, COL.transactions, d.id));
+      summary.transactionsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete transactions:", err.message);
+  }
+
+  try {
+    const receiptsSnap = await getDocs(
+      query(collection(db, COL.receipts), where("studentId", "==", studentId))
+    );
+    for (const d of receiptsSnap.docs) {
+      await deleteDoc(doc(db, COL.receipts, d.id));
+      summary.receiptsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete receipts:", err.message);
+  }
+
+  try {
+    const discountsSnap = await getDocs(
+      query(collection(db, COL.discounts), where("studentId", "==", studentId))
+    );
+    for (const d of discountsSnap.docs) {
+      await deleteDoc(doc(db, COL.discounts, d.id));
+      summary.discountsDeleted++;
+    }
+  } catch (err) {
+    console.warn("Could not delete discounts:", err.message);
+  }
+
+  await writeAuditLog({
+    action: "STUDENT_DELETED",
+    studentId,
+    previousValue: {
+      name: student.name,
+      admissionNumber: student.admissionNumber,
+      className: student.className,
+      session: student.session,
+    },
+    newValue: {
+      deletedBy: user.email || user.uid,
+      deletedAt: new Date().toISOString(),
+      summary,
+    },
+  });
+
+  return summary;
+}
+
+// ---------------------------------------------------------------------------
+// Transport fee management (student-level default)
+// ---------------------------------------------------------------------------
+export async function setStudentTransport(studentId, amount) {
+  const user = currentUser();
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  const role = userDoc.exists() ? userDoc.data().role : null;
+  if (role !== "superAdmin") {
+    throw new Error("Only a Super Admin can change transport settings.");
+  }
+
+  const amt = Number(amount);
+  if (amt !== 0 && (amt < 800 || amt > 1500)) {
+    throw new Error("Transport must be 0 (off) or between ₹800 and ₹1500.");
+  }
+
+  const studentRef = doc(db, COL.students, studentId);
+  const before = await getDoc(studentRef);
+  if (!before.exists()) throw new Error("Student not found.");
+
+  await updateDoc(studentRef, {
+    transportOpted: amt > 0,
+    transportAmount: amt,
+  });
+
+  const month = monthKey();
+  const session = before.data().session;
+  if (session) {
+    const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+    const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId}`);
+    const billSnap = await getDoc(billRef);
+    if (billSnap.exists()) {
+      const bill = billSnap.data();
+      const oldTransport = bill.transportBilled || 0;
+      if ((bill.totalPaid || 0) === 0) {
+        const newTotalDue = (bill.totalDue || 0) - oldTransport + amt;
+        const newCarry = newTotalDue - (bill.totalPaid || 0);
+        await updateDoc(billRef, {
+          transportBilled: amt,
+          totalDue: newTotalDue,
+          carriedForward: newCarry,
+        });
+      }
+    }
+  }
+
+  await writeAuditLog({
+    action: "TRANSPORT_UPDATED",
+    studentId,
+    previousValue: {
+      transportOpted: before.data().transportOpted,
+      transportAmount: before.data().transportAmount,
+    },
+    newValue: { transportOpted: amt > 0, transportAmount: amt },
+  });
+
+  return { transportOpted: amt > 0, transportAmount: amt };
+}
+
+// ---------------------------------------------------------------------------
+// Delete a single transaction (super admin only) — handles charges AND payments
+// ---------------------------------------------------------------------------
+export async function deleteTransaction(transactionId, reason = "") {
+  const user = currentUser();
+
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  if (!userDoc.exists() || userDoc.data().role !== "superAdmin") {
+    throw new Error("Only a Super Admin can delete a transaction.");
+  }
+
+  const txnRef = doc(db, COL.transactions, transactionId);
+  const txnSnap = await getDoc(txnRef);
+  if (!txnSnap.exists()) throw new Error("Transaction not found.");
+
+  const txn = txnSnap.data();
+  const isCharge = txn.isCharge === true;
+  const amt = isCharge
+    ? Number(txn.chargedAmount || 0)
+    : Number(txn.netAmount || 0);
+
+  if (txn.studentId && txn.session && txn.month) {
+    const safeId = String(txn.studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+    const billRef = doc(db, COL.monthlyBills, `${txn.session}_${txn.month}_${safeId}`);
+    const billSnap = await getDoc(billRef);
+    if (billSnap.exists()) {
+      const bill = billSnap.data();
+
+      if (isCharge) {
+        const fieldMap = {
+          books: "booksBilled",
+          kit: "kitFeeBilled",
+          previousYear: "previousYearBilled",
+          transport: "transportBilled",
+        };
+        const field = fieldMap[txn.componentType];
+        const updates = {};
+        if (field) {
+          updates[field] = Math.max((bill[field] || 0) - amt, 0);
+        }
+        const newDue = Math.max((bill.totalDue || 0) - amt, 0);
+        const newPaid = bill.totalPaid || 0;
+        updates.totalDue = newDue;
+        updates.carriedForward = newDue - newPaid;
+        updates.status = updates.carriedForward <= 0 ? "PAID" : (newPaid > 0 ? "PARTIAL" : "DUE");
+        await updateDoc(billRef, updates);
+      } else {
+        const newPaid = Math.max((bill.totalPaid || 0) - amt, 0);
+        const newCarry = (bill.totalDue || 0) - newPaid;
+        await updateDoc(billRef, {
+          totalPaid: newPaid,
+          carriedForward: newCarry,
+          status: newCarry <= 0 ? "PAID" : (newPaid > 0 ? "PARTIAL" : "DUE"),
+        });
+      }
+    }
+  }
+
+  await deleteDoc(txnRef);
+
+  if (txn.receiptRef) {
+    try {
+      await deleteDoc(doc(db, COL.receipts, txn.receiptRef));
+    } catch (err) {
+      console.warn("Could not delete receipt:", err.message);
+    }
+  }
+
+  await writeAuditLog({
+    action: isCharge ? "CHARGE_DELETED" : "TRANSACTION_DELETED",
+    studentId: txn.studentId || null,
+    previousValue: txn,
+    newValue: {
+      deletedBy: user.email || user.uid,
+      reason: reason || "Not specified",
+      deletedAt: new Date().toISOString(),
+    },
+  });
+
+  return { success: true };
+}
