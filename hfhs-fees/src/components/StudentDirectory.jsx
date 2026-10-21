@@ -1,12 +1,7 @@
 import React, { useEffect, useState } from "react";
 import {
-  createStudent,
-  searchStudents,
-  peekNextAdmissionNumber,
-  reserveAdmissionNumber,
-  updateStudentProfile,
-  deleteStudentCompletely,
-  updateStudentFull,
+  createStudent, searchStudents, peekNextAdmissionNumber, reserveAdmissionNumber,
+  updateStudentProfile, deleteStudentCompletely, updateStudentFull,
 } from "../firebase/feeService";
 import { getAllStudents } from "../firebase/reportsService";
 import { uploadStudentImage } from "../firebase/photoService";
@@ -16,33 +11,23 @@ import CameraCapture from "./CameraCapture";
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
 
-const CLASS_OPTIONS = [
-  "Pre-LKG", "NUR", "LKG", "UKG",
-  "I", "II", "III", "IV", "V",
-  "VI", "VII", "VIII", "IX", "X",
-];
+const CLASS_OPTIONS = ["Pre-LKG", "NUR", "LKG", "UKG", "I", "II", "III", "IV", "V", "VI", "VII", "VIII", "IX", "X"];
 
 const emptyForm = {
   admissionNumber: "", rollNumber: "", name: "", className: "", section: "",
   dateOfAdmission: "", dateOfBirth: "", gender: "", bloodGroup: "", penNumber: "",
-  fatherName: "", motherName: "", guardianName: "",
-  fatherOccupation: "", motherOccupation: "",
-  fatherMobile: "", motherMobile: "", mobileNumber: "",
-  addressPresent: "", addressPermanent: "",
-  aadhaarStudent: "", aadhaarFather: "", aadhaarMother: "",
-  nationality: "Indian", category: "", religion: "", lastInstitution: "",
-  docAadhaarStudent: false, docAadhaarFather: false, docAadhaarMother: false,
-  docPhoto: false, docTransferCertificate: false, docBirthCertificate: false,
-  remarks: "",
-  transportOpted: false,
-  transportAmount: 0,
+  fatherName: "", motherName: "", guardianName: "", fatherOccupation: "", motherOccupation: "",
+  fatherMobile: "", motherMobile: "", mobileNumber: "", addressPresent: "", addressPermanent: "",
+  aadhaarStudent: "", aadhaarFather: "", aadhaarMother: "", nationality: "Indian", category: "", religion: "", lastInstitution: "",
+  docAadhaarStudent: false, docAadhaarFather: false, docAadhaarMother: false, docPhoto: false, docTransferCertificate: false, docBirthCertificate: false,
+  remarks: "", transportOpted: false, transportAmount: 0,
 };
 
 const IMAGE_SLOTS = [
-  { slot: "photo",           field: "photoUrl",                label: "Student Photo",     camera: true },
-  { slot: "aadhaar-student", field: "aadhaarStudentPhotoUrl",  label: "Aadhaar — Student", camera: true },
-  { slot: "aadhaar-father",  field: "aadhaarFatherPhotoUrl",   label: "Aadhaar — Father",  camera: true },
-  { slot: "aadhaar-mother",  field: "aadhaarMotherPhotoUrl",   label: "Aadhaar — Mother",  camera: true },
+  { slot: "photo", field: "photoUrl", label: "Student Photo", camera: true },
+  { slot: "aadhaar-student", field: "aadhaarStudentPhotoUrl", label: "Aadhaar — Student", camera: true },
+  { slot: "aadhaar-father", field: "aadhaarFatherPhotoUrl", label: "Aadhaar — Father", camera: true },
+  { slot: "aadhaar-mother", field: "aadhaarMotherPhotoUrl", label: "Aadhaar — Mother", camera: true },
 ];
 
 const EDIT_ROLES = ["superAdmin", "admin", "accountant"];
@@ -72,71 +57,34 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
   const [editError, setEditError] = useState(null);
   const [editCameraSlot, setEditCameraSlot] = useState(null);
 
-  const [images, setImages] = useState({
-    photo: { file: null, preview: null },
-    "aadhaar-student": { file: null, preview: null },
-    "aadhaar-father": { file: null, preview: null },
-    "aadhaar-mother": { file: null, preview: null },
-  });
-
-  const [editImages, setEditImages] = useState({
-    photo: { file: null, preview: null },
-    "aadhaar-student": { file: null, preview: null },
-    "aadhaar-father": { file: null, preview: null },
-    "aadhaar-mother": { file: null, preview: null },
-  });
+  const [images, setImages] = useState({ photo: { file: null, preview: null }, "aadhaar-student": { file: null, preview: null }, "aadhaar-father": { file: null, preview: null }, "aadhaar-mother": { file: null, preview: null } });
+  const [editImages, setEditImages] = useState({ photo: { file: null, preview: null }, "aadhaar-student": { file: null, preview: null }, "aadhaar-father": { file: null, preview: null }, "aadhaar-mother": { file: null, preview: null } });
 
   const canEdit = EDIT_ROLES.includes(role);
   const canDelete = DELETE_ROLES.includes(role);
 
   async function loadStudents() {
     setLoading(true);
-    try {
-      const list = await getAllStudents({ session });
-      setStudents(list);
-    } catch (e) {
-      setError(e.message);
-    } finally {
-      setLoading(false);
-    }
+    try { setStudents(await getAllStudents({ session })); } catch (e) { setError(e.message); } finally { setLoading(false); }
   }
 
-  useEffect(() => {
-    loadStudents();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session]);
+  useEffect(() => { loadStudents(); /* eslint-disable-next-line react-hooks/exhaustive-deps */ }, [session]);
 
   useEffect(() => {
     if (!showForm) return;
     (async () => {
-      try {
-        const next = await peekNextAdmissionNumber();
-        setForm((f) =>
-          f.admissionNumber ? f : { ...f, admissionNumber: String(next) }
-        );
-      } catch (e) {}
+      try { const next = await peekNextAdmissionNumber(); setForm((f) => f.admissionNumber ? f : { ...f, admissionNumber: String(next) }); } catch (e) {}
     })();
   }, [showForm]);
 
-  useEffect(() => {
-    if (!sameAsPresent) return;
-    setForm((f) => ({ ...f, addressPermanent: f.addressPresent }));
-  }, [sameAsPresent, form.addressPresent]);
-
-  useEffect(() => {
-    if (!editSameAsPresent) return;
-    setEditForm((f) => ({ ...f, addressPermanent: f.addressPresent }));
-  }, [editSameAsPresent, editForm.addressPresent]);
+  useEffect(() => { if (sameAsPresent) setForm((f) => ({ ...f, addressPermanent: f.addressPresent })); }, [sameAsPresent, form.addressPresent]);
+  useEffect(() => { if (editSameAsPresent) setEditForm((f) => ({ ...f, addressPermanent: f.addressPresent })); }, [editSameAsPresent, editForm.addressPresent]);
 
   async function handleSearch(e) {
     e.preventDefault();
     if (!searchTerm.trim()) return loadStudents();
     setLoading(true);
-    try {
-      setStudents(await searchStudents(searchTerm.trim()));
-    } finally {
-      setLoading(false);
-    }
+    try { setStudents(await searchStudents(searchTerm.trim())); } finally { setLoading(false); }
   }
 
   function update(field, value) { setForm((f) => ({ ...f, [field]: value })); }
@@ -146,31 +94,20 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
     if (!file) return;
     const reader = new FileReader();
     reader.onload = (ev) => {
-      if (mode === "edit") {
-        setEditImages((prev) => ({ ...prev, [slot]: { file, preview: ev.target.result } }));
-      } else {
-        setImages((prev) => ({ ...prev, [slot]: { file, preview: ev.target.result } }));
-      }
+      if (mode === "edit") setEditImages((prev) => ({ ...prev, [slot]: { file, preview: ev.target.result } }));
+      else setImages((prev) => ({ ...prev, [slot]: { file, preview: ev.target.result } }));
     };
     reader.readAsDataURL(file);
   }
 
   function resetForm() {
-    setForm(emptyForm);
-    setSameAsPresent(false);
-    setImages({
-      photo: { file: null, preview: null },
-      "aadhaar-student": { file: null, preview: null },
-      "aadhaar-father": { file: null, preview: null },
-      "aadhaar-mother": { file: null, preview: null },
-    });
+    setForm(emptyForm); setSameAsPresent(false);
+    setImages({ photo: { file: null, preview: null }, "aadhaar-student": { file: null, preview: null }, "aadhaar-father": { file: null, preview: null }, "aadhaar-mother": { file: null, preview: null } });
   }
 
   function openEdit(student) {
     if (!canEdit) return;
-    setEditStudent(student);
-    setEditError(null);
-
+    setEditStudent(student); setEditError(null);
     const populated = {};
     Object.keys(emptyForm).forEach((k) => {
       const v = student[k];
@@ -178,7 +115,6 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
       else if (Array.isArray(v)) populated[k] = v;
       else populated[k] = v ?? "";
     });
-
     populated.transportOpted = student.transportOpted || false;
     populated.transportAmount = student.transportAmount || 0;
 
@@ -190,21 +126,13 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
       populated.docTransferCertificate = student.documentsSubmitted.includes("Transfer Certificate");
       populated.docBirthCertificate = student.documentsSubmitted.includes("Birth Certificate");
     }
-
     setEditForm(populated);
     setEditSameAsPresent(!!student.addressPresent && student.addressPresent === student.addressPermanent);
-    setEditImages({
-      photo: { file: null, preview: student.photoUrl || null },
-      "aadhaar-student": { file: null, preview: student.aadhaarStudentPhotoUrl || null },
-      "aadhaar-father": { file: null, preview: student.aadhaarFatherPhotoUrl || null },
-      "aadhaar-mother": { file: null, preview: student.aadhaarMotherPhotoUrl || null },
-    });
+    setEditImages({ photo: { file: null, preview: student.photoUrl || null }, "aadhaar-student": { file: null, preview: student.aadhaarStudentPhotoUrl || null }, "aadhaar-father": { file: null, preview: student.aadhaarFatherPhotoUrl || null }, "aadhaar-mother": { file: null, preview: student.aadhaarMotherPhotoUrl || null } });
   }
 
   function closeEdit() {
-    setEditStudent(null);
-    setEditForm(emptyForm);
-    setEditSameAsPresent(false);
+    setEditStudent(null); setEditForm(emptyForm); setEditSameAsPresent(false);
     setEditImages({ photo: { file: null, preview: null }, "aadhaar-student": { file: null, preview: null }, "aadhaar-father": { file: null, preview: null }, "aadhaar-mother": { file: null, preview: null } });
   }
 
@@ -214,9 +142,7 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
       const amt = Number(editForm.transportAmount);
       if (amt < 800 || amt > 1500) { setEditError("Transport fee must be between ₹800 and ₹1500."); return; }
     }
-
-    setEditSaving(true);
-    setEditError(null);
+    setEditSaving(true); setEditError(null);
     try {
       const documentsSubmitted = [];
       if (editForm.docAadhaarStudent) documentsSubmitted.push("Aadhaar - Student");
@@ -227,24 +153,18 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
       if (editForm.docBirthCertificate) documentsSubmitted.push("Birth Certificate");
 
       const updates = {
-        admissionNumber: editForm.admissionNumber.trim(),
-        rollNumber: editForm.rollNumber ? Number(editForm.rollNumber) : null,
+        admissionNumber: editForm.admissionNumber.trim(), rollNumber: editForm.rollNumber ? Number(editForm.rollNumber) : null,
         name: editForm.name.trim(), className: editForm.className, section: editForm.section.trim(),
         dateOfAdmission: editForm.dateOfAdmission || null, dateOfBirth: editForm.dateOfBirth || null,
         gender: editForm.gender || null, bloodGroup: editForm.bloodGroup.trim() || null, penNumber: editForm.penNumber.trim() || null,
-        fatherName: editForm.fatherName.trim(), motherName: editForm.motherName.trim(),
-        guardianName: editForm.guardianName.trim() || editForm.fatherName.trim(),
+        fatherName: editForm.fatherName.trim(), motherName: editForm.motherName.trim(), guardianName: editForm.guardianName.trim() || editForm.fatherName.trim(),
         fatherOccupation: editForm.fatherOccupation.trim() || null, motherOccupation: editForm.motherOccupation.trim() || null,
-        fatherMobile: editForm.fatherMobile.trim() || null, motherMobile: editForm.motherMobile.trim() || null,
-        mobileNumber: editForm.mobileNumber.trim() || editForm.fatherMobile.trim() || "",
+        fatherMobile: editForm.fatherMobile.trim() || null, motherMobile: editForm.motherMobile.trim() || null, mobileNumber: editForm.mobileNumber.trim() || editForm.fatherMobile.trim() || "",
         addressPresent: editForm.addressPresent.trim() || null, addressPermanent: editForm.addressPermanent.trim() || null,
         aadhaarStudent: editForm.aadhaarStudent.trim() || null, aadhaarFather: editForm.aadhaarFather.trim() || null, aadhaarMother: editForm.aadhaarMother.trim() || null,
-        nationality: editForm.nationality.trim() || "Indian", category: editForm.category || null,
-        religion: editForm.religion.trim() || null, lastInstitution: editForm.lastInstitution.trim() || null,
-        docAadhaarStudent: editForm.docAadhaarStudent, docAadhaarFather: editForm.docAadhaarFather, docAadhaarMother: editForm.docAadhaarMother,
-        docPhoto: editForm.docPhoto, docTransferCertificate: editForm.docTransferCertificate, docBirthCertificate: editForm.docBirthCertificate,
-        documentsSubmitted, remarks: editForm.remarks.trim() || null,
-        transportOpted: editForm.transportOpted || false, transportAmount: editForm.transportOpted ? Number(editForm.transportAmount) : 0,
+        nationality: editForm.nationality.trim() || "Indian", category: editForm.category || null, religion: editForm.religion.trim() || null, lastInstitution: editForm.lastInstitution.trim() || null,
+        docAadhaarStudent: editForm.docAadhaarStudent, docAadhaarFather: editForm.docAadhaarFather, docAadhaarMother: editForm.docAadhaarMother, docPhoto: editForm.docPhoto, docTransferCertificate: editForm.docTransferCertificate, docBirthCertificate: editForm.docBirthCertificate,
+        documentsSubmitted, remarks: editForm.remarks.trim() || null, transportOpted: editForm.transportOpted || false, transportAmount: editForm.transportOpted ? Number(editForm.transportAmount) : 0,
       };
 
       const uploadErrors = [];
@@ -253,19 +173,10 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
         if (!f) continue;
         try { const url = await uploadStudentImage(editStudent.id, slot, f); updates[field] = url; } catch (err) { uploadErrors.push(`${label}: ${err.message}`); }
       }
-
       await updateStudentFull(editStudent.id, updates);
-      let msg = `Student "${updates.name}" updated.`;
-      if (uploadErrors.length) msg += ` Some images failed.`;
-      setSuccess(msg);
-      closeEdit();
-      await loadStudents();
-      setTimeout(() => setSuccess(""), 8000);
-    } catch (err) {
-      setEditError(err.message || "Could not update student.");
-    } finally {
-      setEditSaving(false);
-    }
+      let msg = `Student "${updates.name}" updated.`; if (uploadErrors.length) msg += ` Some images failed.`;
+      setSuccess(msg); closeEdit(); await loadStudents(); setTimeout(() => setSuccess(""), 8000);
+    } catch (err) { setEditError(err.message || "Could not update student."); } finally { setEditSaving(false); }
   }
 
   function handleSubmit(e) {
@@ -279,16 +190,13 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
   }
 
   async function confirmCreate() {
-    setShowConfirm(false);
-    setSaving(true);
-    setError(null);
-    setSuccess("");
+    setShowConfirm(false); setSaving(true); setError(null); setSuccess("");
     try {
       let admissionNumber = form.admissionNumber.trim();
       const suggested = await peekNextAdmissionNumber();
-      if (!admissionNumber || admissionNumber === String(suggested)) { admissionNumber = await reserveAdmissionNumber(); }
-
+      if (!admissionNumber || admissionNumber === String(suggested)) admissionNumber = await reserveAdmissionNumber();
       const guardianName = form.guardianName.trim() || form.fatherName.trim();
+      
       const documentsSubmitted = [];
       if (form.docAadhaarStudent) documentsSubmitted.push("Aadhaar - Student");
       if (form.docAadhaarFather) documentsSubmitted.push("Aadhaar - Father");
@@ -298,19 +206,15 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
       if (form.docBirthCertificate) documentsSubmitted.push("Birth Certificate");
 
       const studentId = await createStudent({
-        admissionNumber, rollNumber: form.rollNumber ? Number(form.rollNumber) : null,
-        name: form.name.trim(), className: form.className, section: form.section.trim(),
-        dateOfAdmission: form.dateOfAdmission || null, dateOfBirth: form.dateOfBirth || null,
-        gender: form.gender || null, bloodGroup: form.bloodGroup.trim() || null, penNumber: form.penNumber.trim() || null,
+        admissionNumber, rollNumber: form.rollNumber ? Number(form.rollNumber) : null, name: form.name.trim(), className: form.className, section: form.section.trim(),
+        dateOfAdmission: form.dateOfAdmission || null, dateOfBirth: form.dateOfBirth || null, gender: form.gender || null, bloodGroup: form.bloodGroup.trim() || null, penNumber: form.penNumber.trim() || null,
         fatherName: form.fatherName.trim(), motherName: form.motherName.trim(), guardianName,
         fatherOccupation: form.fatherOccupation.trim() || null, motherOccupation: form.motherOccupation.trim() || null,
-        fatherMobile: form.fatherMobile.trim() || null, motherMobile: form.motherMobile.trim() || null,
-        mobileNumber: form.mobileNumber.trim() || form.fatherMobile.trim() || "",
+        fatherMobile: form.fatherMobile.trim() || null, motherMobile: form.motherMobile.trim() || null, mobileNumber: form.mobileNumber.trim() || form.fatherMobile.trim() || "",
         addressPresent: form.addressPresent.trim() || null, addressPermanent: form.addressPermanent.trim() || null,
         aadhaarStudent: form.aadhaarStudent.trim() || null, aadhaarFather: form.aadhaarFather.trim() || null, aadhaarMother: form.aadhaarMother.trim() || null,
         nationality: form.nationality.trim() || "Indian", category: form.category || null, religion: form.religion.trim() || null, lastInstitution: form.lastInstitution.trim() || null,
-        docAadhaarStudent: form.docAadhaarStudent, docAadhaarFather: form.docAadhaarFather, docAadhaarMother: form.docAadhaarMother,
-        docPhoto: form.docPhoto, docTransferCertificate: form.docTransferCertificate, docBirthCertificate: form.docBirthCertificate,
+        docAadhaarStudent: form.docAadhaarStudent, docAadhaarFather: form.docAadhaarFather, docAadhaarMother: form.docAadhaarMother, docPhoto: form.docPhoto, docTransferCertificate: form.docTransferCertificate, docBirthCertificate: form.docBirthCertificate,
         documentsSubmitted, photoUrl: null, aadhaarStudentPhotoUrl: null, aadhaarFatherPhotoUrl: null, aadhaarMotherPhotoUrl: null,
         remarks: form.remarks.trim() || null, session, transportOpted: form.transportOpted || false, transportAmount: form.transportOpted ? Number(form.transportAmount) : 0,
       });
@@ -322,42 +226,23 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
         try { const url = await uploadStudentImage(studentId, slot, f); await updateStudentProfile(studentId, { [field]: url }); } catch (err) { uploadErrors.push(`${label}: ${err.message}`); }
       }
 
-      let msg = `Student "${form.name}" added.`;
-      if (uploadErrors.length) msg += ` Some images failed.`;
-      setSuccess(msg);
-      resetForm();
-      setShowForm(false);
-      await loadStudents();
-      setTimeout(() => setSuccess(""), 8000);
-    } catch (err) {
-      setError(err.message || "Could not create student.");
-    } finally {
-      setSaving(false);
-    }
+      let msg = `Student "${form.name}" added.`; if (uploadErrors.length) msg += ` Some images failed.`;
+      setSuccess(msg); resetForm(); setShowForm(false); await loadStudents(); setTimeout(() => setSuccess(""), 8000);
+    } catch (err) { setError(err.message || "Could not create student."); } finally { setSaving(false); }
   }
 
   async function handleDelete(student) {
     const expected = student.name.trim();
-    const typed = window.prompt(
-      `Delete "${student.name}"?\n\nThis will PERMANENTLY erase all bills, transactions, and receipts.\n\nTo confirm, type the student's name exactly:\n${expected}`
-    );
-
+    const typed = window.prompt(`Delete "${student.name}"?\n\nThis will PERMANENTLY erase all bills, transactions, and receipts.\n\nTo confirm, type the student's name exactly:\n${expected}`);
     if (typed === null) return;
     if (typed.trim() !== expected) { setDeleteMsg("Name didn't match."); setTimeout(() => setDeleteMsg(""), 4000); return; }
-
-    setDeleteBusy(student.id);
-    setDeleteMsg("");
+    
+    setDeleteBusy(student.id); setDeleteMsg("");
     try {
       const summary = await deleteStudentCompletely(student.id, student.name);
       setDeleteMsg(`Deleted "${student.name}". Bills: ${summary.billsDeleted}, Txns: ${summary.transactionsDeleted}.`);
-      await loadStudents();
-      setTimeout(() => setDeleteMsg(""), 8000);
-    } catch (err) {
-      setDeleteMsg(`❌ ${err.message}`);
-      setTimeout(() => setDeleteMsg(""), 8000);
-    } finally {
-      setDeleteBusy(null);
-    }
+      await loadStudents(); setTimeout(() => setDeleteMsg(""), 8000);
+    } catch (err) { setDeleteMsg(`❌ ${err.message}`); setTimeout(() => setDeleteMsg(""), 8000); } finally { setDeleteBusy(null); }
   }
 
   function renderFormFields(f, setF, sameAs, setSameAs, imagesObj, setCamera) {
@@ -520,7 +405,7 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
       )}
 
       <form onSubmit={handleSearch} className="fm-search-row" style={{ marginTop: 24 }}>
-        <input placeholder="Search by name or admission no." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        <input placeholder="Search by name, admission no, or mobile..." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         <button type="submit">Search</button>
       </form>
 
@@ -529,7 +414,6 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
       ) : students.length === 0 ? (
         <p className="fm-empty-state">No students found.</p>
       ) : (
-        /* COMPACT GRID LAYOUT START */
         <div className="fm-compact-grid-container">
           <div className="fm-compact-grid-header">
             <div>Name</div>
@@ -545,7 +429,10 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
           
           {students.map((s) => (
             <div key={s.id} className="fm-compact-grid-row" onClick={() => onSelectStudent?.(s.id)}>
-              <div className="fm-cell-truncate" style={{ fontWeight: 600, color: "var(--primary-blue)" }}>{s.name}</div>
+              <div className="fm-cell-truncate" style={{ fontWeight: 600, color: "var(--primary-blue)" }}>
+                {s.transportOpted && <span title="Uses Transport" style={{ marginRight: 6 }}>🚌</span>}
+                {s.name}
+              </div>
               <div className="fm-cell-truncate">{s.admissionNumber}</div>
               <div className="fm-cell-truncate">{s.rollNumber ?? "—"}</div>
               <div className="fm-cell-truncate">{s.className}{s.section ? `-${s.section}` : ""}</div>
@@ -565,7 +452,6 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
             </div>
           ))}
         </div>
-        /* COMPACT GRID LAYOUT END */
       )}
 
       <PrintManager active={!!printStudent} onClose={() => setPrintStudent(null)} type="student">
