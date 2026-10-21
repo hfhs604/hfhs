@@ -55,50 +55,87 @@ export default function FeeStructureConfig({ session }) {
       <h2>Fee Structure — {session}</h2>
       <p className="fm-hint">Set per-class fees. Editing here never changes previous sessions' records.</p>
 
-      <label className="fm-inline-label">
-        Class
-        <input value={className} onChange={(e) => setClassName(e.target.value)} placeholder="e.g. 6" />
+      <label className="fm-inline-label" style={{ maxWidth: 300, marginBottom: 20 }}>
+        Select Class to Configure
+        <input value={className} onChange={(e) => setClassName(e.target.value)} placeholder="e.g. 6 or X" />
       </label>
 
       {className && (
         <form onSubmit={handleSave}>
-          <table className="fm-table" style={{ marginTop: 16 }}>
-            <thead>
-              <tr><th>Enable</th><th>Fee Category</th><th>Amount (₹)</th><th>Frequency</th></tr>
-            </thead>
-            <tbody>
-              {categories.map((cat, i) => (
-                <tr key={cat.name}>
-                  <td><input type="checkbox" checked={cat.enabled} onChange={(e) => updateCategory(i, "enabled", e.target.checked)} /></td>
-                  <td>{cat.name}</td>
-                  <td><input type="number" min="0" value={cat.amount} disabled={!cat.enabled}
-                        onChange={(e) => updateCategory(i, "amount", Number(e.target.value))} /></td>
-                  <td>
-                    <select value={cat.frequency} disabled={!cat.enabled}
-                      onChange={(e) => updateCategory(i, "frequency", e.target.value)}>
-                      {FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
-                    </select>
-                  </td>
+          <div className="fm-table-scroll">
+            <table className="fm-table">
+              <thead>
+                <tr>
+                  <th style={{ width: 80 }}>Enable</th>
+                  <th>Fee Category</th>
+                  <th>Amount (₹)</th>
+                  <th>Frequency</th>
                 </tr>
-              ))}
-            </tbody>
-          </table>
+              </thead>
+              <tbody>
+                {categories.map((cat, i) => (
+                  <tr key={cat.name}>
+                    <td>
+                      <input 
+                        type="checkbox" 
+                        checked={cat.enabled} 
+                        onChange={(e) => updateCategory(i, "enabled", e.target.checked)} 
+                        style={{ width: 18, height: 18, cursor: "pointer" }}
+                      />
+                    </td>
+                    <td>{cat.name}</td>
+                    <td>
+                      <input 
+                        type="number" 
+                        min="0" 
+                        value={cat.amount} 
+                        disabled={!cat.enabled}
+                        onChange={(e) => updateCategory(i, "amount", Number(e.target.value))} 
+                        style={{ padding: 6, width: 120 }}
+                      />
+                    </td>
+                    <td>
+                      <select 
+                        value={cat.frequency} 
+                        disabled={!cat.enabled}
+                        onChange={(e) => updateCategory(i, "frequency", e.target.value)}
+                        style={{ padding: 6 }}
+                      >
+                        {FREQUENCIES.map((f) => <option key={f}>{f}</option>)}
+                      </select>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
 
-          <div className="fm-summary-grid" style={{ gridTemplateColumns: "repeat(2, 1fr)" }}>
-            <div>Total Annual Fee (Class {className})<strong>₹{total}</strong></div>
+          <div className="fm-bill-two-col" style={{ marginTop: 24, padding: 16 }}>
+            <div style={{ fontSize: 16, fontWeight: 600 }}>
+              Total Annual Fee (Class {className})
+              <div style={{ fontSize: 24, color: "#2563eb", marginTop: 8 }}>₹{total.toLocaleString()}</div>
+            </div>
+            
             <div>
-              Late Fee Rule
-              <div style={{ display: "flex", gap: 8, marginTop: 6 }}>
-                <input type="number" min="0" placeholder="Amount" value={lateFeeRule.amount}
-                  onChange={(e) => setLateFeeRule({ ...lateFeeRule, amount: Number(e.target.value) })} />
-                <input type="number" min="0" placeholder="Grace days" value={lateFeeRule.gracePeriodDays}
-                  onChange={(e) => setLateFeeRule({ ...lateFeeRule, gracePeriodDays: Number(e.target.value) })} />
+              <span style={{ fontSize: 14, fontWeight: 600, color: "#64748b" }}>Late Fee Rule</span>
+              <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+                <label className="fm-inline-label" style={{ flex: 1 }}>
+                  Amount (₹)
+                  <input type="number" min="0" value={lateFeeRule.amount}
+                    onChange={(e) => setLateFeeRule({ ...lateFeeRule, amount: Number(e.target.value) })} />
+                </label>
+                <label className="fm-inline-label" style={{ flex: 1 }}>
+                  Grace Days
+                  <input type="number" min="0" value={lateFeeRule.gracePeriodDays}
+                    onChange={(e) => setLateFeeRule({ ...lateFeeRule, gracePeriodDays: Number(e.target.value) })} />
+                </label>
               </div>
             </div>
           </div>
 
-          {savedMsg && <p style={{ color: "#2e7d32" }}>{savedMsg} ✓</p>}
-          <button type="submit" disabled={saving} className="fm-primary-btn">
+          {savedMsg && <p className="fm-success" style={{ marginTop: 16 }}>{savedMsg} ✓</p>}
+          
+          <button type="submit" disabled={saving} className="fm-primary-btn" style={{ marginTop: 16 }}>
             {saving ? "Saving…" : "Save Fee Structure"}
           </button>
         </form>
