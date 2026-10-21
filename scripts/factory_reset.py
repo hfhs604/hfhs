@@ -4,14 +4,10 @@ factory_reset.py
 Deletes ALL fee-system data and re-imports students from a CSV.
 Designed for a "start fresh" reset before going live.
 
-Transport support:
-  The CSV may include a "Transport" column.
-  Acceptable values (case-insensitive, whitespace-trimmed):
-      ""  |  "NA"  |  "N/A"  |  "0"  |  "No"  |  "N"     -> transport opted OFF
-      "800"                                                  -> opted ON, ₹800/mo
-      "1500" | "150" | "₹1500"                              -> opted ON, ₹1500/mo
-      "Yes" | "Y"                                           -> opted ON, default ₹800
-  Anything else numeric 800..1500 is accepted as a custom amount.
+Transport column:
+  'Y' / 'YES' / 'TRUE' / '1'  -> opted in, uses DEFAULT_TRANSPORT_AMOUNT (env, default 800)
+  'N' / 'NO'  / 'FALSE' / '0' / blank / 'NA' / 'N/A' -> opted out
+  A numeric value (800, 1500, 1200 ...) -> opted in with that exact amount
 
 Preserved (never touched):
   - users collection
@@ -25,7 +21,7 @@ Deleted:
 Recreated:
   - academicSessions: { label: SESSION, isActive: true }
   - counters: receipts_<year>=0, admissionNumber=0
-  - students from CSV (with transport flags set)
+  - students from CSV (with transport flags)
   - monthlyBills (first month) per student, including transportBilled if opted
 
 Safety gates:
@@ -52,8 +48,13 @@ CONFIRM_RESET      = os.environ.get("CONFIRM_RESET", "NO").upper() == "YES"
 CONFIRM_PHRASE     = os.environ.get("CONFIRM_PHRASE", "")
 
 DEVELOPMENT_FEE = 3150
-DEFAULT_TRANSPORT = 800
 TRANSPORT_MIN, TRANSPORT_MAX = 800, 1500
+try:
+    DEFAULT_TRANSPORT_AMOUNT = int(os.environ.get("DEFAULT_TRANSPORT_AMOUNT", "800"))
+except ValueError:
+    DEFAULT_TRANSPORT_AMOUNT = 800
+if DEFAULT_TRANSPORT_AMOUNT < TRANSPORT_MIN or DEFAULT_TRANSPORT_AMOUNT > TRANSPORT_MAX:
+    DEFAULT_TRANSPORT_AMOUNT = 800
 
 MONTHLY_TUITION = {
     "PRE-LKG": 800, "LKG": 800, "NUR": 800,
@@ -108,11 +109,16 @@ def sanitize_doc_id(raw):
 
 def parse_transport(raw):
     """
+    Interpret the Transport column.
+
     Returns (opted: bool, amount: int).
-    Blank / NA / 0 / No / N  -> (False, 0)
-    Yes / Y                  -> (True, DEFAULT_TRANSPORT)
-    Numeric 800..1500        -> (True, that amount)
-    Anything else numeric    -> clamped into [TRANSPORT_MIN, TRANSPORT_MAX] if >0
+
+    'Y' / 'YES' / 'TRUE' / '1'          -> (True,  DEFAULT_TRANSPORT_AMOUNT)
+    'N' / 'NO' / 'FALSE' / '0' / blank  -> (False, 0)
+    'NA' / 'N/A'                        -> (False, 0)
+    Numeric in [800, 1500]              -> (True,  that amount)
+    Numeric outside the range           -> (True,  clamped into [800,1500])
+    Anything else                       -> (False, 0) with a warning printed.
     """
     if raw is None:
         return False, 0
@@ -120,30 +126,29 @@ def parse_transport(raw):
     if s == "":
         return False, 0
     upper = s.upper()
-    if upper in ("NA", "N/A", "NONE", "NO", "N", "0", "FALSE", "F"):
-        return False, 0
-    if upper in ("YES", "Y", "TRUE", "T"):
-        return True, DEFAULT_TRANSPORT
 
-    # Strip currency symbols/commas: "₹1,500" -> "1500"
+    if upper in ("N", "NO", "FALSE", "0", "NA", "N/A", "NONE"):
+        return False, 0
+    if upper in ("Y", "YES", "TRUE", "1"):
+        return True, DEFAULT_TRANSPORT_AMOUNT
+
+    # Try a numeric value (strip currency / commas).
     digits = re.sub(r"[^\d.]", "", s)
-    try:
-        amount = int(float(digits))
-    except ValueError:
-        return False, 0
+    if digits:
+        try:
+            amount = int(float(digits))
+            if amount <= 0:
+                return False, 0
+            if amount < TRANSPORT_MIN:
+                return True, DEFAULT_TRANSPORT_AMOUNT
+            if amount > TRANSPORT_MAX:
+                return True, TRANSPORT_MAX
+            return True, amount
+        except ValueError:
+            pass
 
-    if amount <= 0:
-        return False, 0
-
-    if amount < TRANSPORT_MIN:
-        # Likely "Yes" written as 1 — treat as default.
-        if amount <= 5:
-            return True, DEFAULT_TRANSPORT
-        # Otherwise clamp up to the minimum.
-        return True, TRANSPORT_MIN
-    if amount > TRANSPORT_MAX:
-        return True, TRANSPORT_MAX
-    return True, amount
+    print(f"⚠️  Unrecognised Transport value '{s}' — treating as opted OUT.")
+    return False, 0
 
 def count_all(coll):
     return len(list(db.collection(coll).stream()))
@@ -183,9 +188,8 @@ with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
         print(f"   Found: {sorted(headers)}")
         sys.exit(1)
 
-    # Accept "Transport" or "Transport Fee" or "Transport Amount" (case-insensitive).
     transport_key = None
-    for candidate in ("Transport", "Transport Fee", "Transport Amount", "transport"):
+    for candidate in ("Transport", "transport", "Transport Fee", "Transport Amount"):
         if candidate in headers:
             transport_key = candidate
             break
@@ -200,9 +204,9 @@ with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
             opted, tamount = parse_transport(r.get(transport_key))
         if opted:
             transport_summary["opted"] += 1
-            if tamount == 800:  transport_summary["amount_800"] += 1
+            if tamount == 800:   transport_summary["amount_800"] += 1
             elif tamount == 1500: transport_summary["amount_1500"] += 1
-            else:               transport_summary["other"] += 1
+            else:                transport_summary["other"] += 1
         else:
             transport_summary["not_opted"] += 1
 
@@ -233,16 +237,17 @@ if not rows:
     sys.exit(1)
 
 if missing_transport_col:
-    print("⚠️  No 'Transport' column found in CSV — all students will be opted OUT.")
+    print("⚠️  No 'Transport' column found — all students will be opted OUT.")
 else:
     print(
-        f"🚌 Transport column detected: "
-        f"{transport_summary['opted']} opted in "
+        f"🚌 Transport parsed: "
+        f"{transport_summary['opted']} opted IN "
         f"({transport_summary['amount_800']} @ ₹800, "
         f"{transport_summary['amount_1500']} @ ₹1500, "
         f"{transport_summary['other']} other), "
-        f"{transport_summary['not_opted']} opted out."
+        f"{transport_summary['not_opted']} opted OUT."
     )
+    print(f"   Default for 'Y' = ₹{DEFAULT_TRANSPORT_AMOUNT}")
 
 # Deduplicate doc IDs
 seen = {}
@@ -266,16 +271,9 @@ if dupes:
 # 2. Report current state
 # ---------------------------------------------------------------------------
 COLLECTIONS_TO_WIPE = [
-    "students",
-    "monthlyBills",
-    "feeTransactions",
-    "receipts",
-    "discounts",
-    "paymentIdempotency",
-    "auditLogs",
-    "counters",
-    "feeStructures",
-    "academicSessions",
+    "students", "monthlyBills", "feeTransactions", "receipts",
+    "discounts", "paymentIdempotency", "auditLogs", "counters",
+    "feeStructures", "academicSessions",
 ]
 
 print("\n📊 Current database contents:")
@@ -352,7 +350,7 @@ db.collection("counters").document("admissionNumber").set({"value": 0})
 print(f"  ✅ counters/admissionNumber = 0")
 
 # ---------------------------------------------------------------------------
-# 7. Import students (transport flags included)
+# 7. Import students
 # ---------------------------------------------------------------------------
 print(f"\n⬆️  Importing {len(rows)} students…")
 imported = 0
@@ -384,7 +382,6 @@ if CREATE_FIRST_BILLS and imported > 0:
         s = snap.to_dict()
         tuition = MONTHLY_TUITION.get(str(s.get("className", "")).upper(), 0)
 
-        # Transport: only bill if student opted in AND amount is valid.
         transport_opted = bool(s.get("transportOpted"))
         transport_amt = int(s.get("transportAmount") or 0)
         if transport_opted and TRANSPORT_MIN <= transport_amt <= TRANSPORT_MAX:
@@ -432,13 +429,13 @@ if CREATE_FIRST_BILLS and imported > 0:
 print("\n" + "=" * 60)
 print("✅ FACTORY RESET COMPLETE")
 print("=" * 60)
-print(f"  Session:           {SESSION}")
-print(f"  Students imported: {imported}")
-print(f"  Transport (opted): {transport_summary['opted']}")
+print(f"  Session:            {SESSION}")
+print(f"  Students imported:  {imported}")
+print(f"  Transport (opted):  {transport_summary['opted']}")
 if CREATE_FIRST_BILLS:
-    print(f"  First-month bills: {FIRST_MONTH}")
-print(f"  Receipt counter:   HFHS-{year}-000001 (next)")
-print(f"  Admission counter: 1 (next)")
-print(f"  Audit log:         empty (fresh start)")
-print(f"  Users:             preserved")
+    print(f"  First-month bills:  {FIRST_MONTH}")
+print(f"  Receipt counter:    HFHS-{year}-000001 (next)")
+print(f"  Admission counter:  1 (next)")
+print(f"  Audit log:          empty (fresh start)")
+print(f"  Users:              preserved")
 print("=" * 60)
