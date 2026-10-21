@@ -49,9 +49,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
   const [promptValue, setPromptValue] = useState("");
   const [promptConfirming, setPromptConfirming] = useState(false);
 
-  const [transportEnabled, setTransportEnabled] = useState(false);
-  const [transportValue, setTransportValue] = useState(800);
-
   const [receiptPopup, setReceiptPopup] = useState(null);
 
   const [form, setForm] = useState({
@@ -97,8 +94,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     setIdempotencyKey(uuidv4());
     setError(null);
     setAddonMsg("");
-    setTransportEnabled(false);
-    setTransportValue(800);
     await refreshAll(student.id);
   }
 
@@ -208,7 +203,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
       await refreshAll(selectedStudent.id);
 
       if (res.receipt) {
-        // Show charge slip — never treat as a payment receipt.
         setReceiptPopup({ ...res.receipt, isCharge: true });
       }
 
