@@ -34,6 +34,8 @@ const emptyForm = {
   docAadhaarStudent: false, docAadhaarFather: false, docAadhaarMother: false,
   docPhoto: false, docTransferCertificate: false, docBirthCertificate: false,
   remarks: "",
+  transportOpted: false,
+  transportAmount: 0,
 };
 
 const IMAGE_SLOTS = [
@@ -193,6 +195,11 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
         populated[k] = v ?? "";
       }
     });
+
+    // Ensure transport fields are populated correctly
+    populated.transportOpted = student.transportOpted || false;
+    populated.transportAmount = student.transportAmount || 0;
+
     if (Array.isArray(student.documentsSubmitted)) {
       populated.docAadhaarStudent = student.documentsSubmitted.includes("Aadhaar - Student");
       populated.docAadhaarFather = student.documentsSubmitted.includes("Aadhaar - Father");
@@ -229,6 +236,15 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
 
   async function saveEdit(e) {
     e.preventDefault();
+    
+    if (editForm.transportOpted) {
+      const amt = Number(editForm.transportAmount);
+      if (amt < 800 || amt > 1500) {
+        setEditError("Transport fee must be between ₹800 and ₹1500.");
+        return;
+      }
+    }
+
     setEditSaving(true);
     setEditError(null);
     try {
@@ -276,6 +292,8 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
         docBirthCertificate: editForm.docBirthCertificate,
         documentsSubmitted,
         remarks: editForm.remarks.trim() || null,
+        transportOpted: editForm.transportOpted || false,
+        transportAmount: editForm.transportOpted ? Number(editForm.transportAmount) : 0,
       };
 
       const uploadErrors = [];
@@ -313,6 +331,13 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
     if (!form.name.trim() || !form.className || !form.admissionNumber.trim()) {
       setError("Please fill Name, Class, and Admission Number.");
       return;
+    }
+    if (form.transportOpted) {
+      const amt = Number(form.transportAmount);
+      if (amt < 800 || amt > 1500) {
+        setError("Transport fee must be between ₹800 and ₹1500.");
+        return;
+      }
     }
     setShowConfirm(true);
   }
@@ -381,8 +406,8 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
         aadhaarMotherPhotoUrl: null,
         remarks: form.remarks.trim() || null,
         session,
-        transportOpted: false,
-        transportAmount: 0,
+        transportOpted: form.transportOpted || false,
+        transportAmount: form.transportOpted ? Number(form.transportAmount) : 0,
       });
 
       const uploadErrors = [];
@@ -497,6 +522,40 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
             <label>PEN No
               <input value={f.penNumber}
                 onChange={(e) => setF("penNumber", e.target.value)} /></label>
+          </div>
+        </div>
+
+        <div className="fm-form-section">
+          <h3>Transport</h3>
+          <div className="fm-form-grid">
+            <label className="fm-checkbox-row" style={{ marginTop: 8 }}>
+              <input type="checkbox" checked={f.transportOpted || false}
+                onChange={(e) => {
+                  setF("transportOpted", e.target.checked);
+                  if (e.target.checked && !f.transportAmount) {
+                    setF("transportAmount", 800);
+                  } else if (!e.target.checked) {
+                    setF("transportAmount", 0);
+                  }
+                }} />
+              Student uses School Transport
+            </label>
+            
+            {f.transportOpted && (
+              <label>
+                Transport Amount (₹) *
+                <input 
+                  type="number" 
+                  required
+                  min="800" 
+                  max="1500" 
+                  step="50"
+                  value={f.transportAmount || 800}
+                  onChange={(e) => setF("transportAmount", e.target.value)}
+                  placeholder="e.g. 1000"
+                />
+              </label>
+            )}
           </div>
         </div>
 
