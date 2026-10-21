@@ -122,10 +122,6 @@ export async function getStudentFeeProfile(studentId) {
   return { id: snap.id, ...snap.data() };
 }
 
-/**
- * Case-insensitive prefix search on name OR admissionNumber, with a
- * client-side fallback substring scan for parent names and odd casings.
- */
 export async function searchStudents(term) {
   const raw = (term || "").trim();
   if (!raw) return [];
@@ -347,7 +343,7 @@ export async function collectPayment({
 
     tx.update(billRef, {
       totalPaid: newPaid,
-      carriedForward: newCarry,   // negative = advance (credit) for next month
+      carriedForward: newCarry,
       status: newCarry <= 0 ? "PAID" : "PARTIAL",
       lastPaymentAt: serverTimestamp(),
     });
@@ -390,16 +386,6 @@ export async function collectPayment({
 // ---------------------------------------------------------------------------
 // Add-on fees (CHARGES — not payments)
 // ---------------------------------------------------------------------------
-/**
- * Adds a CHARGE to a student's bill (Books, Kit, Previous Year, Transport).
- *
- * Critical: a charge is NOT a payment. We:
- *   - write a feeTransactions doc with isCharge=true, chargedAmount=amt,
- *     amountReceived=0, netAmount=0, paymentMethod=null
- *   - increment the relevant *Billed field and totalDue/carriedForward
- *   - DO NOT touch totalPaid
- *   - issue a "charge slip" receipt (isCharge: true)
- */
 async function addLineItem({
   studentId, session, month, amount, field, componentType, feeType, remarks,
   paymentDate, idempotencyKey,
@@ -635,9 +621,6 @@ export async function getDashboardStats(session, month) {
       if (latestMonth) {
         bills = allBills.filter((b) => b.month === latestMonth);
         actualMonth = latestMonth;
-        console.info(
-          `getDashboardStats: no bills for ${targetMonth}; using latest available ${latestMonth}`
-        );
       }
     } catch (err) {
       console.warn("getDashboardStats: fallback failed:", err.message);
@@ -653,7 +636,7 @@ export async function getDashboardStats(session, month) {
 
   bills.forEach((b) => {
     const paid = b.totalPaid || 0;
-    const carry = b.carriedForward || 0;   // negative = advance
+    const carry = b.carriedForward || 0;
 
     totalCollection += paid;
     monthCollection += paid;
@@ -692,7 +675,6 @@ export async function getDashboardStats(session, month) {
 
     txnSnap.docs.forEach((d) => {
       const t = d.data();
-      // Charges are NOT money received.
       if (t.isCharge === true) return;
 
       const method = t.paymentMethod || "Other";
@@ -805,7 +787,7 @@ export async function getStudentPaymentSummary(studentId, session, month) {
 
     snap.docs.forEach((d) => {
       const t = d.data();
-      if (t.isCharge === true) return;                 // charges aren't payments
+      if (t.isCharge === true) return;
       if (session && t.session !== session) return;
       if (t.voided === true) return;
       if (t.componentType && t.componentType !== "monthly") return;
