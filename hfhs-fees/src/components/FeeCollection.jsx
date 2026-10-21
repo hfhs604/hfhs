@@ -107,12 +107,9 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     setTimeout(() => setFlash(""), 1500);
   }
 
-  const transportAdd = transportEnabled ? Number(transportValue || 0) : 0;
   const amountAdd = Number(form.amountReceived || 0);
-
-  const displayTotal = bill ? (bill.totalDue || 0) + transportAdd : 0;
   const displayTotalPaidThisMonth = bill ? (bill.totalPaid || 0) : 0;
-  const displayBalance = Math.max(displayTotal - displayTotalPaidThisMonth, 0);
+  const displayBalance = bill ? Math.max((bill.carriedForward || 0), 0) : 0;
 
   function buildParticularsFromBill(b, feeTypeLabel) {
     const items = [];
@@ -143,18 +140,14 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     e.preventDefault();
     if (submitting || !selectedStudent) return;
 
-    if (transportEnabled) {
-      const t = Number(transportValue);
-      if (t < 800 || t > 1500) {
-        setError("Transport must be between ₹800 and ₹1500.");
-        return;
-      }
+    if (!amountAdd || amountAdd <= 0) {
+      setError("Enter an amount greater than 0.");
+      return;
     }
 
     setSubmitting(true);
     setError(null);
     try {
-      const totalReceived = amountAdd + transportAdd;
       const balanceBefore = bill ? (bill.carriedForward || 0) : 0;
 
       const { receipt, duplicateBlocked } = await collectPayment({
@@ -163,10 +156,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
         month,
         idempotencyKey,
         ...form,
-        amountReceived: totalReceived,
-        remarks:
-          (form.remarks || "") +
-          (transportEnabled ? ` [Transport ₹${transportValue}]` : ""),
+        amountReceived: amountAdd,
       });
 
       const freshBill = await refreshAll(selectedStudent.id);
@@ -175,11 +165,11 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
       const enrichedReceipt = {
         ...receipt,
         particulars,
-        amountReceivedThisTransaction: totalReceived,
-        transportFee: transportAdd,
+        amountReceivedThisTransaction: amountAdd,
         totalDue: balanceBefore,
         remainingDue: freshBill?.carriedForward || 0,
         previousDue: freshBill?.previousDue || 0,
+        isCharge: false,
       };
 
       onReceiptGenerated?.(enrichedReceipt, duplicateBlocked);
@@ -194,8 +184,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
         lateFee: 0,
         remarks: "",
       }));
-      setTransportEnabled(false);
-      setTransportValue(800);
     } catch (err) {
       setError(err.message || "Payment could not be recorded.");
     } finally {
@@ -216,13 +204,18 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
         idempotencyKey: uuidv4(),
       });
 
-      showFlash(`✅ ${label} ₹${amount} added`);
+      showFlash(`✅ ${label} ₹${amount} charged`);
       await refreshAll(selectedStudent.id);
+
+      if (res.receipt) {
+        // Show charge slip — never treat as a payment receipt.
+        setReceiptPopup({ ...res.receipt, isCharge: true });
+      }
 
       setAddonMsg(
         res.duplicateBlocked
           ? "Already recorded."
-          : `${label} ₹${amount} added.`
+          : `${label} ₹${amount} added to the bill (charge, not payment).`
       );
     } catch (e) {
       setAddonMsg(`❌ ${e.message}`);
@@ -327,23 +320,24 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                     {bill.devFeeBilled > 0 && (
                       <tr><td>Development Fee</td><td align="right">₹{bill.devFeeBilled}</td></tr>
                     )}
-                    {(bill.transportBilled > 0 || transportAdd > 0) && (
-                      <tr>
-                        <td>Transport {transportAdd > 0 && bill.transportBilled === 0 ? "(adding now)" : ""}</td>
-                        <td align="right">₹{(bill.transportBilled || 0) + (bill.transportBilled === 0 ? transportAdd : 0)}</td>
-                      </tr>
+                    {bill.transportBilled > 0 && (
+                      <tr><td>Transport (charge)</td><td align="right">₹{bill.transportBilled}</td></tr>
                     )}
                     {bill.booksBilled > 0 && (
-                      <tr><td>Books</td><td align="right">₹{bill.booksBilled}</td></tr>
+                      <tr><td>Books (charge)</td><td align="right">₹{bill.booksBilled}</td></tr>
                     )}
                     {bill.previousYearBilled > 0 && (
-                      <tr><td>Previous Year Balance</td><td align="right">₹{bill.previousYearBilled}</td></tr>
+                      <tr><td>Previous Year Balance (charge)</td><td align="right">₹{bill.previousYearBilled}</td></tr>
                     )}
                     {bill.kitFeeBilled > 0 && (
-                      <tr><td>Admission / Kit Fee</td><td align="right">₹{bill.kitFeeBilled}</td></tr>
+                      <tr><td>Admission / Kit Fee (charge)</td><td align="right">₹{bill.kitFeeBilled}</td></tr>
                     )}
                   </tbody>
                 </table>
+                <p style={{ fontSize: 11, color: "#6b7280", marginTop: 6 }}>
+                  Adding Books / Kit / Previous Year / Transport increases the bill.
+                  It does <strong>not</strong> record a payment.
+                </p>
               </div>
 
               <div className="fm-bill-right fm-bill-right-compact">
@@ -354,11 +348,11 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
                 <div className="fm-stats-grid">
                   <div className="fm-stat-cell">
-                    <span className="fm-stat-cell-label">Total</span>
-                    <span className="fm-stat-cell-value">₹{displayTotal}</span>
+                    <span className="fm-stat-cell-label">Total Billed</span>
+                    <span className="fm-stat-cell-value">₹{bill.totalDue || 0}</span>
                   </div>
                   <div className="fm-stat-cell">
-                    <span className="fm-stat-cell-label">Amount Received (This Month)</span>
+                    <span className="fm-stat-cell-label">Paid (This Month)</span>
                     <span className="fm-stat-cell-value">₹{displayTotalPaidThisMonth}</span>
                     {lastPayment && (
                       <span className="fm-stat-cell-sub">
@@ -367,7 +361,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                     )}
                   </div>
                   <div className="fm-stat-cell">
-                    <span className="fm-stat-cell-label">Amount Received</span>
+                    <span className="fm-stat-cell-label">Amount Entered</span>
                     <span className="fm-stat-cell-value">₹{amountAdd}</span>
                   </div>
                   <div className="fm-stat-cell fm-stat-cell-balance">
@@ -416,36 +410,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                 onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
             </label>
 
-            {canManageAddons ? (
-              <label>
-                <span style={{ display: "flex", alignItems: "center", gap: 8, paddingTop: 18 }}>
-                  <input
-                    type="checkbox"
-                    checked={transportEnabled}
-                    onChange={(e) => setTransportEnabled(e.target.checked)}
-                    style={{ width: 16, height: 16, cursor: "pointer" }}
-                  />
-                  <span style={{ fontSize: 13 }}>Include Transport</span>
-                </span>
-              </label>
-            ) : (
-              <div />
-            )}
-
-            {canManageAddons && transportEnabled && (
-              <label>
-                Transport Amount
-                <input
-                  type="number"
-                  min="800"
-                  max="1500"
-                  step="50"
-                  value={transportValue}
-                  onChange={(e) => setTransportValue(Number(e.target.value))}
-                />
-              </label>
-            )}
-
             <label>
               Discount (₹)
               <input type="number" min="0" value={form.discount}
@@ -473,15 +437,15 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
               <div className="fm-action-addons">
                 <button type="button" className="fm-addon-btn" disabled={addonBusy}
                   onClick={() => promptForAmount("books")}>
-                  📚 + Books
+                  📚 + Books (charge)
                 </button>
                 <button type="button" className="fm-addon-btn" disabled={addonBusy}
                   onClick={() => promptForAmount("previousYear")}>
-                  📜 + Prev Year
+                  📜 + Prev Year (charge)
                 </button>
                 <button type="button" className="fm-addon-btn" disabled={addonBusy}
                   onClick={() => promptForAmount("kit")}>
-                  👕 + Kit
+                  👕 + Kit (charge)
                 </button>
               </div>
             )}
@@ -497,8 +461,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                   setSearchTerm("");
                   setError(null);
                   setAddonMsg("");
-                  setTransportEnabled(false);
-                  setTransportValue(800);
                 }}>
                 ← Back
               </button>
@@ -520,12 +482,13 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
         <div className="fm-modal-overlay">
           <div className="fm-modal" style={{ maxWidth: 380 }}>
             <h3>
-              {promptSlot === "books" && "Add Books Fee"}
-              {promptSlot === "previousYear" && "Add Previous Year Balance"}
-              {promptSlot === "kit" && "Add Admission / Kit Fee"}
+              {promptSlot === "books" && "Add Books Fee (charge)"}
+              {promptSlot === "previousYear" && "Add Previous Year Balance (charge)"}
+              {promptSlot === "kit" && "Add Admission / Kit Fee (charge)"}
             </h3>
             <p style={{ margin: "12px 0", fontSize: 14, color: "#4b5563" }}>
-              Enter the amount in ₹
+              Enter the amount in ₹. This will be added to the student's bill as a
+              charge — it will <strong>not</strong> be recorded as a payment.
             </p>
             <input
               type="number"
@@ -558,7 +521,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                 onClick={confirmPrompt}
                 disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}
               >
-                {promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}
+                {promptConfirming ? "Adding…" : `Charge ₹${promptValue || 0}`}
               </button>
             </div>
           </div>
