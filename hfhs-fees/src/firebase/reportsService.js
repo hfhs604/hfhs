@@ -1,7 +1,7 @@
 /**
  * reportsService.js
  * Report queries + CSV export for the monthly billing model.
- *
+ * 
  * INVARIANT: collection/revenue reports only ever count real payments.
  * Charge transactions (isCharge=true) are excluded from all money totals.
  */
@@ -86,6 +86,7 @@ export async function getAllStudentsWithBills({ session, className, month } = {}
 
   let bills = [];
   try {
+    // 1. First try to get bills for the specific target month (usually the current calendar month)
     const bClauses = [where("month", "==", targetMonth)];
     if (session) bClauses.push(where("session", "==", session));
 
@@ -97,10 +98,22 @@ export async function getAllStudentsWithBills({ session, className, month } = {}
       )
     );
     bills = bSnap.docs.map((d) => d.data());
-    if (bills.length === MAX_QUERY_RESULTS) {
-      console.warn(
-        `getAllStudentsWithBills: bill query hit the ${MAX_QUERY_RESULTS}-doc cap.`
+
+    // 2. FALLBACK: If no bills exist for the current calendar month, find the LATEST available bill for this session.
+    // This fixes the issue where pre-generated bills (e.g. Oct 2026) show as "PAID" if today is not Oct 2026.
+    if (bills.length === 0 && session) {
+      const allSnap = await getDocs(
+        query(collection(db, COL.monthlyBills), where("session", "==", session))
       );
+      const allBills = allSnap.docs.map((d) => d.data());
+      
+      // Find the maximum month string (e.g. "2026-10" > "2026-04")
+      const months = [...new Set(allBills.map((b) => b.month))].sort();
+      const latestMonth = months[months.length - 1];
+
+      if (latestMonth) {
+        bills = allBills.filter((b) => b.month === latestMonth);
+      }
     }
   } catch (err) {
     console.warn("getAllStudentsWithBills: bills query failed:", err.message);
@@ -114,6 +127,9 @@ export async function getAllStudentsWithBills({ session, className, month } = {}
 
   return students.map((s) => {
     const bill = billByStudent[s.id];
+    
+    // If no bill exists at all, they are considered PAID (no dues).
+    // If a bill exists, calculate the actual status.
     const totalDue = bill?.carriedForward || 0;
     const totalPaid = bill?.totalPaid || 0;
     const totalFee = bill?.totalDue || 0;
@@ -124,11 +140,11 @@ export async function getAllStudentsWithBills({ session, className, month } = {}
 
     return {
       ...s,
-      month: targetMonth,
+      month: bill?.month || targetMonth,
       totalDue,
       totalPaid,
       totalFee,
-      totalAdvance: 0,
+      totalAdvance: totalDue < 0 ? Math.abs(totalDue) : 0,
       accountStatus,
     };
   });
