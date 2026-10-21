@@ -4,7 +4,7 @@ import {
   XAxis, YAxis, Tooltip, Legend, ResponsiveContainer, CartesianGrid
 } from "recharts";
 
-const COLORS = ["#1a3d6d", "#2e7d32", "#ef6c00", "#c62828", "#6a1b9a"];
+const COLORS = ["#1e293b", "#2563eb", "#16a34a", "#f59e0b", "#dc2626"];
 
 /** Payment method distribution (pie) */
 export function PaymentMethodChart({ data }) {
@@ -19,17 +19,22 @@ export function PaymentMethodChart({ data }) {
           dataKey="value" 
           nameKey="name" 
           cx="50%" 
-          cy="50%" 
+          cy="45%" 
           innerRadius={50}
-          outerRadius={80} 
+          outerRadius={75} 
           paddingAngle={2}
-          label={({ name, percent }) => `${name} ${(percent * 100).toFixed(0)}%`}
+          label={({ percent }) => `${(percent * 100).toFixed(0)}%`}
           labelLine={false}
         >
           {rows.map((_, i) => <Cell key={i} fill={COLORS[i % COLORS.length]} />)}
         </Pie>
         <Tooltip formatter={(v) => `₹${v.toLocaleString()}`} />
-        <Legend verticalAlign="bottom" height={36} iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+        <Legend 
+          verticalAlign="bottom" 
+          height={36} 
+          iconType="circle" 
+          wrapperStyle={{ fontSize: 11, paddingTop: 10 }} 
+        />
       </PieChart>
     </ResponsiveContainer>
   );
@@ -52,7 +57,7 @@ export function ClassWiseChart({ rows }) {
         <XAxis dataKey="className" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
         <YAxis tick={{ fontSize: 11 }} tickLine={false} axisLine={false} tickFormatter={(v) => `₹${v/1000}k`} />
         <Tooltip formatter={(v) => `₹${v.toLocaleString()}`} cursor={{ fill: '#f8fafc' }} />
-        <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: 12 }} />
+        <Legend verticalAlign="top" height={36} iconType="circle" wrapperStyle={{ fontSize: 11 }} />
         <Bar dataKey="Paid" stackId="a" fill="#16a34a" radius={[0, 0, 4, 4]} />
         <Bar dataKey="Due" stackId="a" fill="#dc2626" radius={[4, 4, 0, 0]} />
       </BarChart>
