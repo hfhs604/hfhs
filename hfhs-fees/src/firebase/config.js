@@ -24,8 +24,6 @@ export const db = initializeFirestore(app, {
 export const auth = getAuth(app);
 
 // Force re-login whenever the browser session ends (tab/window close).
-// Without this, Firebase defaults to `localPersistence`, which keeps the
-// user signed in indefinitely across browser restarts.
 setPersistence(auth, browserSessionPersistence).catch((err) => {
   console.error("Failed to set auth persistence:", err);
 });
