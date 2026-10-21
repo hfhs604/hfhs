@@ -353,8 +353,7 @@ export default function StudentDirectory({ session, onSelectStudent, role }) {
         admissionNumber = await reserveAdmissionNumber();
       }
 
-      const guardianName =
-        form.guardianName.trim() || form.fatherName.trim();
+      const guardianName = form.guardianName.trim() || form.fatherName.trim();
 
       const documentsSubmitted = [];
       if (form.docAadhaarStudent) documentsSubmitted.push("Aadhaar - Student");
