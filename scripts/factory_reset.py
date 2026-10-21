@@ -4,35 +4,34 @@ factory_reset.py
 Deletes ALL fee-system data and re-imports students from a CSV.
 Designed for a "start fresh" reset before going live.
 
+Transport support:
+  The CSV may include a "Transport" column.
+  Acceptable values (case-insensitive, whitespace-trimmed):
+      ""  |  "NA"  |  "N/A"  |  "0"  |  "No"  |  "N"     -> transport opted OFF
+      "800"                                                  -> opted ON, ₹800/mo
+      "1500" | "150" | "₹1500"                              -> opted ON, ₹1500/mo
+      "Yes" | "Y"                                           -> opted ON, default ₹800
+  Anything else numeric 800..1500 is accepted as a custom amount.
+
 Preserved (never touched):
-  - users           (login accounts + roles)
-  - Firebase Auth   (auth users)
-  - storage/        (uploaded photos — delete manually if desired)
+  - users collection
+  - Firebase Auth users
+  - Firebase Storage (delete photos manually if desired)
 
 Deleted:
   - students, monthlyBills, feeTransactions, receipts, discounts,
     paymentIdempotency, auditLogs, counters, feeStructures, academicSessions
 
 Recreated:
-  - academicSessions: one doc with { label: SESSION, isActive: true }
-  - counters: { receipts_<year>: 0, admissionNumber: 0 }
-  - students: imported from CSV
-  - monthlyBills: one first-month bill per imported student (optional)
+  - academicSessions: { label: SESSION, isActive: true }
+  - counters: receipts_<year>=0, admissionNumber=0
+  - students from CSV (with transport flags set)
+  - monthlyBills (first month) per student, including transportBilled if opted
 
 Safety gates:
-  1. DRY_RUN=true (default)  — preview, no writes.
-  2. CONFIRM_RESET=YES       — required to actually delete.
-  3. CONFIRM_PHRASE must equal "DELETE EVERYTHING" — second gate.
-
-Environment:
-  FIREBASE_SERVICE_ACCOUNT   (required) service account JSON
-  CSV_PATH                   (default: students.csv)
-  SESSION                    (default: 2026-27)
-  FIRST_MONTH                (default: 2026-04)
-  CREATE_FIRST_BILLS         (default: true)
-  DRY_RUN                    (default: true)
-  CONFIRM_RESET              (default: NO)
-  CONFIRM_PHRASE             (default: "")
+  1. DRY_RUN=true (default) — preview, no writes.
+  2. CONFIRM_RESET=YES      — required to delete.
+  3. CONFIRM_PHRASE must equal "DELETE EVERYTHING".
 """
 
 import csv, os, re, sys, json, uuid
@@ -53,6 +52,9 @@ CONFIRM_RESET      = os.environ.get("CONFIRM_RESET", "NO").upper() == "YES"
 CONFIRM_PHRASE     = os.environ.get("CONFIRM_PHRASE", "")
 
 DEVELOPMENT_FEE = 3150
+DEFAULT_TRANSPORT = 800
+TRANSPORT_MIN, TRANSPORT_MAX = 800, 1500
+
 MONTHLY_TUITION = {
     "PRE-LKG": 800, "LKG": 800, "NUR": 800,
     "UKG": 900, "I": 900,
@@ -104,11 +106,49 @@ def sanitize_doc_id(raw):
     s = re.sub(r"-+", "-", s).strip("-")
     return s[:1500] if s else None
 
+def parse_transport(raw):
+    """
+    Returns (opted: bool, amount: int).
+    Blank / NA / 0 / No / N  -> (False, 0)
+    Yes / Y                  -> (True, DEFAULT_TRANSPORT)
+    Numeric 800..1500        -> (True, that amount)
+    Anything else numeric    -> clamped into [TRANSPORT_MIN, TRANSPORT_MAX] if >0
+    """
+    if raw is None:
+        return False, 0
+    s = str(raw).strip()
+    if s == "":
+        return False, 0
+    upper = s.upper()
+    if upper in ("NA", "N/A", "NONE", "NO", "N", "0", "FALSE", "F"):
+        return False, 0
+    if upper in ("YES", "Y", "TRUE", "T"):
+        return True, DEFAULT_TRANSPORT
+
+    # Strip currency symbols/commas: "₹1,500" -> "1500"
+    digits = re.sub(r"[^\d.]", "", s)
+    try:
+        amount = int(float(digits))
+    except ValueError:
+        return False, 0
+
+    if amount <= 0:
+        return False, 0
+
+    if amount < TRANSPORT_MIN:
+        # Likely "Yes" written as 1 — treat as default.
+        if amount <= 5:
+            return True, DEFAULT_TRANSPORT
+        # Otherwise clamp up to the minimum.
+        return True, TRANSPORT_MIN
+    if amount > TRANSPORT_MAX:
+        return True, TRANSPORT_MAX
+    return True, amount
+
 def count_all(coll):
     return len(list(db.collection(coll).stream()))
 
 def delete_collection(coll, batch_size=400):
-    """Delete every doc in a collection. Returns number deleted."""
     total = 0
     while True:
         docs = list(db.collection(coll).limit(batch_size).stream())
@@ -131,6 +171,9 @@ if not os.path.exists(CSV_PATH):
 
 REQUIRED = {"Class", "Name", "Adm No"}
 rows = []
+transport_summary = {"opted": 0, "not_opted": 0, "amount_800": 0, "amount_1500": 0, "other": 0}
+missing_transport_col = False
+
 with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
     reader = csv.DictReader(f)
     headers = set(reader.fieldnames or [])
@@ -140,9 +183,29 @@ with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
         print(f"   Found: {sorted(headers)}")
         sys.exit(1)
 
+    # Accept "Transport" or "Transport Fee" or "Transport Amount" (case-insensitive).
+    transport_key = None
+    for candidate in ("Transport", "Transport Fee", "Transport Amount", "transport"):
+        if candidate in headers:
+            transport_key = candidate
+            break
+    if transport_key is None:
+        missing_transport_col = True
+
     for r in reader:
         if not clean_value(r.get("Name")):
             continue
+        opted, tamount = (False, 0)
+        if transport_key is not None:
+            opted, tamount = parse_transport(r.get(transport_key))
+        if opted:
+            transport_summary["opted"] += 1
+            if tamount == 800:  transport_summary["amount_800"] += 1
+            elif tamount == 1500: transport_summary["amount_1500"] += 1
+            else:               transport_summary["other"] += 1
+        else:
+            transport_summary["not_opted"] += 1
+
         rows.append({
             "className":       clean_class(r.get("Class", "")),
             "rollNumber":      int(r["Roll No"]) if clean_value(r.get("Roll No")).isdigit() else None,
@@ -157,8 +220,8 @@ with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
             "session":         SESSION,
             "section":         "",
             "mobileNumber":    "",
-            "transportOpted":  False,
-            "transportAmount": 0,
+            "transportOpted":  opted,
+            "transportAmount": tamount,
             "totalAmountPaid": 0,
             "lastPaymentDate": None,
             "_rawAdm":         clean_value(r.get("Adm No")),
@@ -168,6 +231,18 @@ print(f"📄 Read {len(rows)} valid students from {CSV_PATH}.")
 if not rows:
     print("❌ No rows to import.")
     sys.exit(1)
+
+if missing_transport_col:
+    print("⚠️  No 'Transport' column found in CSV — all students will be opted OUT.")
+else:
+    print(
+        f"🚌 Transport column detected: "
+        f"{transport_summary['opted']} opted in "
+        f"({transport_summary['amount_800']} @ ₹800, "
+        f"{transport_summary['amount_1500']} @ ₹1500, "
+        f"{transport_summary['other']} other), "
+        f"{transport_summary['not_opted']} opted out."
+    )
 
 # Deduplicate doc IDs
 seen = {}
@@ -220,6 +295,8 @@ if DRY_RUN:
     print(f"   Would wipe {sum(current_counts.values())} docs across "
           f"{len(COLLECTIONS_TO_WIPE)} collections.")
     print(f"   Would import {len(rows)} students into session '{SESSION}'.")
+    print(f"     • {transport_summary['opted']} with transport, "
+          f"{transport_summary['not_opted']} without.")
     if CREATE_FIRST_BILLS:
         print(f"   Would create {len(rows)} first-month bills for {FIRST_MONTH}.")
     print("\n   To actually run:")
@@ -259,7 +336,7 @@ print(f"\n✅ Wiped {total_wiped} documents total.")
 # ---------------------------------------------------------------------------
 year = SESSION.split("-")[0] if "-" in SESSION else str(datetime.now().year)
 
-print(f"\n🔧 Recreating baseline config…")
+print("\n🔧 Recreating baseline config…")
 
 db.collection("academicSessions").document(SESSION).set({
     "label": SESSION,
@@ -275,7 +352,7 @@ db.collection("counters").document("admissionNumber").set({"value": 0})
 print(f"  ✅ counters/admissionNumber = 0")
 
 # ---------------------------------------------------------------------------
-# 7. Import students
+# 7. Import students (transport flags included)
 # ---------------------------------------------------------------------------
 print(f"\n⬆️  Importing {len(rows)} students…")
 imported = 0
@@ -295,23 +372,30 @@ for row in rows:
 print(f"✅ Imported {imported} students" + (f" ({errors} errors)." if errors else "."))
 
 # ---------------------------------------------------------------------------
-# 8. First-month bills
+# 8. First-month bills — includes transportBilled
 # ---------------------------------------------------------------------------
 if CREATE_FIRST_BILLS and imported > 0:
     print(f"\n🧾 Creating first-month bills for {FIRST_MONTH}…")
     bills = 0
-    for row in rows:
-        doc_id = sanitize_doc_id(row["admissionNumber"]) or row["name"]
-        # Rebuild ID the same way as the import above, in case of dupes.
-        # (We popped _docId above, so recompute deterministically.)
-        # Simpler: iterate students we just wrote.
-        pass
+    transport_billed_count = 0
+    transport_billed_total = 0
 
-    # Iterate what's actually in the DB for this session to avoid ID guessing.
     for snap in db.collection("students").where("session", "==", SESSION).stream():
         s = snap.to_dict()
         tuition = MONTHLY_TUITION.get(str(s.get("className", "")).upper(), 0)
-        total_due = tuition + DEVELOPMENT_FEE
+
+        # Transport: only bill if student opted in AND amount is valid.
+        transport_opted = bool(s.get("transportOpted"))
+        transport_amt = int(s.get("transportAmount") or 0)
+        if transport_opted and TRANSPORT_MIN <= transport_amt <= TRANSPORT_MAX:
+            transport_billed = transport_amt
+            transport_billed_count += 1
+            transport_billed_total += transport_amt
+        else:
+            transport_billed = 0
+
+        total_due = tuition + transport_billed + DEVELOPMENT_FEE
+
         bill_id = f"{SESSION}_{FIRST_MONTH}_{snap.id}"
         db.collection("monthlyBills").document(bill_id).set({
             "session": SESSION,
@@ -321,7 +405,7 @@ if CREATE_FIRST_BILLS and imported > 0:
             "className": s.get("className"),
             "previousDue": 0,
             "tuitionBilled": tuition,
-            "transportBilled": 0,
+            "transportBilled": transport_billed,
             "devFeeBilled": DEVELOPMENT_FEE,
             "booksBilled": 0,
             "previousYearBilled": 0,
@@ -336,6 +420,11 @@ if CREATE_FIRST_BILLS and imported > 0:
             print(f"  ...{bills} bills created")
 
     print(f"✅ Created {bills} bills for {FIRST_MONTH}.")
+    if transport_billed_count:
+        print(
+            f"   Transport billed on {transport_billed_count} students "
+            f"(total ₹{transport_billed_total:,}/month)."
+        )
 
 # ---------------------------------------------------------------------------
 # 9. Summary
@@ -345,6 +434,7 @@ print("✅ FACTORY RESET COMPLETE")
 print("=" * 60)
 print(f"  Session:           {SESSION}")
 print(f"  Students imported: {imported}")
+print(f"  Transport (opted): {transport_summary['opted']}")
 if CREATE_FIRST_BILLS:
     print(f"  First-month bills: {FIRST_MONTH}")
 print(f"  Receipt counter:   HFHS-{year}-000001 (next)")
