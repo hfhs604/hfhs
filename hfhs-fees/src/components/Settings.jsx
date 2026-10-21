@@ -43,20 +43,16 @@ export default function Settings({ session }) {
   }
 
   return (
-    <div className="fm-card" style={{ marginTop: 20 }}>
-      <h2>Monthly Billing</h2>
-      <p className="fm-hint">
-        Start a new month to bill every student's tuition (and standing
-        transport, if opted). Unpaid balances roll forward as{" "}
-        <strong>Previous Due</strong>.
+    <div className="fm-card">
+      <h2>Monthly Billing Engine</h2>
+      <p className="fm-hint" style={{ marginBottom: 16 }}>
+        Start a new month to bill every student's tuition (and standing transport, if opted). 
+        Unpaid balances roll forward as <strong>Previous Due</strong>.
       </p>
 
-      <div
-        className="fm-search-row"
-        style={{ flexDirection: "column", alignItems: "flex-start", gap: 12 }}
-      >
-        <label style={{ display: "flex", flexDirection: "column", gap: 4 }}>
-          Month to start
+      <div className="fm-filter-row" style={{ flexDirection: "column", alignItems: "flex-start", gap: 16 }}>
+        <label className="fm-inline-label">
+          Month to generate
           <input
             type="month"
             value={month}
@@ -65,14 +61,14 @@ export default function Settings({ session }) {
           />
         </label>
 
-        <label style={{ display: "flex", alignItems: "center", gap: 8 }}>
+        <label className="fm-checkbox-row">
           <input
             type="checkbox"
             checked={isFirstMonth}
             onChange={(e) => setIsFirstMonth(e.target.checked)}
             disabled={busy}
           />
-          First month of session (bills Development Fee ₹3150)
+          This is the first month of the session (bills Development Fee ₹3150)
         </label>
 
         <button
@@ -80,52 +76,41 @@ export default function Settings({ session }) {
           className="fm-primary-btn"
           onClick={handleStartMonth}
           disabled={busy || !month}
+          style={{ marginTop: 8 }}
         >
-          {busy ? "Creating bills…" : "Start New Month"}
+          {busy ? "Generating bills…" : "🚀 Start New Month"}
         </button>
       </div>
 
       {status && (
         <p
           style={{
-            color: status.ok ? "#059669" : "#dc2626",
-            marginTop: 12,
-            fontWeight: 500,
+            color: status.ok ? "#16a34a" : "#dc2626",
+            marginTop: 16,
+            fontWeight: 600,
+            background: status.ok ? "#dcfce7" : "#fee2e2",
+            padding: 12,
+            borderRadius: 6
           }}
         >
           {status.message}
         </p>
       )}
 
-      <details
-        style={{
-          marginTop: 20,
-          padding: 12,
-          background: "#f9fafb",
-          borderRadius: 6,
-          fontSize: "0.9em",
-        }}
-      >
-        <summary style={{ cursor: "pointer", fontWeight: 600 }}>
-          When should I click this?
-        </summary>
-        <ul style={{ margin: "8px 0 0", paddingLeft: 20 }}>
+      <div style={{ marginTop: 24, padding: 16, background: "#f8fafc", borderRadius: 8, border: "1px solid #e2e8f0" }}>
+        <h4 style={{ margin: "0 0 8px", color: "#1e293b" }}>When should I click this?</h4>
+        <ul style={{ margin: 0, paddingLeft: 20, fontSize: 13, color: "#475569", lineHeight: 1.6 }}>
           <li>
-            <strong>Once, at the start of the session (April):</strong> tick
-            "First month" so Development Fee ₹3150 is billed.
+            <strong>Once, at the start of the session (April):</strong> tick "First month" so Development Fee ₹3150 is billed.
           </li>
           <li>
-            <strong>On the 1st of every later month:</strong> leave the box
-            unticked. Only tuition (+ standing transport) is billed; last
-            month's unpaid balance carries forward.
+            <strong>On the 1st of every later month:</strong> leave the box unticked. Only tuition (+ standing transport) is billed; last month's unpaid balance carries forward.
           </li>
           <li>
-            <strong>Safe to re-run</strong> for the same month — bills are
-            overwritten, not duplicated. But never re-run a month after
-            payments have been collected.
+            <strong>Safe to re-run</strong> for the same month — bills are overwritten, not duplicated. But never re-run a month after payments have been collected.
           </li>
         </ul>
-      </details>
+      </div>
     </div>
   );
 }
