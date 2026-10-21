@@ -91,6 +91,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
   async function selectStudent(student) {
     setSelectedStudent(student);
+    setResults([]); // Hide search results immediately
     setIdempotencyKey(uuidv4());
     setError(null);
     setAddonMsg("");
@@ -262,20 +263,55 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
         <button type="submit" className="fm-primary-btn" style={{ padding: "0 24px" }}>Search</button>
       </form>
 
+      {/* PROFESSIONAL SEARCH RESULTS TABLE */}
       {results.length > 0 && !selectedStudent && (
-        <ul className="fm-result-list">
-          {results.map((s) => (
-            <li key={s.id} onClick={() => selectStudent(s)}>
-              <strong>{s.name}</strong> — Adm# {s.admissionNumber} — Class {s.className}
-            </li>
-          ))}
-        </ul>
+        <div className="fm-table-scroll" style={{ maxHeight: 300, marginBottom: 20 }}>
+          <table className="fm-table">
+            <thead>
+              <tr>
+                <th>Name</th>
+                <th>Adm#</th>
+                <th>Class</th>
+                <th style={{ textAlign: "center" }}>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              {results.map((s) => (
+                <tr key={s.id} onClick={() => selectStudent(s)} style={{ cursor: "pointer" }}>
+                  <td className="wrap-text" style={{ fontWeight: 600, color: "var(--primary-blue)" }}>
+                    {s.name}
+                  </td>
+                  <td>{s.admissionNumber}</td>
+                  <td>{s.className}{s.section ? `-${s.section}` : ""}</td>
+                  <td style={{ textAlign: "center" }}>
+                    <button
+                      type="button"
+                      className="fm-btn-sm"
+                      onClick={(e) => { e.stopPropagation(); selectStudent(s); }}
+                    >
+                      Select
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
       )}
 
       {selectedStudent && (
         <>
           <div className="fm-student-header">
-            <h3>{selectedStudent.name}</h3>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <h3>{selectedStudent.name}</h3>
+              <button
+                type="button"
+                className="fm-link-btn"
+                onClick={() => { setSelectedStudent(null); setBill(null); }}
+              >
+                ✕ Clear Selection
+              </button>
+            </div>
             <p>
               Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}
               {selectedStudent.rollNumber ? ` · Roll ${selectedStudent.rollNumber}` : ""}
@@ -322,9 +358,9 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
               {/* RIGHT COLUMN: STATS */}
               <div>
-                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid #e2e8f0" }}>
-                  <span style={{ fontSize: 13, color: "#64748b", fontWeight: 600 }}>Session Paid (Till Date)</span>
-                  <strong style={{ color: "#16a34a", fontSize: 16 }}>₹{sessionPaid}</strong>
+                <div className="fm-bill-session-line">
+                  <span>Session Paid (Till Date)</span>
+                  <strong style={{ color: "var(--success-green)" }}>₹{sessionPaid}</strong>
                 </div>
 
                 <div className="fm-stats-grid">
@@ -334,7 +370,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                   </div>
                   <div className="fm-stat-cell">
                     <span className="fm-stat-cell-label">Paid (This Month)</span>
-                    <span className="fm-stat-cell-value" style={{ color: "#16a34a" }}>₹{displayTotalPaidThisMonth}</span>
+                    <span className="fm-stat-cell-value" style={{ color: "var(--success-green)" }}>₹{displayTotalPaidThisMonth}</span>
                     {lastPayment && (
                       <span className="fm-stat-cell-sub">
                         Last: {fmtDate(lastPayment.date)} · ₹{lastPayment.amount}
@@ -343,7 +379,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                   </div>
                   <div className="fm-stat-cell">
                     <span className="fm-stat-cell-label">Amount Entered</span>
-                    <span className="fm-stat-cell-value" style={{ color: "#2563eb" }}>₹{amountAdd}</span>
+                    <span className="fm-stat-cell-value" style={{ color: "var(--primary-blue)" }}>₹{amountAdd}</span>
                   </div>
                   <div className="fm-stat-cell fm-stat-cell-balance">
                     <span className="fm-stat-cell-label">Current Balance</span>
@@ -369,7 +405,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
               Amount Received (₹) *
               <input type="number" required min="0" value={form.amountReceived}
                 onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} 
-                style={{ fontSize: 16, fontWeight: 600, color: "#2563eb", borderColor: "#93c5fd" }}
+                style={{ fontSize: 16, fontWeight: 600, color: "var(--primary-blue)", borderColor: "#93c5fd" }}
               />
             </label>
 
@@ -413,7 +449,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
           </form>
 
           {error && <p className="fm-error">{error}</p>}
-          {addonMsg && <p className="fm-hint" style={{ color: "#1d4ed8", fontWeight: 500 }}>{addonMsg}</p>}
+          {addonMsg && <p className="fm-hint" style={{ color: "var(--primary-blue)", fontWeight: 500 }}>{addonMsg}</p>}
 
           <div className="fm-action-row">
             {canManageAddons && (
