@@ -26,16 +26,23 @@ export default function AttendanceTracker({ session }) {
         if (!active) return;
         setStudents(list);
 
-        const existing = await getAttendance(session, className, date);
+        let existing = null;
+        try {
+          existing = await getAttendance(session, className, date);
+        } catch (err) {
+          console.warn("No existing attendance found.");
+        }
+
         if (!active) return;
 
         const initialRecords = {};
         list.forEach(s => {
+          // Default everyone to Present if no record exists
           initialRecords[s.id] = existing?.records?.[s.id] || "Present";
         });
         setAttendance(initialRecords);
       } catch (e) {
-        if (active) setMsg("Error loading attendance.");
+        if (active) setMsg("Error loading students.");
       } finally {
         if (active) setLoading(false);
       }
@@ -43,8 +50,11 @@ export default function AttendanceTracker({ session }) {
     return () => { active = false; };
   }, [session, className, date]);
 
-  function toggleStatus(studentId, status) {
-    setAttendance(prev => ({ ...prev, [studentId]: status }));
+  function toggleStatus(studentId) {
+    setAttendance(prev => ({
+      ...prev,
+      [studentId]: prev[studentId] === "Present" ? "Absent" : "Present"
+    }));
   }
 
   async function handleSave() {
@@ -57,6 +67,7 @@ export default function AttendanceTracker({ session }) {
       setTimeout(() => setMsg(""), 3000);
     } catch (e) {
       setMsg("❌ Failed to save attendance.");
+      console.error(e);
     } finally {
       setSaving(false);
     }
@@ -82,7 +93,7 @@ export default function AttendanceTracker({ session }) {
           Date
           <input type="date" value={date} onChange={(e) => setDate(e.target.value)} />
         </label>
-        <div className="fm-inline-label" style={{ marginLeft: "auto" }}>
+        <div className="fm-inline-label" style={{ marginLeft: "auto", flexDirection: "row", gap: 16 }}>
           <span>Present: <strong style={{ color: "var(--success-green)" }}>{presentCount}</strong></span>
           <span>Absent: <strong style={{ color: "var(--danger-red)" }}>{absentCount}</strong></span>
         </div>
@@ -91,36 +102,51 @@ export default function AttendanceTracker({ session }) {
         </button>
       </div>
 
-      {msg && <p className="fm-success" style={{ marginBottom: 16 }}>{msg}</p>}
+      {msg && <p className={msg.includes("✅") ? "fm-success" : "fm-error"} style={{ marginBottom: 16 }}>{msg}</p>}
 
       {loading ? (
         <p className="fm-empty-state">Loading students…</p>
       ) : students.length === 0 ? (
-        <p className="fm-empty-state">No students found in {className}.</p>
+        <p className="fm-empty-state">No students found in Class {className}.</p>
       ) : (
         <div className="fm-compact-grid-container">
-          <div className="fm-compact-grid-header" style={{ gridTemplateColumns: "3fr 1fr 1fr 150px" }}>
+          <div className="fm-compact-grid-header" style={{ gridTemplateColumns: "3fr 1fr 1fr 120px" }}>
             <div>Student Name</div>
             <div>Roll</div>
             <div>Adm#</div>
             <div className="fm-cell-right">Status</div>
           </div>
+          
           {students.map(s => {
             const status = attendance[s.id] || "Present";
+            const isPresent = status === "Present";
+            
             return (
-              <div key={s.id} className="fm-compact-grid-row" style={{ gridTemplateColumns: "3fr 1fr 1fr 150px" }}>
+              <div key={s.id} className="fm-compact-grid-row" style={{ gridTemplateColumns: "3fr 1fr 1fr 120px" }}>
                 <div className="fm-cell-truncate" style={{ fontWeight: 600 }}>{s.name}</div>
                 <div className="fm-cell-truncate">{s.rollNumber ?? "—"}</div>
                 <div className="fm-cell-truncate">{s.admissionNumber}</div>
-                <div className="fm-compact-actions">
-                  <button 
-                    className={`fm-btn-sm ${status === "Present" ? "fm-primary-btn" : ""}`} 
-                    onClick={() => toggleStatus(s.id, "Present")}
-                  >Present</button>
-                  <button 
-                    className={`fm-btn-sm ${status === "Absent" ? "fm-btn-danger" : ""}`} 
-                    onClick={() => toggleStatus(s.id, "Absent")}
-                  >Absent</button>
+                
+                <div style={{ display: "flex", justifyContent: "flex-end" }}>
+                  <button
+                    type="button"
+                    onClick={() => toggleStatus(s.id)}
+                    style={{
+                      padding: "6px 12px",
+                      borderRadius: "20px",
+                      fontSize: "12px",
+                      fontWeight: 700,
+                      border: "none",
+                      cursor: "pointer",
+                      width: "80px",
+                      textAlign: "center",
+                      transition: "all 0.2s",
+                      background: isPresent ? "var(--success-green)" : "var(--danger-red)",
+                      color: "#fff"
+                    }}
+                  >
+                    {isPresent ? "Present" : "Absent"}
+                  </button>
                 </div>
               </div>
             );
