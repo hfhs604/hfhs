@@ -28,7 +28,7 @@
 body {
   margin: 0;
   background-color: var(--bg-main);
-  font-size: 13px; /* Base size to keep the app compact */
+  font-size: 13px;
 }
 
 /* ---------------------------------------------------------------------------
@@ -215,12 +215,12 @@ body {
   padding: 24px;
   display: flex;
   flex-direction: column;
-  align-items: center; /* Centers the max-width content */
+  align-items: center; 
 }
 
 .fm-content-inner {
   width: 100%;
-  max-width: 1100px; /* Prevents it from stretching to 100% width on 50% zoom */
+  max-width: 1100px; 
   flex: 1;
   display: flex;
   flex-direction: column;
@@ -336,6 +336,7 @@ body {
   align-items: flex-end;
 }
 
+/* Specific style for top-level filter labels */
 .fm-inline-label {
   display: flex;
   flex-direction: column;
@@ -360,6 +361,90 @@ body {
   font-size: 16px;
 }
 
+/* ---------------------------------------------------------------------------
+   Form Grid Layout (Add / Edit Student)
+   --------------------------------------------------------------------------- */
+.fm-form-section {
+  border-top: 1px solid var(--border-color);
+  margin-top: 24px;
+  padding-top: 16px;
+}
+
+.fm-form-section h3 {
+  margin: 0 0 16px;
+  font-size: 14px;
+  color: var(--sidebar-bg);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.fm-form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+}
+
+.fm-form-grid label {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-muted);
+  font-weight: 600;
+}
+
+.fm-form-grid input,
+.fm-form-grid select,
+.fm-form-grid textarea {
+  width: 100%;
+  padding: 10px 12px;
+  border: 1px solid #cbd5e1;
+  border-radius: 6px;
+  font-size: 14px;
+  background: #fff;
+  font-family: inherit;
+}
+
+.fm-form-grid input:focus,
+.fm-form-grid select:focus,
+.fm-form-grid textarea:focus {
+  outline: none;
+  border-color: var(--primary-blue);
+  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.fm-form-grid textarea {
+  resize: vertical;
+  min-height: 80px;
+}
+
+.fm-form-grid .fm-full-width {
+  grid-column: 1 / -1;
+}
+
+.fm-checkbox-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 13px;
+  color: var(--text-main);
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.fm-checkbox-row input[type="checkbox"] {
+  width: 16px;
+  height: 16px;
+  cursor: pointer;
+}
+
+.fm-doc-checkbox-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 16px;
+  margin-top: 8px;
+}
+
 /* Payment Form Grid */
 .fm-payment-form {
   display: grid;
@@ -374,7 +459,7 @@ body {
   flex-direction: column;
   gap: 6px;
   font-size: 12px;
-  color: #475569;
+  color: var(--text-muted);
   font-weight: 600;
 }
 
@@ -383,21 +468,15 @@ body {
 .fm-payment-form textarea {
   padding: 10px 12px;
   border: 1px solid #cbd5e1;
-  border-radius: 8px;
+  border-radius: 6px;
   font-size: 14px;
   background: #fff;
-  transition: border-color 0.2s, box-shadow 0.2s;
 }
 
 .fm-payment-form input:focus,
 .fm-payment-form select:focus {
   outline: none;
   border-color: var(--primary-blue);
-  box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
-}
-
-.fm-full-width {
-  grid-column: 1 / -1;
 }
 
 /* ---------------------------------------------------------------------------
@@ -429,7 +508,6 @@ body {
   border-bottom: 1px solid var(--border-color);
 }
 
-/* Premium Stat Boxes */
 .fm-stats-grid {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -741,6 +819,7 @@ body {
   .fm-sidebar-nav { flex-direction: row; overflow-x: auto; }
   .fm-nav-btn { white-space: nowrap; }
   .fm-bill-two-col { grid-template-columns: 1fr; }
+  .fm-form-grid { grid-template-columns: 1fr; }
   .fm-payment-form { grid-template-columns: 1fr; }
 }
 
