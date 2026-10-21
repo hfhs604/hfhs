@@ -16,7 +16,7 @@ import DueManagement from "./DueManagement";
 import DiscountManager from "./DiscountManager";
 import Reports from "./Reports";
 import AuditLogViewer from "./AuditLogViewer";
-import Settings from "./Settings"; // <--- Imported here
+import Settings from "./Settings";
 import StudentPortal from "./StudentPortal";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import RelatedStudentsLookup from "./RelatedStudentsLookup";
@@ -190,7 +190,10 @@ export default function FeeManagementApp({ onLogout }) {
             <button
               key={t.key}
               className={`fm-nav-btn ${activeTab === t.key ? "fm-nav-btn-active" : ""}`}
-              onClick={() => setActiveTab(t.key)}
+              onClick={() => {
+                setActiveTab(t.key);
+                if (t.key !== "collect") setSelectedStudentId(null);
+              }}
             >
               {t.label}
             </button>
@@ -238,8 +241,10 @@ export default function FeeManagementApp({ onLogout }) {
                 session={session}
                 role={role}
                 onSelectStudent={(id) => {
+                  // THIS IS THE FIX: Switch to collect tab and pass the ID
                   setSelectedStudentId(id);
-                  setActiveTab("reports"); 
+                  setCollectTab("single");
+                  setActiveTab("collect");
                 }}
               />
             )}
@@ -266,6 +271,7 @@ export default function FeeManagementApp({ onLogout }) {
                     session={session}
                     month={currentMonth}
                     role={role}
+                    initialStudentId={selectedStudentId} // <--- PASS THE ID HERE
                     onReceiptGenerated={(receipt) => setLastReceipt(receipt)}
                   />
                 )}
@@ -336,7 +342,6 @@ export default function FeeManagementApp({ onLogout }) {
 
                 {settingsTab === "sessions" && (
                   <div>
-                    {/* THE MISSING MONTHLY BILLING BUTTON IS HERE */}
                     <Settings session={session} />
 
                     <div className="fm-card" style={{ marginTop: 20 }}>
