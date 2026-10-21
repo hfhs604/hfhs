@@ -108,17 +108,25 @@ export default function BatchFeeCollection({
     setRows((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
   }
 
+  // Search includes Name, Adm#, Father's Name, and Mobile
   const filteredStudents = allStudents.filter((s) => {
     if (!search.trim()) return true;
     const t = search.trim().toLowerCase();
-    return (
-      String(s.name || "").toLowerCase().includes(t) ||
-      String(s.admissionNumber || "").toLowerCase().includes(t)
-    );
+    
+    const searchString = [
+      s.name,
+      s.admissionNumber,
+      s.fatherName,
+      s.motherName,
+      s.guardianName,
+      s.mobileNumber,
+      s.fatherMobile
+    ].filter(Boolean).join(" ").toLowerCase();
+
+    return searchString.includes(t);
   });
 
   const selectedList = allStudents.filter((s) => selectedIds.has(s.id));
-
   const grandTotal = selectedList.reduce((sum, s) => sum + Number(rows[s.id]?.amount || 0), 0);
 
   async function handleSubmit() {
@@ -190,7 +198,7 @@ export default function BatchFeeCollection({
       <div className="fm-search-row">
         <input
           type="text"
-          placeholder="Search by name or admission no."
+          placeholder="Search by student name, admission no, or parent name..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
@@ -200,7 +208,7 @@ export default function BatchFeeCollection({
       {loadingStudents ? (
         <p className="fm-empty-state">Loading students…</p>
       ) : (
-        <div className="fm-table-scroll" style={{ maxHeight: 260, overflowY: "auto", marginBottom: 20 }}>
+        <div className="fm-table-scroll" style={{ maxHeight: 300, overflowY: "auto", marginBottom: 20 }}>
           <table className="fm-table">
             <thead>
               <tr>
@@ -208,19 +216,29 @@ export default function BatchFeeCollection({
                 <th>Name</th>
                 <th>Adm#</th>
                 <th>Class</th>
+                <th>Father / Guardian</th>
               </tr>
             </thead>
             <tbody>
-              {filteredStudents.map((s) => (
-                <tr key={s.id} onClick={() => toggleStudent(s.id)} style={{ cursor: "pointer" }}>
-                  <td>
-                    <input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => toggleStudent(s.id)} onClick={(e) => e.stopPropagation()} />
+              {filteredStudents.length === 0 ? (
+                <tr>
+                  <td colSpan={5} style={{ textAlign: "center", padding: 20 }}>
+                    No students matched your search.
                   </td>
-                  <td className="wrap-text" style={{ fontWeight: 600 }}>{s.name}</td>
-                  <td>{s.admissionNumber}</td>
-                  <td>{s.className}</td>
                 </tr>
-              ))}
+              ) : (
+                filteredStudents.map((s) => (
+                  <tr key={s.id} onClick={() => toggleStudent(s.id)} style={{ cursor: "pointer" }}>
+                    <td>
+                      <input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => toggleStudent(s.id)} onClick={(e) => e.stopPropagation()} />
+                    </td>
+                    <td className="wrap-text" style={{ fontWeight: 600 }}>{s.name}</td>
+                    <td>{s.admissionNumber}</td>
+                    <td>{s.className}{s.section ? `-${s.section}` : ""}</td>
+                    <td className="wrap-text">{s.fatherName || s.guardianName || "—"}</td>
+                  </tr>
+                ))
+              )}
             </tbody>
           </table>
         </div>
@@ -228,7 +246,7 @@ export default function BatchFeeCollection({
 
       {selectedList.length > 0 && (
         <>
-          <h3 style={{ marginTop: 22 }}>Selected students ({selectedList.length})</h3>
+          <h3 style={{ marginTop: 22, marginBottom: 12 }}>Selected students ({selectedList.length})</h3>
           <div className="fm-table-scroll">
             <table className="fm-table">
               <thead>
@@ -249,14 +267,14 @@ export default function BatchFeeCollection({
                       <td className="wrap-text" style={{ fontWeight: 600 }}>{s.name}</td>
                       <td>{r.loadingBill ? "Loading…" : r.bill === null ? "No bill" : `₹${(r.bill?.carriedForward || 0).toLocaleString()}`}</td>
                       <td>
-                        <input type="number" min="0" value={r.amount ?? ""} onChange={(e) => updateRow(s.id, "amount", e.target.value)} style={{ width: 100, padding: 8 }} />
+                        <input type="number" min="0" value={r.amount ?? ""} onChange={(e) => updateRow(s.id, "amount", e.target.value)} style={{ width: 100, padding: 8, border: "1px solid #cbd5e1", borderRadius: 4 }} />
                       </td>
                       <td>
-                        <select value={r.method || sharedMethod} onChange={(e) => updateRow(s.id, "method", e.target.value)}>
+                        <select value={r.method || sharedMethod} onChange={(e) => updateRow(s.id, "method", e.target.value)} style={{ padding: 8, border: "1px solid #cbd5e1", borderRadius: 4 }}>
                           {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
                         </select>
                       </td>
-                      <td><input type="text" value={r.ref || ""} onChange={(e) => updateRow(s.id, "ref", e.target.value)} style={{ width: 120, padding: 8 }} /></td>
+                      <td><input type="text" value={r.ref || ""} onChange={(e) => updateRow(s.id, "ref", e.target.value)} style={{ width: 120, padding: 8, border: "1px solid #cbd5e1", borderRadius: 4 }} /></td>
                       <td><button type="button" className="fm-link-btn" onClick={() => toggleStudent(s.id)}>Remove</button></td>
                     </tr>
                   );
