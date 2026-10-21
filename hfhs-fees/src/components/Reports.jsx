@@ -12,9 +12,6 @@ const REPORT_TYPES = [
   "Discount / Concession", "Transaction History",
 ];
 
-// Explicit column definitions per report type. This fixes the field-order
-// mismatch bug where different transaction rows had their keys in different
-// orders, causing React to render cells into the wrong columns.
 const COLUMNS = {
   collection: [
     { key: "receiptNumber",   label: "Receipt#" },
@@ -60,6 +57,17 @@ const COLUMNS = {
     { key: "netAmount",     label: "Amount (₹)", format: fmtMoney },
     { key: "discount",      label: "Discount",   format: fmtMoney },
     { key: "lateFee",       label: "Late Fee",   format: fmtMoney },
+    { key: "remarks",       label: "Remarks" },
+  ],
+  transactionHistory: [
+    { key: "createdAt",     label: "Date",       format: formatTimestamp },
+    { key: "receiptNumber", label: "Receipt#" },
+    { key: "studentName",   label: "Student" },
+    { key: "studentId",     label: "Adm#" },
+    { key: "feeType",       label: "Fee Type" },
+    { key: "paymentMethod", label: "Method" },
+    { key: "netAmount",     label: "Amount (₹)", format: fmtMoney },
+    { key: "collectedByEmail", label: "Collected By" },
     { key: "remarks",       label: "Remarks" },
   ],
 };
@@ -167,7 +175,8 @@ export default function Reports({ session }) {
         case "Transaction History": {
           const r = await getTransactionHistoryReport(baseFilters);
           setRows(r);
-          setColumns(COLUMNS.collection);
+          setColumns(COLUMNS.transactionHistory);
+          setSummary("Includes payment and charge rows (charges marked \"(charge)\").");
           break;
         }
         default:
