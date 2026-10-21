@@ -1,9 +1,11 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   getCollectionReport, getClassWiseCollectionReport, getStudentStatement,
   getDueReport, getAdvanceReport, getPaymentMethodReport, getDiscountReport,
   getTransactionHistoryReport, exportToCSV, getAllStudents,
 } from "../firebase/reportsService";
+import { deleteTransaction, getUserRoleOnce } from "../firebase/feeService";
+import { auth } from "../firebase/config";
 import "../styles/feeManagement.css";
 
 const REPORT_TYPES = [
@@ -19,14 +21,12 @@ const COLUMNS = {
     { key: "studentName",     label: "Student" },
     { key: "studentId",       label: "Adm#" },
     { key: "feeType",         label: "Fee Type" },
-    { key: "componentType",   label: "Component" },
     { key: "paymentMethod",   label: "Method" },
     { key: "netAmount",       label: "Amount (₹)", format: fmtMoney },
     { key: "discount",        label: "Discount", format: fmtMoney },
     { key: "lateFee",         label: "Late Fee", format: fmtMoney },
     { key: "referenceNumber", label: "Ref#" },
     { key: "collectedByEmail", label: "Collected By" },
-    { key: "remarks",         label: "Remarks" },
   ],
   classWise: [
     { key: "className",  label: "Class" },
@@ -40,7 +40,6 @@ const COLUMNS = {
     { key: "admissionNumber", label: "Adm#" },
     { key: "className",    label: "Class" },
     { key: "guardianName", label: "Guardian" },
-    { key: "mobileNumber", label: "Mobile" },
     { key: "totalFee",     label: "Total Fee",   format: fmtMoney },
     { key: "totalPaid",    label: "Paid",        format: fmtMoney },
     { key: "totalDue",     label: "Due",         format: fmtMoney },
@@ -68,7 +67,6 @@ const COLUMNS = {
     { key: "paymentMethod", label: "Method" },
     { key: "netAmount",     label: "Amount (₹)", format: fmtMoney },
     { key: "collectedByEmail", label: "Collected By" },
-    { key: "remarks",       label: "Remarks" },
   ],
 };
 
@@ -102,10 +100,41 @@ export default function Reports({ session }) {
   const [filters, setFilters] = useState({
     fromDate: "", toDate: "", className: "", paymentMethod: "", studentAdm: "",
   });
+  
   const [rows, setRows] = useState(null);
   const [summary, setSummary] = useState(null);
   const [columns, setColumns] = useState([]);
   const [loading, setLoading] = useState(false);
+  
+  // State for deletion
+  const [role, setRole] = useState(null);
+  const [deleteBusy, setDeleteBusy] = useState(null);
+
+  // State for Recent Transactions (Top Section)
+  const [recentTxns, setRecentTxns] = useState([]);
+  const [loadingRecent, setLoadingRecent] = useState(true);
+
+  // Fetch user role and recent transactions on mount
+  useEffect(() => {
+    (async () => {
+      if (auth.currentUser) {
+        const doc = await getUserRoleOnce(auth.currentUser.uid);
+        setRole(doc?.role || null);
+      }
+      
+      try {
+        // Fetch last 5 transactions for the session
+        const allTxns = await getTransactionHistoryReport({ session });
+        setRecentTxns(allTxns.slice(0, 5));
+      } catch (err) {
+        console.warn("Could not load recent transactions:", err);
+      } finally {
+        setLoadingRecent(false);
+      }
+    })();
+  }, [session]);
+
+  const isSuperAdmin = role === "superAdmin";
 
   async function runReport() {
     setLoading(true);
@@ -190,15 +219,118 @@ export default function Reports({ session }) {
     }
   }
 
+  function viewAllTransactions() {
+    setReportType("Transaction History");
+    setFilters(prev => ({ ...prev, fromDate: "", toDate: "", className: "", paymentMethod: "" }));
+    // We need to trigger the report after state updates, so we do it manually here
+    setLoading(true);
+    getTransactionHistoryReport({ session }).then(r => {
+      setRows(r);
+      setColumns(COLUMNS.transactionHistory);
+      setSummary("Includes payment and charge rows (charges marked \"(charge)\").");
+      setLoading(false);
+    }).catch(err => {
+      setSummary(`Error: ${err.message}`);
+      setLoading(false);
+    });
+  }
+
+  async function handleDelete(txn) {
+    const isCharge = txn.isCharge === true;
+    const amount = isCharge ? txn.chargedAmount : txn.netAmount;
+    
+    const ok = window.confirm(
+      `Delete this transaction?\n\n` +
+        `Amount: ₹${amount || 0}\n` +
+        `Type: ${txn.feeType || txn.componentType || "monthly"}${isCharge ? " (charge)" : ""}\n` +
+        `Date: ${formatTimestamp(txn.createdAt)}\n\n` +
+        `This will:\n` +
+        (isCharge ? `• Remove the charge from the bill\n` : `• Reverse the payment from the bill\n`) +
+        `• Delete the receipt\n` +
+        `• Log the action in the audit trail\n\n` +
+        `This cannot be undone.`
+    );
+    if (!ok) return;
+
+    setDeleteBusy(txn.id);
+    try {
+      await deleteTransaction(txn.id, "Deleted from Reports");
+      // Refresh both the recent list and the main report if open
+      const updatedTxns = await getTransactionHistoryReport({ session });
+      setRecentTxns(updatedTxns.slice(0, 5));
+      if (reportType === "Transaction History") {
+        setRows(updatedTxns);
+      }
+    } catch (err) {
+      alert(`❌ ${err.message}`);
+    } finally {
+      setDeleteBusy(null);
+    }
+  }
+
   const activeColumns = columns.length > 0
     ? columns
     : (rows && rows.length > 0
         ? Object.keys(rows[0]).map((k) => ({ key: k, label: k }))
         : []);
 
+  const showDeleteColumn = (reportType === "Transaction History" || reportType === "Recent") && isSuperAdmin;
+
   return (
     <div className="fm-card">
-      <h2>Reports</h2>
+      
+      {/* RECENT TRANSACTIONS TOP SECTION */}
+      <div style={{ marginBottom: 32, paddingBottom: 24, borderBottom: "1px solid var(--border-color)" }}>
+        <div className="fm-row-header">
+          <h2>Recent Transactions</h2>
+          <button className="fm-primary-btn" onClick={viewAllTransactions}>
+            View All History
+          </button>
+        </div>
+
+        {loadingRecent ? (
+          <p className="fm-empty-state">Loading recent transactions…</p>
+        ) : recentTxns.length === 0 ? (
+          <p className="fm-empty-state">No transactions recorded yet.</p>
+        ) : (
+          <div className="fm-table-scroll">
+            <table className="fm-table">
+              <thead>
+                <tr>
+                  {COLUMNS.transactionHistory.map((c) => <th key={c.key}>{c.label}</th>)}
+                  {showDeleteColumn && <th style={{ width: 80, textAlign: "center" }}>Action</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {recentTxns.map((row) => (
+                  <tr key={row.id}>
+                    {COLUMNS.transactionHistory.map((c) => {
+                      const raw = row[c.key];
+                      const val = c.format ? c.format(raw) : (raw ?? "—");
+                      return <td key={c.key} className="wrap-text">{String(val)}</td>;
+                    })}
+                    {showDeleteColumn && (
+                      <td style={{ textAlign: "center" }}>
+                        <button
+                          type="button"
+                          className="fm-btn-sm fm-btn-danger"
+                          onClick={() => handleDelete(row)}
+                          disabled={deleteBusy === row.id}
+                        >
+                          {deleteBusy === row.id ? "…" : "🗑"}
+                        </button>
+                      </td>
+                    )}
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
+
+      {/* MAIN REPORTS SECTION */}
+      <h2>Generate Report</h2>
 
       <div className="fm-filter-row" style={{ flexWrap: "wrap" }}>
         <select value={reportType} onChange={(e) => setReportType(e.target.value)}>
@@ -243,6 +375,7 @@ export default function Reports({ session }) {
               <thead>
                 <tr>
                   {activeColumns.map((c) => <th key={c.key}>{c.label}</th>)}
+                  {showDeleteColumn && <th style={{ width: 80, textAlign: "center" }}>Action</th>}
                 </tr>
               </thead>
               <tbody>
@@ -253,6 +386,18 @@ export default function Reports({ session }) {
                       const val = c.format ? c.format(raw) : (raw ?? "—");
                       return <td key={c.key} className="wrap-text">{String(val)}</td>;
                     })}
+                    {showDeleteColumn && (
+                      <td style={{ textAlign: "center" }}>
+                        <button
+                          type="button"
+                          className="fm-btn-sm fm-btn-danger"
+                          onClick={() => handleDelete(row)}
+                          disabled={deleteBusy === row.id}
+                        >
+                          {deleteBusy === row.id ? "…" : "🗑"}
+                        </button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
