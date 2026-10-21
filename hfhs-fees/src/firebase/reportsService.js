@@ -162,7 +162,7 @@ async function fetchTransactions({
         fsLimit(MAX_QUERY_RESULTS)
       )
     );
-    // Exclude charge transactions client-side (safe for legacy docs lacking isCharge).
+    // Exclude charge transactions client-side.
     let rows = snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
       .filter((r) => r.isCharge !== true && Number(r.netAmount || 0) > 0);
@@ -268,7 +268,7 @@ export async function getPaymentMethodReport(filters = {}) {
   const rows = await fetchTransactions(filters);
   const byMethod = {};
   rows.forEach((r) => {
-    if (r.isCharge === true) return; // belt-and-braces; already filtered
+    if (r.isCharge === true) return;
     const method = r.paymentMethod || "Unknown";
     byMethod[method] = (byMethod[method] || 0) + (r.netAmount || 0);
   });
@@ -294,10 +294,6 @@ export async function getDiscountReport({ fromDate, toDate } = {}) {
   }
 }
 
-/**
- * Transaction History: INCLUDES charges (marked in feeType) so the ledger
- * is complete. Money totals in other reports remain charge-free.
- */
 export async function getTransactionHistoryReport(filters = {}) {
   const { fromDate, toDate, session, className } = filters || {};
   let clauses = [where("voided", "==", false)];
@@ -363,7 +359,7 @@ export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}
     }
 
     rows.forEach((r) => {
-      if (r.isCharge === true) return; // charges aren't collection
+      if (r.isCharge === true) return;
 
       let paidAt = null;
       if (r.paymentDate) {
