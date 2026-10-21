@@ -1,5 +1,5 @@
 /* ===========================================================================
-   feeManagement.css - Final Complete Version
+   feeManagement.css - Final Complete Version with CSS Grid
    =========================================================================== */
 
 :root {
@@ -558,7 +558,7 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Tables (Header and Body matched in size)
+   Tables (Used in Reports)
    --------------------------------------------------------------------------- */
 .fm-table-scroll {
   width: 100%;
@@ -572,7 +572,6 @@ body {
   border-collapse: collapse;
 }
 
-/* Header */
 .fm-table th {
   text-align: left;
   padding: 8px 12px;
@@ -585,7 +584,6 @@ body {
   white-space: nowrap;
 }
 
-/* Body - matched to header size */
 .fm-table td {
   padding: 8px 12px;
   border-bottom: 1px solid var(--border-color);
@@ -612,6 +610,84 @@ body {
   white-space: normal !important;
   word-wrap: break-word;
 }
+
+/* ---------------------------------------------------------------------------
+   COMPACT GRID STUDENT LIST (NEW)
+   --------------------------------------------------------------------------- */
+.fm-compact-grid-container {
+  width: 100%;
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  background: #fff;
+  overflow: hidden;
+}
+
+.fm-compact-grid-header {
+  display: grid;
+  /* Defines the width of every column to match the image */
+  grid-template-columns: 2.5fr 0.8fr 0.8fr 0.8fr 2fr 2fr 1fr 1fr 100px;
+  background: #f8fafc;
+  border-bottom: 2px solid var(--border-color);
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.fm-compact-grid-row {
+  display: grid;
+  /* Must match the header exactly */
+  grid-template-columns: 2.5fr 0.8fr 0.8fr 0.8fr 2fr 2fr 1fr 1fr 100px;
+  padding: 6px 12px;
+  border-bottom: 1px solid var(--border-color);
+  align-items: center;
+  font-size: 12px; /* Very compact font size */
+  color: var(--text-main);
+  transition: background 0.15s;
+}
+
+.fm-compact-grid-row:hover {
+  background-color: #f8fafc;
+  cursor: pointer;
+}
+
+.fm-compact-grid-row:last-child {
+  border-bottom: none;
+}
+
+/* Cell alignment utilities */
+.fm-cell-right { text-align: right; }
+.fm-cell-center { text-align: center; }
+.fm-cell-nowrap { white-space: nowrap; }
+.fm-cell-truncate {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  padding-right: 8px;
+}
+
+/* Compact action buttons */
+.fm-compact-actions {
+  display: flex;
+  gap: 4px;
+  justify-content: flex-end;
+}
+
+.fm-btn-icon {
+  background: #fff;
+  border: 1px solid var(--border-color);
+  border-radius: 4px;
+  padding: 4px 6px;
+  font-size: 12px;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+
+.fm-btn-icon:hover { background: #f1f5f9; }
+.fm-btn-icon.danger { color: var(--danger-red); border-color: #fecaca; }
+.fm-btn-icon.danger:hover { background: #fee2e2; }
 
 /* ---------------------------------------------------------------------------
    Dashboard Single-Page Layout
@@ -782,6 +858,29 @@ body {
   overflow-y: auto;
 }
 
+.fm-modal-wide {
+  max-width: 820px;
+}
+
+.fm-modal-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid #e5e7eb;
+}
+
+.fm-modal-close {
+  background: none;
+  border: none;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
+  color: #6b7280;
+  padding: 0 6px;
+}
+
 .fm-empty-state {
   padding: 40px 16px;
   text-align: center;
@@ -813,6 +912,7 @@ body {
    --------------------------------------------------------------------------- */
 @media (max-width: 1024px) {
   .fm-dashboard-charts { grid-template-columns: 1fr; }
+  .fm-compact-grid-header, .fm-compact-grid-row { grid-template-columns: 2fr 0.8fr 0.8fr 0.8fr 1.5fr 1.5fr 1fr 1fr 80px; font-size: 11px; }
 }
 
 @media (max-width: 768px) {
