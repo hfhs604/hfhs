@@ -21,6 +21,8 @@ import StudentPortal from "./StudentPortal";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import RelatedStudentsLookup from "./RelatedStudentsLookup";
 import AdvancesList from "./AdvancesList";
+import AttendanceTracker from "./AttendanceTracker";
+import ExamManager from "./ExamManager";
 import schoolLogo from "../assets/school-logo.jpg";
 import "../styles/feeManagement.css";
 
@@ -29,6 +31,8 @@ const NAV_SECTIONS = [
   { key: "students", label: "Students", roles: ["superAdmin", "admin", "accountant"] },
   { key: "collect", label: "Fee Collection", roles: ["superAdmin", "admin", "accountant"] },
   { key: "dues", label: "Dues & Advances", roles: ["superAdmin", "admin", "accountant"] },
+  { key: "attendance", label: "Attendance", roles: ["superAdmin", "admin", "staff", "accountant"] },
+  { key: "exams", label: "Exams & Marks", roles: ["superAdmin", "admin", "staff"] },
   { key: "reports", label: "Reports", roles: ["superAdmin", "admin", "accountant"] },
   { key: "settings", label: "Settings", roles: ["superAdmin"] },
 ];
@@ -241,7 +245,6 @@ export default function FeeManagementApp({ onLogout }) {
                 session={session}
                 role={role}
                 onSelectStudent={(id) => {
-                  // THIS IS THE FIX: Switch to collect tab and pass the ID
                   setSelectedStudentId(id);
                   setCollectTab("single");
                   setActiveTab("collect");
@@ -271,7 +274,7 @@ export default function FeeManagementApp({ onLogout }) {
                     session={session}
                     month={currentMonth}
                     role={role}
-                    initialStudentId={selectedStudentId} // <--- PASS THE ID HERE
+                    initialStudentId={selectedStudentId}
                     onReceiptGenerated={(receipt) => setLastReceipt(receipt)}
                   />
                 )}
@@ -316,6 +319,9 @@ export default function FeeManagementApp({ onLogout }) {
                 {duesTab === "advance" && <AdvancesList session={session} />}
               </div>
             )}
+
+            {activeTab === "attendance" && <AttendanceTracker session={session} />}
+            {activeTab === "exams" && <ExamManager session={session} />}
 
             {activeTab === "reports" && (
               <div>
