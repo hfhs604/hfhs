@@ -1,4 +1,4 @@
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import {
   searchStudents,
@@ -8,6 +8,7 @@ import {
   addPreviousYearBalance,
   addKitFee,
   getStudentPaymentSummary,
+  getStudentFeeProfile,
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
@@ -28,7 +29,7 @@ function fmtDate(d) {
   }
 }
 
-export default function FeeCollection({ session, month, onReceiptGenerated, role }) {
+export default function FeeCollection({ session, month, onReceiptGenerated, role, initialStudentId }) {
   const canManageAddons = ADDON_ROLES.includes(role);
 
   const [searchTerm, setSearchTerm] = useState("");
@@ -61,6 +62,41 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     lateFee: 0,
     remarks: "",
   });
+
+  // AUTO-LOAD STUDENT FROM PARENT
+  useEffect(() => {
+    if (!initialStudentId) return;
+    
+    let active = true;
+    setLoadingBill(true);
+    
+    (async () => {
+      try {
+        const student = await getStudentFeeProfile(initialStudentId);
+        if (!active || !student) return;
+        
+        setSelectedStudent(student);
+        setIdempotencyKey(uuidv4());
+        setError(null);
+        setAddonMsg("");
+
+        const [b, summary] = await Promise.all([
+          getMonthlyBill(session, month, student.id),
+          getStudentPaymentSummary(student.id, session, month),
+        ]);
+        if (!active) return;
+        setBill(b);
+        setSessionPaid(summary.sessionTotal);
+        setLastPayment(summary.lastPayment);
+      } catch (e) {
+        if (active) setError(e.message || "Could not load student bill.");
+      } finally {
+        if (active) setLoadingBill(false);
+      }
+    })();
+    
+    return () => { active = false; };
+  }, [initialStudentId, session, month]);
 
   async function refreshAll(studentId) {
     setLoadingBill(true);
@@ -307,7 +343,11 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
               <button
                 type="button"
                 className="fm-link-btn"
-                onClick={() => { setSelectedStudent(null); setBill(null); }}
+                onClick={() => { 
+                  setSelectedStudent(null); 
+                  setBill(null); 
+                  onReceiptGenerated?.(null); // optional clear
+                }}
               >
                 ✕ Clear Selection
               </button>
@@ -516,17 +556,4 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             />
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
               <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>Cancel</button>
-              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}>
-                {promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      <PrintManager active={!!receiptPopup} onClose={() => setReceiptPopup(null)} type="receipt">
-        {receiptPopup && <ReceiptPrintSheet receipts={[receiptPopup]} />}
-      </PrintManager>
-    </div>
-  );
-}
+              <button type="button" className="fm-primary
