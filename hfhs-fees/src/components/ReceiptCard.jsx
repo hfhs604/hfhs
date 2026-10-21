@@ -10,15 +10,18 @@ export default function ReceiptCard({ receipt, school }) {
     amountReceivedThisTransaction,
   } = receipt;
 
+  // Core values from the transaction
   const disc = Number(discount || 0);
   const late = Number(lateFee || 0);
   const prevDue = Number(previousDue || 0);
   const thisAmount = Number(amountReceivedThisTransaction ?? amountReceived ?? 0);
-  const amountReceivedNow = thisAmount + late - disc;
-  const totalAmount = Number(totalDue || 0) || (prevDue + amountReceivedNow);
+  
+  // The total that was billed for this transaction
+  const totalAmount = Number(totalDue || 0) || (prevDue + thisAmount);
   const balance = Number(remainingDue || 0);
   const chargeAmt = Number(chargedAmount || 0);
 
+  // Build the particulars table.
   let rows = Array.isArray(passedParticulars) && passedParticulars.length > 0
     ? passedParticulars.map((p) => ({ ...p }))
     : [];
@@ -49,6 +52,9 @@ export default function ReceiptCard({ receipt, school }) {
     ? (receipt.createdAt?.toDate?.()?.toLocaleDateString?.() || "—")
     : paymentDate;
 
+  // Calculate display values safely without negative numbers breaking the layout
+  const displayAmountReceived = isCharge ? chargeAmt : thisAmount;
+  
   return (
     <div className="receipt-card">
       <header className="receipt-header">
@@ -130,7 +136,7 @@ export default function ReceiptCard({ receipt, school }) {
         {!isCharge && (
           <div className="receipt-summary-line">
             <span>Amount Received</span>
-            <span>₹{amountReceivedNow.toFixed(0)}</span>
+            <span>₹{displayAmountReceived.toFixed(0)}</span>
           </div>
         )}
         {isCharge && (
@@ -141,7 +147,7 @@ export default function ReceiptCard({ receipt, school }) {
         )}
         <div className="receipt-summary-line receipt-summary-balance">
           <span>Balance</span>
-          <span>₹{balance.toFixed(0)}</span>
+          <span>₹{Math.max(balance, 0).toFixed(0)}</span>
         </div>
       </div>
 
