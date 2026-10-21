@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { collectPayment, getMonthlyBill } from "../firebase/feeService";
-import { getAllStudents } from "../firebase/reportsService";
+import { getAllStudentsWithBills } from "../firebase/reportsService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
@@ -30,11 +30,12 @@ export default function BatchFeeCollection({
   const [results, setResults] = useState(null);
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
 
+  // Load students WITH their current bills (to show the outstanding amount in the table)
   useEffect(() => {
     let active = true;
     setLoadingStudents(true);
     setSearchError(null);
-    getAllStudents({ session })
+    getAllStudentsWithBills({ session, month })
       .then((list) => {
         if (!active) return;
         setAllStudents(list);
@@ -47,7 +48,7 @@ export default function BatchFeeCollection({
         if (active) setLoadingStudents(false);
       });
     return () => { active = false; };
-  }, [session]);
+  }, [session, month]);
 
   useEffect(() => {
     let active = true;
@@ -108,21 +109,13 @@ export default function BatchFeeCollection({
     setRows((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
   }
 
-  // Search includes Name, Adm#, Father's Name, and Mobile
   const filteredStudents = allStudents.filter((s) => {
     if (!search.trim()) return true;
     const t = search.trim().toLowerCase();
-    
     const searchString = [
-      s.name,
-      s.admissionNumber,
-      s.fatherName,
-      s.motherName,
-      s.guardianName,
-      s.mobileNumber,
-      s.fatherMobile
+      s.name, s.admissionNumber, s.fatherName, s.motherName, s.guardianName,
+      s.mobileNumber, s.fatherMobile
     ].filter(Boolean).join(" ").toLowerCase();
-
     return searchString.includes(t);
   });
 
@@ -217,27 +210,38 @@ export default function BatchFeeCollection({
                 <th>Adm#</th>
                 <th>Class</th>
                 <th>Father / Guardian</th>
+                <th>Mother</th>
+                <th>Mobile</th>
+                <th style={{ color: "var(--danger-red)" }}>Outstanding</th>
               </tr>
             </thead>
             <tbody>
               {filteredStudents.length === 0 ? (
                 <tr>
-                  <td colSpan={5} style={{ textAlign: "center", padding: 20 }}>
+                  <td colSpan={8} style={{ textAlign: "center", padding: 20 }}>
                     No students matched your search.
                   </td>
                 </tr>
               ) : (
-                filteredStudents.map((s) => (
-                  <tr key={s.id} onClick={() => toggleStudent(s.id)} style={{ cursor: "pointer" }}>
-                    <td>
-                      <input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => toggleStudent(s.id)} onClick={(e) => e.stopPropagation()} />
-                    </td>
-                    <td className="wrap-text" style={{ fontWeight: 600 }}>{s.name}</td>
-                    <td>{s.admissionNumber}</td>
-                    <td>{s.className}{s.section ? `-${s.section}` : ""}</td>
-                    <td className="wrap-text">{s.fatherName || s.guardianName || "—"}</td>
-                  </tr>
-                ))
+                filteredStudents.map((s) => {
+                  const due = s.totalDue || 0;
+                  return (
+                    <tr key={s.id} onClick={() => toggleStudent(s.id)} style={{ cursor: "pointer" }}>
+                      <td>
+                        <input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => toggleStudent(s.id)} onClick={(e) => e.stopPropagation()} />
+                      </td>
+                      <td className="wrap-text" style={{ fontWeight: 600 }}>{s.name}</td>
+                      <td>{s.admissionNumber}</td>
+                      <td>{s.className}{s.section ? `-${s.section}` : ""}</td>
+                      <td className="wrap-text">{s.fatherName || s.guardianName || "—"}</td>
+                      <td className="wrap-text">{s.motherName || "—"}</td>
+                      <td>{s.mobileNumber || s.fatherMobile || "—"}</td>
+                      <td className="fm-due-cell">
+                        {due > 0 ? `₹${due.toLocaleString()}` : "—"}
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
@@ -262,10 +266,13 @@ export default function BatchFeeCollection({
               <tbody>
                 {selectedList.map((s) => {
                   const r = rows[s.id] || {};
+                  const rowDue = s.totalDue || r.bill?.carriedForward || 0;
                   return (
                     <tr key={s.id}>
                       <td className="wrap-text" style={{ fontWeight: 600 }}>{s.name}</td>
-                      <td>{r.loadingBill ? "Loading…" : r.bill === null ? "No bill" : `₹${(r.bill?.carriedForward || 0).toLocaleString()}`}</td>
+                      <td className="fm-due-cell">
+                        {r.loadingBill ? "Loading…" : r.bill === null ? "No bill" : `₹${rowDue.toLocaleString()}`}
+                      </td>
                       <td>
                         <input type="number" min="0" value={r.amount ?? ""} onChange={(e) => updateRow(s.id, "amount", e.target.value)} style={{ width: 100, padding: 8, border: "1px solid #cbd5e1", borderRadius: 4 }} />
                       </td>
