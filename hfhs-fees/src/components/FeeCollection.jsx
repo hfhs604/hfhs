@@ -259,7 +259,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
         />
-        <button type="submit">Search</button>
+        <button type="submit" className="fm-primary-btn" style={{ padding: "0 24px" }}>Search</button>
       </form>
 
       {results.length > 0 && !selectedStudent && (
@@ -286,17 +286,19 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
 
           {bill && (
             <div className="fm-bill-two-col">
+              {/* LEFT COLUMN: ITEMIZED BILL */}
               <div>
+                <h4 style={{ margin: "0 0 12px", color: "#64748b", fontSize: 13, textTransform: "uppercase" }}>Current Bill Breakdown</h4>
                 <table className="fm-bill-table" style={{ width: "100%" }}>
                   <tbody>
                     {bill.previousDue > 0 && (
                       <tr className="fm-row-prev">
-                        <td style={{ color: "#dc2626" }}>Previous Due</td>
-                        <td align="right" style={{ color: "#dc2626" }}>₹{bill.previousDue}</td>
+                        <td style={{ color: "#dc2626", fontWeight: 600 }}>Previous Due</td>
+                        <td align="right" style={{ color: "#dc2626", fontWeight: 600 }}>₹{bill.previousDue}</td>
                       </tr>
                     )}
                     <tr>
-                      <td>Tuition</td>
+                      <td>Tuition Fee</td>
                       <td align="right">₹{bill.tuitionBilled || 0}</td>
                     </tr>
                     {bill.devFeeBilled > 0 && (
@@ -318,10 +320,11 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                 </table>
               </div>
 
+              {/* RIGHT COLUMN: STATS */}
               <div>
-                <div className="fm-bill-session-line">
-                  <span>Session Paid</span>
-                  <strong>₹{sessionPaid}</strong>
+                <div style={{ display: "flex", justifyContent: "space-between", marginBottom: 12, paddingBottom: 8, borderBottom: "1px solid #e2e8f0" }}>
+                  <span style={{ fontSize: 13, color: "#64748b", fontWeight: 600 }}>Session Paid (Till Date)</span>
+                  <strong style={{ color: "#16a34a", fontSize: 16 }}>₹{sessionPaid}</strong>
                 </div>
 
                 <div className="fm-stats-grid">
@@ -331,7 +334,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                   </div>
                   <div className="fm-stat-cell">
                     <span className="fm-stat-cell-label">Paid (This Month)</span>
-                    <span className="fm-stat-cell-value">₹{displayTotalPaidThisMonth}</span>
+                    <span className="fm-stat-cell-value" style={{ color: "#16a34a" }}>₹{displayTotalPaidThisMonth}</span>
                     {lastPayment && (
                       <span className="fm-stat-cell-sub">
                         Last: {fmtDate(lastPayment.date)} · ₹{lastPayment.amount}
@@ -340,10 +343,10 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                   </div>
                   <div className="fm-stat-cell">
                     <span className="fm-stat-cell-label">Amount Entered</span>
-                    <span className="fm-stat-cell-value">₹{amountAdd}</span>
+                    <span className="fm-stat-cell-value" style={{ color: "#2563eb" }}>₹{amountAdd}</span>
                   </div>
                   <div className="fm-stat-cell fm-stat-cell-balance">
-                    <span className="fm-stat-cell-label">Balance</span>
+                    <span className="fm-stat-cell-label">Current Balance</span>
                     <span className="fm-stat-cell-value">₹{displayBalance}</span>
                   </div>
                 </div>
@@ -363,9 +366,11 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             </label>
 
             <label>
-              Amount Received (₹)
+              Amount Received (₹) *
               <input type="number" required min="0" value={form.amountReceived}
-                onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
+                onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} 
+                style={{ fontSize: 16, fontWeight: 600, color: "#2563eb", borderColor: "#93c5fd" }}
+              />
             </label>
 
             <label>
@@ -448,6 +453,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                 disabled={submitting}
                 className="fm-primary-btn"
                 onClick={handleSubmit}
+                style={{ padding: "10px 24px", fontSize: 14 }}
               >
                 {submitting ? "Recording…" : "Record Payment"}
               </button>
@@ -456,6 +462,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
         </>
       )}
 
+      {/* PROMPT MODAL */}
       {promptSlot && (
         <div className="fm-modal-overlay">
           <div className="fm-modal" style={{ maxWidth: 380 }}>
