@@ -63,7 +63,7 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
     remarks: "",
   });
 
-  // AUTO-LOAD STUDENT FROM PARENT
+  // AUTO-LOAD STUDENT FROM PARENT (When clicked from Students tab)
   useEffect(() => {
     if (!initialStudentId) return;
     
@@ -346,7 +346,6 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
                 onClick={() => { 
                   setSelectedStudent(null); 
                   setBill(null); 
-                  onReceiptGenerated?.(null); // optional clear
                 }}
               >
                 ✕ Clear Selection
@@ -556,4 +555,17 @@ export default function FeeCollection({ session, month, onReceiptGenerated, role
             />
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
               <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>Cancel</button>
-              <button type="button" className="fm-primary
+              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}>
+                {promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      <PrintManager active={!!receiptPopup} onClose={() => setReceiptPopup(null)} type="receipt">
+        {receiptPopup && <ReceiptPrintSheet receipts={[receiptPopup]} />}
+      </PrintManager>
+    </div>
+  );
+}
