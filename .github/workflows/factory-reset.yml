@@ -1,0 +1,56 @@
+name: Factory Reset + Reimport
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (preview only)"
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+      confirm_reset:
+        description: "Type YES to confirm the reset"
+        required: true
+        default: "NO"
+        type: string
+      confirm_phrase:
+        description: 'Type DELETE EVERYTHING (exact)'
+        required: true
+        default: ""
+        type: string
+      session:
+        description: "Session label"
+        required: true
+        default: "2026-27"
+      first_month:
+        description: "First month (YYYY-MM)"
+        required: true
+        default: "2026-04"
+      create_first_bills:
+        description: "Create first-month bills per student"
+        required: true
+        default: "true"
+        type: choice
+        options: ["true", "false"]
+
+jobs:
+  reset:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - run: pip install firebase-admin
+      - name: Run factory reset
+        env:
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+          CSV_PATH: students.csv
+          SESSION: ${{ inputs.session }}
+          FIRST_MONTH: ${{ inputs.first_month }}
+          CREATE_FIRST_BILLS: ${{ inputs.create_first_bills }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          CONFIRM_RESET: ${{ inputs.confirm_reset }}
+          CONFIRM_PHRASE: ${{ inputs.confirm_phrase }}
+        run: python scripts/factory_reset.py
