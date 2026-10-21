@@ -51,17 +51,21 @@ export default function Login() {
   }
 
   return (
-    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "#f1f5f9" }}>
+    <div style={{ display: "flex", flexDirection: "column", minHeight: "100vh", background: "var(--bg-main)" }}>
       
-      {/* Login Form Container */}
+      {/* Center Wrapper */}
       <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", padding: 20 }}>
-        <form onSubmit={handleSubmit} className="fm-card" style={{ width: 360, maxWidth: "100%" }}>
-          <div style={{ display: "flex", justifyContent: "center", marginBottom: 16 }}>
-            <img src={schoolLogo} alt="Holy Faith High School" style={{ width: 60, height: 60, borderRadius: "50%" }} />
+        <form onSubmit={handleSubmit} className="fm-card" style={{ width: 360, maxWidth: "100%", padding: 32 }}>
+          
+          <div style={{ display: "flex", justifyContent: "center", marginBottom: 20 }}>
+            <img src={schoolLogo} alt="Holy Faith High School" style={{ width: 72, height: 72, borderRadius: "50%", border: "2px solid #e2e8f0" }} />
           </div>
-          <h2 style={{ textAlign: "center", marginTop: 0, color: "#1e293b" }}>Fee Management Login</h2>
+          
+          <h2 style={{ textAlign: "center", margin: "0 0 24px", color: "var(--text-main)", fontSize: "1.4em" }}>
+            Fee Management
+          </h2>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12, fontSize: 13 }}>
+          <label className="fm-inline-label" style={{ marginBottom: 16 }}>
             Email or Student ID
             <input
               type="text"
@@ -70,34 +74,35 @@ export default function Login() {
               value={username}
               onChange={(e) => setUsername(e.target.value)}
               placeholder="e.g. 11260000 or admin@school.com"
-              style={{ padding: 10, border: "1px solid #cbd5e1", borderRadius: 6 }}
+              style={{ padding: "12px 14px" }}
             />
           </label>
 
-          <label style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12, fontSize: 13 }}>
+          <label className="fm-inline-label" style={{ marginBottom: 20 }}>
             Password
             <input
               type="password"
               required
               value={password}
               onChange={(e) => setPassword(e.target.value)}
-              style={{ padding: 10, border: "1px solid #cbd5e1", borderRadius: 6 }}
+              placeholder="••••••••"
+              style={{ padding: "12px 14px" }}
             />
           </label>
 
-          {error && <p style={{ color: "#dc2626", fontSize: 13, marginBottom: 12, fontWeight: 500 }}>{error}</p>}
-          {message && <p style={{ color: "#16a34a", fontSize: 13, marginBottom: 12, fontWeight: 500 }}>{message}</p>}
+          {error && <div className="fm-error" style={{ marginBottom: 16 }}>{error}</div>}
+          {message && <div className="fm-success" style={{ marginBottom: 16 }}>{message}</div>}
 
-          <button type="submit" disabled={submitting} className="fm-primary-btn" style={{ width: "100%" }}>
+          <button type="submit" disabled={submitting} className="fm-primary-btn" style={{ width: "100%", padding: 12, fontSize: 14 }}>
             {submitting ? "Signing in…" : "Sign In"}
           </button>
 
-          <div style={{ textAlign: "center", marginTop: 16 }}>
+          <div style={{ textAlign: "center", marginTop: 20 }}>
             <button 
               type="button" 
               onClick={handleResetPassword}
               disabled={resetting}
-              style={{ background: "none", border: "none", color: "#64748b", cursor: "pointer", fontSize: 13, textDecoration: "underline" }}
+              style={{ background: "none", border: "none", color: "var(--text-muted)", cursor: "pointer", fontSize: 13, textDecoration: "underline" }}
             >
               Forgot Password? Reset via Email
             </button>
@@ -105,8 +110,8 @@ export default function Login() {
         </form>
       </div>
 
-      {/* Footer for Login */}
-      <footer className="fm-footer" style={{ background: "transparent", borderTop: "none" }}>
+      {/* Footer */}
+      <footer className="fm-footer" style={{ background: "transparent", borderTop: "none", marginTop: 0 }}>
         All rights reserved © Holy Faith High School
       </footer>
 
