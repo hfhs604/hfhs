@@ -5,7 +5,7 @@ export default function ReceiptCard({ receipt, school }) {
     receiptNumber, paymentDate, session, studentName, admissionNumber,
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, previousDue, remainingDue, paymentMethod, referenceNumber,
-    componentType, totalDue,
+    componentType, totalDue, isCharge, chargedAmount,
     particulars: passedParticulars,
     amountReceivedThisTransaction,
   } = receipt;
@@ -17,13 +17,16 @@ export default function ReceiptCard({ receipt, school }) {
   const amountReceivedNow = thisAmount + late - disc;
   const totalAmount = Number(totalDue || 0) || (prevDue + amountReceivedNow);
   const balance = Number(remainingDue || 0);
+  const chargeAmt = Number(chargedAmount || 0);
 
   let rows = Array.isArray(passedParticulars) && passedParticulars.length > 0
     ? passedParticulars.map((p) => ({ ...p }))
     : [];
 
   if (rows.length === 0) {
-    if (componentType === "books") {
+    if (isCharge) {
+      rows.push({ label: feeType || "Fee Charge", amount: chargeAmt });
+    } else if (componentType === "books") {
       rows.push({ label: "Books Fee", amount: thisAmount });
     } else if (componentType === "previousYear") {
       rows.push({ label: "Previous Year Balance", amount: thisAmount });
@@ -36,8 +39,15 @@ export default function ReceiptCard({ receipt, school }) {
     }
   }
 
-  if (late > 0) rows.push({ label: "Late Fee", amount: late });
-  if (disc > 0) rows.push({ label: "Discount", amount: -disc, isDiscount: true });
+  if (!isCharge) {
+    if (late > 0) rows.push({ label: "Late Fee", amount: late });
+    if (disc > 0) rows.push({ label: "Discount", amount: -disc, isDiscount: true });
+  }
+
+  const titleLabel = isCharge ? "FEE CHARGE SLIP" : "FEE RECEIPT";
+  const dateLabel = isCharge
+    ? (receipt.createdAt?.toDate?.()?.toLocaleDateString?.() || "—")
+    : paymentDate;
 
   return (
     <div className="receipt-card">
@@ -58,9 +68,23 @@ export default function ReceiptCard({ receipt, school }) {
         </div>
       </header>
 
+      <div
+        style={{
+          textAlign: "center",
+          fontSize: 10,
+          fontWeight: 700,
+          letterSpacing: "0.08em",
+          color: "#1a3d6d",
+          margin: "2px 0 4px",
+          textTransform: "uppercase",
+        }}
+      >
+        {titleLabel}
+      </div>
+
       <div className="receipt-meta-row">
-        <span><strong>Receipt#</strong> {receiptNumber}</span>
-        <span><strong>Date</strong> {paymentDate}</span>
+        <span><strong>{isCharge ? "Slip#" : "Receipt#"}</strong> {receiptNumber}</span>
+        <span><strong>Date</strong> {dateLabel}</span>
         <span><strong>Session</strong> {session}</span>
       </div>
 
@@ -100,31 +124,51 @@ export default function ReceiptCard({ receipt, school }) {
 
       <div className="receipt-summary-block">
         <div className="receipt-summary-line">
-          <span>Total Amount</span>
+          <span>{isCharge ? "Total Charges" : "Total Amount"}</span>
           <span>₹{totalAmount.toFixed(0)}</span>
         </div>
-        <div className="receipt-summary-line">
-          <span>Amount Received</span>
-          <span>₹{amountReceivedNow.toFixed(0)}</span>
-        </div>
+        {!isCharge && (
+          <div className="receipt-summary-line">
+            <span>Amount Received</span>
+            <span>₹{amountReceivedNow.toFixed(0)}</span>
+          </div>
+        )}
+        {isCharge && (
+          <div className="receipt-summary-line">
+            <span>Amount Charged This Slip</span>
+            <span>₹{chargeAmt.toFixed(0)}</span>
+          </div>
+        )}
         <div className="receipt-summary-line receipt-summary-balance">
           <span>Balance</span>
           <span>₹{balance.toFixed(0)}</span>
         </div>
       </div>
 
-      <div className="receipt-payment-row">
-        <span>
-          Paid via <strong>{paymentMethod}</strong>
-          {referenceNumber ? ` · Ref: ${referenceNumber}` : ""}
-        </span>
-      </div>
+      {!isCharge ? (
+        <div className="receipt-payment-row">
+          <span>
+            Paid via <strong>{paymentMethod}</strong>
+            {referenceNumber ? ` · Ref: ${referenceNumber}` : ""}
+          </span>
+        </div>
+      ) : (
+        <div className="receipt-payment-row">
+          <span style={{ fontStyle: "italic" }}>
+            This is a fee charge notice — no payment has been received against this slip.
+          </span>
+        </div>
+      )}
 
       <footer className="receipt-footer">
         <div className="receipt-sign-area">
           <div className="receipt-signature-box">Authorised Signature</div>
         </div>
-        <p className="receipt-computer-generated">This is a computer-generated receipt.</p>
+        <p className="receipt-computer-generated">
+          {isCharge
+            ? "This is a computer-generated fee charge slip."
+            : "This is a computer-generated receipt."}
+        </p>
       </footer>
     </div>
   );
