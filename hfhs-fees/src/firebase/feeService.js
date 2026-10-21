@@ -22,6 +22,9 @@ const COL = {
   auditLogs: "auditLogs",
   counters: "counters",
   monthlyBills: "monthlyBills",
+  attendance: "attendance",
+  exams: "exams",
+  examMarks: "examMarks",
 };
 
 export const MONTHLY_TUITION = {
@@ -137,7 +140,6 @@ export async function searchStudents(term) {
     } catch (err) {}
   }
 
-  // Search by Admission Number
   if (/^\d+$/.test(raw)) {
     try {
       const admQuery = query(
@@ -151,7 +153,6 @@ export async function searchStudents(term) {
     } catch (err) {}
   }
 
-  // Search by Mobile Number (Exact match)
   if (raw.length >= 10) {
     try {
       const mobileQuery = query(collection(db, COL.students), where("mobileNumber", "==", raw), fsLimit(20));
@@ -164,7 +165,6 @@ export async function searchStudents(term) {
     } catch (err) {}
   }
 
-  // Fallback for partial parent names
   if (results.size === 0 && raw.length >= 2) {
     try {
       const snap = await getDocs(query(collection(db, COL.students), fsLimit(100)));
@@ -498,7 +498,7 @@ export async function getStudentsWithDue({ session, month, className, section } 
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard stats - OPTIMIZED FOR MINIMAL READS
+// Dashboard stats
 // ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
@@ -573,7 +573,68 @@ export async function getDashboardStats(session, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Other functions
+// Attendance Module
+// ---------------------------------------------------------------------------
+export async function getAttendance(session, className, dateStr) {
+  const q = query(
+    collection(db, COL.attendance),
+    where("session", "==", session),
+    where("className", "==", className),
+    where("date", "==", dateStr)
+  );
+  const snap = await getDocs(q);
+  return snap.empty ? null : { id: snap.docs[0].id, ...snap.docs[0].data() };
+}
+
+export async function saveAttendance({ session, className, date, records, userEmail }) {
+  const docId = `${session}_${className}_${date}`;
+  const ref = doc(db, COL.attendance, docId);
+  
+  await setDoc(ref, {
+    session, className, date, records,
+    updatedAt: serverTimestamp(),
+    updatedBy: userEmail,
+  }, { merge: true });
+  
+  await writeAuditLog({ action: "ATTENDANCE_SAVED", newValue: { className, date } });
+  return docId;
+}
+
+// ---------------------------------------------------------------------------
+// Exam & Marks Module
+// ---------------------------------------------------------------------------
+export async function createExam({ session, name, className }) {
+  const ref = doc(collection(db, COL.exams));
+  await setDoc(ref, {
+    session, name, className,
+    subjects: ["Math", "Science", "English", "Hindi", "Social Science"],
+    createdAt: serverTimestamp(),
+  });
+  return ref.id;
+}
+
+export async function getExams(session) {
+  const q = query(collection(db, COL.exams), where("session", "==", session), orderBy("createdAt", "desc"));
+  const snap = await getDocs(q);
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function saveStudentMarks({ examId, studentId, session, marks }) {
+  const docId = `${examId}_${studentId}`;
+  const ref = doc(db, COL.examMarks, docId);
+  await setDoc(ref, { examId, studentId, session, marks, updatedAt: serverTimestamp() }, { merge: true });
+}
+
+export async function getExamMarks(examId) {
+  const q = query(collection(db, COL.examMarks), where("examId", "==", examId));
+  const snap = await getDocs(q);
+  const result = {};
+  snap.docs.forEach(d => { result[d.data().studentId] = d.data().marks; });
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// Other functions (Fee structures, History, Discounts, Audit Logs, Users, etc.)
 // ---------------------------------------------------------------------------
 export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
   const id = `${session}_${className}`;
