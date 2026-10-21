@@ -1,33 +1,36 @@
 """
 factory_reset.py
 ----------------
-Deletes ALL fee-system data and re-imports students from a CSV.
-Designed for a "start fresh" reset before going live.
+Full reset of fee-system data + fresh import from CSV.
 
-Transport column:
-  'Y' / 'YES' / 'TRUE' / '1'  -> opted in, uses DEFAULT_TRANSPORT_AMOUNT (env, default 800)
-  'N' / 'NO'  / 'FALSE' / '0' / blank / 'NA' / 'N/A' -> opted out
-  A numeric value (800, 1500, 1200 ...) -> opted in with that exact amount
+WIPES:
+  students, monthlyBills, feeTransactions, receipts, discounts,
+  paymentIdempotency, auditLogs, counters, feeStructures, academicSessions
 
-Preserved (never touched):
-  - users collection
-  - Firebase Auth users
-  - Firebase Storage (delete photos manually if desired)
+PRESERVES:
+  users collection (roles, permissions)
+  Firebase Auth users
+  Firebase Storage photos (delete manually if desired)
 
-Deleted:
-  - students, monthlyBills, feeTransactions, receipts, discounts,
-    paymentIdempotency, auditLogs, counters, feeStructures, academicSessions
+RECREATES:
+  academicSessions/{SESSION} with isActive=true
+  counters/receipts_<year> = 0
+  counters/admissionNumber = 0
+  students from CSV
+  monthlyBills (first month) per student, with transport included
 
-Recreated:
-  - academicSessions: { label: SESSION, isActive: true }
-  - counters: receipts_<year>=0, admissionNumber=0
-  - students from CSV (with transport flags)
-  - monthlyBills (first month) per student, including transportBilled if opted
+Transport column parsing:
+  Y / YES / TRUE / 1   -> opted IN, billed at DEFAULT_TRANSPORT_AMOUNT
+                          (env var, default 800; can be 800 or 1500)
+  N / NO / FALSE / 0   -> opted OUT
+  blank / NA / N/A     -> opted OUT
+  800..1500 (numeric)  -> opted IN at that exact amount
+  anything else        -> opted OUT + warning printed
 
-Safety gates:
-  1. DRY_RUN=true (default) — preview, no writes.
-  2. CONFIRM_RESET=YES      — required to delete.
-  3. CONFIRM_PHRASE must equal "DELETE EVERYTHING".
+Safety gates (all required for real run):
+  DRY_RUN=false
+  CONFIRM_RESET=YES
+  CONFIRM_PHRASE="DELETE EVERYTHING"
 """
 
 import csv, os, re, sys, json, uuid
@@ -49,6 +52,7 @@ CONFIRM_PHRASE     = os.environ.get("CONFIRM_PHRASE", "")
 
 DEVELOPMENT_FEE = 3150
 TRANSPORT_MIN, TRANSPORT_MAX = 800, 1500
+
 try:
     DEFAULT_TRANSPORT_AMOUNT = int(os.environ.get("DEFAULT_TRANSPORT_AMOUNT", "800"))
 except ValueError:
@@ -108,18 +112,7 @@ def sanitize_doc_id(raw):
     return s[:1500] if s else None
 
 def parse_transport(raw):
-    """
-    Interpret the Transport column.
-
-    Returns (opted: bool, amount: int).
-
-    'Y' / 'YES' / 'TRUE' / '1'          -> (True,  DEFAULT_TRANSPORT_AMOUNT)
-    'N' / 'NO' / 'FALSE' / '0' / blank  -> (False, 0)
-    'NA' / 'N/A'                        -> (False, 0)
-    Numeric in [800, 1500]              -> (True,  that amount)
-    Numeric outside the range           -> (True,  clamped into [800,1500])
-    Anything else                       -> (False, 0) with a warning printed.
-    """
+    """Returns (opted: bool, amount: int)."""
     if raw is None:
         return False, 0
     s = str(raw).strip()
@@ -132,7 +125,6 @@ def parse_transport(raw):
     if upper in ("Y", "YES", "TRUE", "1"):
         return True, DEFAULT_TRANSPORT_AMOUNT
 
-    # Try a numeric value (strip currency / commas).
     digits = re.sub(r"[^\d.]", "", s)
     if digits:
         try:
@@ -168,7 +160,7 @@ def delete_collection(coll, batch_size=400):
     return total
 
 # ---------------------------------------------------------------------------
-# 1. Read new CSV
+# 1. Read CSV
 # ---------------------------------------------------------------------------
 if not os.path.exists(CSV_PATH):
     print(f"❌ CSV not found: {CSV_PATH}")
@@ -204,9 +196,9 @@ with open(CSV_PATH, newline="", encoding="utf-8-sig") as f:
             opted, tamount = parse_transport(r.get(transport_key))
         if opted:
             transport_summary["opted"] += 1
-            if tamount == 800:   transport_summary["amount_800"] += 1
+            if tamount == 800:    transport_summary["amount_800"] += 1
             elif tamount == 1500: transport_summary["amount_1500"] += 1
-            else:                transport_summary["other"] += 1
+            else:                 transport_summary["other"] += 1
         else:
             transport_summary["not_opted"] += 1
 
@@ -330,7 +322,7 @@ for coll in COLLECTIONS_TO_WIPE:
 print(f"\n✅ Wiped {total_wiped} documents total.")
 
 # ---------------------------------------------------------------------------
-# 6. Recreate baseline configuration
+# 6. Recreate baseline config
 # ---------------------------------------------------------------------------
 year = SESSION.split("-")[0] if "-" in SESSION else str(datetime.now().year)
 
@@ -370,7 +362,7 @@ for row in rows:
 print(f"✅ Imported {imported} students" + (f" ({errors} errors)." if errors else "."))
 
 # ---------------------------------------------------------------------------
-# 8. First-month bills — includes transportBilled
+# 8. First-month bills — transport included
 # ---------------------------------------------------------------------------
 if CREATE_FIRST_BILLS and imported > 0:
     print(f"\n🧾 Creating first-month bills for {FIRST_MONTH}…")
