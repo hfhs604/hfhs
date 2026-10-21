@@ -634,12 +634,12 @@ export async function getDashboardStats(session, month) {
   let studentsWithDue = 0;
   let studentsFullyPaid = 0;
 
+  // 1. Calculate Dues from Bills
   bills.forEach((b) => {
     const paid = b.totalPaid || 0;
     const carry = b.carriedForward || 0;
 
     totalCollection += paid;
-    monthCollection += paid;
 
     if (carry > 0) {
       totalOutstandingDue += carry;
@@ -655,6 +655,7 @@ export async function getDashboardStats(session, month) {
   let paymentMethodBreakdown = {};
   let todayCollection = 0;
 
+  // 2. Calculate Collections from actual Transactions (ignoring charges)
   try {
     const txnSnap = await getDocs(
       query(
@@ -672,6 +673,8 @@ export async function getDashboardStats(session, month) {
       0, 0, 0, 0
     );
     const startOfDayMs = startOfDay.getTime();
+    
+    const currentYearMonth = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, "0")}`;
 
     txnSnap.docs.forEach((d) => {
       const t = d.data();
@@ -681,8 +684,7 @@ export async function getDashboardStats(session, month) {
       const amt = Number(t.netAmount || 0);
       if (amt <= 0) return;
 
-      paymentMethodBreakdown[method] =
-        (paymentMethodBreakdown[method] || 0) + amt;
+      paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
 
       let paidAt = null;
       if (t.paymentDate) {
@@ -698,21 +700,26 @@ export async function getDashboardStats(session, month) {
         paidAt = t.createdAt.toDate();
       }
 
-      if (
-        paidAt &&
-        !isNaN(paidAt.getTime()) &&
-        paidAt.getTime() >= startOfDayMs
-      ) {
-        todayCollection += amt;
+      if (paidAt && !isNaN(paidAt.getTime())) {
+        // Today's collection
+        if (paidAt.getTime() >= startOfDayMs) {
+          todayCollection += amt;
+        }
+        
+        // This Month's collection (Current Calendar Month)
+        const paidYearMonth = `${paidAt.getFullYear()}-${String(paidAt.getMonth() + 1).padStart(2, "0")}`;
+        if (paidYearMonth === currentYearMonth) {
+          monthCollection += amt;
+        }
       }
     });
   } catch (err) {
-    console.warn(
-      "getDashboardStats: payment aggregation failed:",
-      err.message
-    );
-    paymentMethodBreakdown = {};
-    todayCollection = 0;
+    console.warn("getDashboardStats: payment aggregation failed:", err.message);
+  }
+
+  // Fallback if no transactions exist yet for this month
+  if (monthCollection === 0 && bills.length > 0) {
+    monthCollection = bills.reduce((sum, b) => sum + (b.totalPaid || 0), 0);
   }
 
   return {
