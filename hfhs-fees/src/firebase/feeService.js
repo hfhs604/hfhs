@@ -757,7 +757,7 @@ export async function deleteTransaction(transactionId, reason = "") {
 }
 
 // ---------------------------------------------------------------------------
-// Attendance & Exams (For the new UI modules)
+// Attendance & Exams
 // ---------------------------------------------------------------------------
 export async function getAttendance(date, className) {
   try {
@@ -788,11 +788,32 @@ export async function getExams(session) {
   }
 }
 
-export async function saveExamMarks({ session, examName, className, marks }) {
+export async function createExam({ session, name, className }) {
   const user = currentUser();
-  const docId = `${session}_${examName}_${className}`;
-  await setDoc(doc(db, COL.exams, docId), {
-    session, examName, className, marks, updatedBy: user.uid, updatedAt: serverTimestamp()
+  const ref = doc(collection(db, COL.exams));
+  await setDoc(ref, {
+    session, name, className, createdAt: serverTimestamp(), createdBy: user.uid
+  });
+  return ref.id;
+}
+
+export async function getExamMarks(examId) {
+  try {
+    const snap = await getDocs(collection(db, COL.exams, examId, "marks"));
+    const marks = {};
+    snap.docs.forEach((d) => {
+      marks[d.id] = d.data();
+    });
+    return marks;
+  } catch (err) {
+    return {};
+  }
+}
+
+export async function saveStudentMarks({ examId, studentId, marks, remarks = "" }) {
+  const user = currentUser();
+  await setDoc(doc(db, COL.exams, examId, "marks", studentId), {
+    marks, remarks, updatedBy: user.uid, updatedAt: serverTimestamp()
   });
   return { success: true };
 }
