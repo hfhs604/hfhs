@@ -371,6 +371,57 @@ export async function addKitFee(args) {
 }
 
 // ---------------------------------------------------------------------------
+// Refund Advance
+// ---------------------------------------------------------------------------
+export async function refundAdvance({ studentId, amount, session, month, reason = "" }) {
+  const user = currentUser();
+  const safeStudentId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+  const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeStudentId}`);
+  const amt = Number(amount);
+
+  if (amt <= 0) throw new Error("Refund amount must be greater than zero.");
+
+  const result = await runTransaction(db, async (tx) => {
+    const billSnap = await tx.get(billRef);
+    if (!billSnap.exists()) throw new Error("No bill found for this month.");
+    const bill = billSnap.data();
+    const carry = bill.carriedForward || 0;
+
+    if (carry >= 0) throw new Error("This student does not have an advance balance to refund.");
+    if (amt > Math.abs(carry)) throw new Error(`Refund amount exceeds the available advance of ₹${Math.abs(carry)}.`);
+
+    const txnRef = doc(collection(db, COL.transactions));
+    
+    // Create a negative transaction to represent the refund
+    tx.set(txnRef, {
+      studentId, session, month, componentType: "refund",
+      amountReceived: -amt, netAmount: -amt,
+      paymentDate: Timestamp.now(),
+      paymentMethod: "Cash", feeType: "Refund", remarks: reason,
+      collectedBy: user.uid, collectedByEmail: user.email || null,
+      createdAt: serverTimestamp(), voided: false,
+    });
+
+    // Update the bill: add the refund amount back to the negative carry
+    tx.update(billRef, {
+      carriedForward: carry + amt, // e.g., -300 + 100 = -200
+      status: carry + amt <= 0 ? "PAID" : "PARTIAL",
+    });
+
+    return { txnRef };
+  });
+
+  await writeAuditLog({
+    action: "ADVANCE_REFUNDED",
+    studentId,
+    newValue: { amount: amt, reason },
+    transactionRef: result.txnRef.id,
+  });
+
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
 // Due list
 // ---------------------------------------------------------------------------
 export async function getDueList({ session, month } = {}) {
@@ -512,7 +563,7 @@ export async function getStudentPaymentSummary(studentId, session, month) {
       const t = d.data();
       if (session && t.session !== session) return;
       if (t.voided === true) return;
-      if (t.componentType && t.componentType !== "monthly") return;
+      if (t.componentType && t.componentType !== "monthly" && t.componentType !== "refund") return; // include refunds
       const amt = Number(t.netAmount || 0);
       sessionTotal += amt;
       if (month && t.month === month) monthTotal += amt;
@@ -689,7 +740,7 @@ export async function deleteTransaction(transactionId, reason = "") {
     const billSnap = await getDoc(billRef);
     if (billSnap.exists()) {
       const bill = billSnap.data(); const amt = Number(txn.netAmount || 0);
-      if (!txn.componentType || txn.componentType === "monthly") {
+      if (!txn.componentType || txn.componentType === "monthly" || txn.componentType === "refund") {
         const newPaid = Math.max((bill.totalPaid || 0) - amt, 0);
         const newCarry = (bill.totalDue || 0) - newPaid;
         await updateDoc(billRef, { totalPaid: newPaid, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL" });
