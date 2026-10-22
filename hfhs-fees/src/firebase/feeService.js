@@ -22,6 +22,8 @@ const COL = {
   auditLogs: "auditLogs",
   counters: "counters",
   monthlyBills: "monthlyBills",
+  attendance: "attendance",
+  exams: "exams",
 };
 
 export const MONTHLY_TUITION = {
@@ -292,7 +294,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 }
 
 // ---------------------------------------------------------------------------
-// Add-on fees
+// Add-on fees & Refund
 // ---------------------------------------------------------------------------
 async function addLineItem({ studentId, session, month, amount, field, componentType, feeType, remarks, paymentMethod = "Cash", paymentDate, idempotencyKey }) {
   const user = currentUser();
@@ -370,9 +372,6 @@ export async function addKitFee(args) {
   return addLineItem({ ...args, field: "kitFeeBilled", componentType: "kit", feeType: "Admission / Kit", remarks: "Admission / Tie / Belt / Batch / Diary" });
 }
 
-// ---------------------------------------------------------------------------
-// Refund Advance
-// ---------------------------------------------------------------------------
 export async function refundAdvance({ studentId, amount, session, month, reason = "" }) {
   const user = currentUser();
   const safeStudentId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
@@ -392,7 +391,6 @@ export async function refundAdvance({ studentId, amount, session, month, reason 
 
     const txnRef = doc(collection(db, COL.transactions));
     
-    // Create a negative transaction to represent the refund
     tx.set(txnRef, {
       studentId, session, month, componentType: "refund",
       amountReceived: -amt, netAmount: -amt,
@@ -402,9 +400,8 @@ export async function refundAdvance({ studentId, amount, session, month, reason 
       createdAt: serverTimestamp(), voided: false,
     });
 
-    // Update the bill: add the refund amount back to the negative carry
     tx.update(billRef, {
-      carriedForward: carry + amt, // e.g., -300 + 100 = -200
+      carriedForward: carry + amt, 
       status: carry + amt <= 0 ? "PAID" : "PARTIAL",
     });
 
@@ -422,7 +419,7 @@ export async function refundAdvance({ studentId, amount, session, month, reason 
 }
 
 // ---------------------------------------------------------------------------
-// Due list
+// Due list & Dashboard
 // ---------------------------------------------------------------------------
 export async function getDueList({ session, month } = {}) {
   try {
@@ -443,9 +440,6 @@ export async function getStudentsWithDue({ session, month, className, section } 
   return bills.filter((b) => !className || b.className === className);
 }
 
-// ---------------------------------------------------------------------------
-// Dashboard stats
-// ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
 
@@ -563,7 +557,7 @@ export async function getStudentPaymentSummary(studentId, session, month) {
       const t = d.data();
       if (session && t.session !== session) return;
       if (t.voided === true) return;
-      if (t.componentType && t.componentType !== "monthly" && t.componentType !== "refund") return; // include refunds
+      if (t.componentType && t.componentType !== "monthly" && t.componentType !== "refund") return; 
       const amt = Number(t.netAmount || 0);
       sessionTotal += amt;
       if (month && t.month === month) monthTotal += amt;
@@ -759,5 +753,46 @@ export async function deleteTransaction(transactionId, reason = "") {
   await deleteDoc(txnRef);
   if (txn.receiptRef) { try { await deleteDoc(doc(db, COL.receipts, txn.receiptRef)); } catch (err) {} }
   await writeAuditLog({ action: "TRANSACTION_DELETED", studentId: txn.studentId || null, previousValue: txn, newValue: { deletedBy: user.email || user.uid, reason: reason || "Not specified" } });
+  return { success: true };
+}
+
+// ---------------------------------------------------------------------------
+// Attendance & Exams (For the new UI modules)
+// ---------------------------------------------------------------------------
+export async function getAttendance(date, className) {
+  try {
+    const docId = `${date}_${className || "all"}`;
+    const snap = await getDoc(doc(db, COL.attendance, docId));
+    return snap.exists() ? snap.data() : { date, className, records: {} };
+  } catch (err) {
+    return { date, className, records: {} };
+  }
+}
+
+export async function saveAttendance(date, className, records) {
+  const user = currentUser();
+  const docId = `${date}_${className || "all"}`;
+  await setDoc(doc(db, COL.attendance, docId), {
+    date, className, records, updatedBy: user.uid, updatedAt: serverTimestamp()
+  }, { merge: true });
+  return { success: true };
+}
+
+export async function getExams(session) {
+  try {
+    const q = query(collection(db, COL.exams), where("session", "==", session));
+    const snap = await getDocs(q);
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    return [];
+  }
+}
+
+export async function saveExamMarks({ session, examName, className, marks }) {
+  const user = currentUser();
+  const docId = `${session}_${examName}_${className}`;
+  await setDoc(doc(db, COL.exams, docId), {
+    session, examName, className, marks, updatedBy: user.uid, updatedAt: serverTimestamp()
+  });
   return { success: true };
 }
