@@ -80,7 +80,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- CORRECTED INVOICE MATH ---
+  // --- INVOICE MATH ---
   const baseBill = bill ? (bill.totalDue || 0) : 0;
   const alreadyPaid = bill ? (bill.totalPaid || 0) : 0;
   
@@ -88,10 +88,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
   
-  // 1. Base Bill minus Discount plus Late Fee = Current Total Bill
   const displayTotal = baseBill - enteredDiscount + enteredLateFee;
-  
-  // 2. Current Total Bill minus Already Paid minus Amount Entered Now = Balance
   const displayBalance = Math.max(displayTotal - alreadyPaid - amountAdd, 0);
 
   async function handleSubmit(e) {
@@ -132,7 +129,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   }
 
   return (
-    <div className="fm-card fm-collect-compact">
+    <div className="fm-card fm-collect-compact" style={{ paddingBottom: 40 }}>
       <div className="fm-collect-header">
         <h2>Collect Fee</h2>
         <span className="fm-subtle">Billing month: <strong>{month}</strong></span>
@@ -261,7 +258,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
 
           {error && <p className="fm-error">{error}</p>}
 
-          <div className="fm-action-row">
+          <div className="fm-action-row" style={{ marginBottom: 20 }}>
             <div className="fm-action-buttons" style={{ marginLeft: "auto" }}>
               <button type="button" className="fm-secondary-btn" onClick={() => { setSelectedStudent(null); setBill(null); setResults([]); setSearchTerm(""); setForm({...form, discount: 0, lateFee: 0, amountReceived: ""}); }}>
                 ← Back
