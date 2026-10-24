@@ -231,7 +231,7 @@ export async function listBillsForMonth(session, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Payment collection
+// Payment collection (UPDATED FOR DISCOUNTS)
 // ---------------------------------------------------------------------------
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
@@ -246,17 +246,24 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     if (!billSnap.exists()) throw new Error("No bill for this month — run Start New Month first.");
     const bill = billSnap.data();
 
-    const amount = Number(amountReceived);
-    const netAmount = amount + Number(lateFee) - Number(discount);
+    const amt = Number(amountReceived);
+    const disc = Number(discount);
+    const late = Number(lateFee);
+
+    // 1. Adjust the bill first by subtracting discount and adding late fee
+    const netBillAmount = (bill.totalDue || 0) + late - disc;
+    
+    // 2. Apply the payment to the adjusted bill
+    const netAmount = amt + late - disc; 
     const newPaid = (bill.totalPaid || 0) + netAmount;
-    const newCarry = (bill.totalDue || 0) - newPaid;
+    const newCarry = netBillAmount - newPaid;
 
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
 
     tx.set(txnRef, {
-      studentId, session, month, componentType: "monthly", amountReceived: amount,
-      discount: Number(discount), lateFee: Number(lateFee), netAmount,
+      studentId, session, month, componentType: "monthly", amountReceived: amt,
+      discount: disc, lateFee: late, netAmount,
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
@@ -269,7 +276,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     });
 
     tx.set(idemRef, { receiptId: receiptRef.id, createdAt: serverTimestamp() });
-    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid, netAmount };
+    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid, netAmount, netBillAmount };
   });
 
   if (result.alreadyProcessed) {
@@ -284,7 +291,8 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     className: student.className, guardianName: student.guardianName || student.fatherName,
     session, month, feeType, amountReceived: Number(amountReceived), discount: Number(discount),
     lateFee: Number(lateFee), previousDue: result.bill.previousDue || 0,
-    remainingDue: Math.max((result.bill.totalDue || 0) - result.newPaid, 0),
+    totalDue: result.netBillAmount, // Save the Adjusted Total Bill here!
+    remainingDue: Math.max(result.netBillAmount - result.newPaid, 0),
     paymentMethod, referenceNumber: referenceNumber || null, paymentDate, createdAt: serverTimestamp(),
   };
   
@@ -329,7 +337,7 @@ async function addLineItem({ studentId, session, month, amount, field, component
     tx.update(billRef, { [field]: newFieldValue, totalDue: newDue, totalPaid: newPaid, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL" });
     tx.set(idemRef, { receiptId: receiptRef.id, createdAt: serverTimestamp() });
     
-    return { alreadyProcessed: false, receiptRef, txnRef, bill, amt, newPaid };
+    return { alreadyProcessed: false, receiptRef, txnRef, bill, amt, newPaid, newDue };
   });
 
   if (result.alreadyProcessed) {
@@ -342,7 +350,8 @@ async function addLineItem({ studentId, session, month, amount, field, component
     receiptNumber, studentId, studentName: student.name, admissionNumber: student.admissionNumber,
     className: student.className, guardianName: student.guardianName || student.fatherName,
     session, month, feeType, amountReceived: result.amt, previousDue: result.bill.previousDue || 0,
-    remainingDue: Math.max((result.bill.totalDue + result.amt) - result.newPaid, 0),
+    totalDue: result.newDue, 
+    remainingDue: Math.max(result.newDue - result.newPaid, 0),
     paymentMethod, paymentDate, createdAt: serverTimestamp(), componentType,
   };
   
@@ -408,18 +417,12 @@ export async function refundAdvance({ studentId, amount, session, month, reason 
     return { txnRef };
   });
 
-  await writeAuditLog({
-    action: "ADVANCE_REFUNDED",
-    studentId,
-    newValue: { amount: amt, reason },
-    transactionRef: result.txnRef.id,
-  });
-
+  await writeAuditLog({ action: "ADVANCE_REFUNDED", studentId, newValue: { amount: amt, reason }, transactionRef: result.txnRef.id });
   return { success: true };
 }
 
 // ---------------------------------------------------------------------------
-// Due list & Dashboard
+// Due list & Dashboard & Reports
 // ---------------------------------------------------------------------------
 export async function getDueList({ session, month } = {}) {
   try {
@@ -442,15 +445,13 @@ export async function getStudentsWithDue({ session, month, className, section } 
 
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
+  let studentCount = 0, bills = [], actualMonth = targetMonth;
 
-  let studentCount = 0;
   try {
     const countSnap = await getCountFromServer(query(collection(db, COL.students), where("session", "==", session)));
     studentCount = countSnap.data().count;
   } catch (err) {}
 
-  let bills = [];
-  let actualMonth = targetMonth;
   try {
     const snap = await getDocs(query(collection(db, COL.monthlyBills), where("session", "==", session), where("month", "==", targetMonth)));
     bills = snap.docs.map((d) => d.data());
@@ -462,72 +463,39 @@ export async function getDashboardStats(session, month) {
       const allBills = allSnap.docs.map((d) => d.data());
       const months = [...new Set(allBills.map((b) => b.month))].sort();
       const latestMonth = months[months.length - 1];
-      if (latestMonth) {
-        bills = allBills.filter((b) => b.month === latestMonth);
-        actualMonth = latestMonth;
-      }
+      if (latestMonth) { bills = allBills.filter((b) => b.month === latestMonth); actualMonth = latestMonth; }
     } catch (err) {}
   }
 
   let totalCollection = 0, monthCollection = 0, totalOutstandingDue = 0, totalAdvance = 0, studentsWithDue = 0, studentsFullyPaid = 0;
-
   bills.forEach((b) => {
-    const paid = b.totalPaid || 0;
-    const carry = b.carriedForward || 0;
-    totalCollection += paid;
-    monthCollection += paid;
+    const paid = b.totalPaid || 0; const carry = b.carriedForward || 0;
+    totalCollection += paid; monthCollection += paid;
     if (carry > 0) { totalOutstandingDue += carry; studentsWithDue++; }
     else if (carry < 0) { totalAdvance += -carry; studentsFullyPaid++; }
     else { studentsFullyPaid++; }
   });
 
-  let paymentMethodBreakdown = {};
-  let todayCollection = 0;
-  let todayEntered = 0;
-
+  let paymentMethodBreakdown = {}, todayCollection = 0, todayEntered = 0;
   try {
     const txnSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
-    
-    const now = new Date();
-    const startOfDayMs = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0).getTime();
+    const startOfDayMs = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
 
     txnSnap.docs.forEach((d) => {
-      const t = d.data();
-      const method = t.paymentMethod || "Other";
-      const amt = Number(t.netAmount || 0);
-
+      const t = d.data(); const method = t.paymentMethod || "Other"; const amt = Number(t.netAmount || 0);
       paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
-
+      
       let paidAt = t.paymentDate?.toDate?.() || new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
-      if (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs) {
-        todayCollection += amt;
-      }
-
+      if (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs) todayCollection += amt;
+      
       let enteredAt = t.createdAt?.toDate?.() || new Date(0);
-      if (enteredAt && !isNaN(enteredAt.getTime()) && enteredAt.getTime() >= startOfDayMs) {
-        todayEntered += amt;
-      }
+      if (enteredAt && !isNaN(enteredAt.getTime()) && enteredAt.getTime() >= startOfDayMs) todayEntered += amt;
     });
   } catch (err) {}
 
-  return {
-    paymentDateToday: todayCollection,
-    enteredToday: todayEntered,
-    monthCollection,
-    totalCollection,
-    totalOutstandingDue,
-    totalAdvance,
-    studentsWithDue,
-    studentsFullyPaid,
-    paymentMethodBreakdown,
-    studentCount,
-    month: actualMonth,
-  };
+  return { paymentDateToday: todayCollection, enteredToday: todayEntered, monthCollection, totalCollection, totalOutstandingDue, totalAdvance, studentsWithDue, studentsFullyPaid, paymentMethodBreakdown, studentCount, month: actualMonth };
 }
 
-// ---------------------------------------------------------------------------
-// Fee structures / History / Discounts / Logs / Auth
-// ---------------------------------------------------------------------------
 export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
   await setDoc(doc(db, COL.feeStructures, `${session}_${className}`), { session, className, categories, lateFeeRule, updatedAt: serverTimestamp() }, { merge: true });
   await writeAuditLog({ action: "FEE_STRUCTURE_UPDATED", newValue: { session, className, categories } });
@@ -571,13 +539,8 @@ export async function getStudentPaymentSummary(studentId, session, month) {
   }
 }
 
-export async function getSessionPaidTotal(studentId, session) {
-  return (await getStudentPaymentSummary(studentId, session)).sessionTotal;
-}
-
-export async function getLastPayment(studentId, session, month) {
-  return (await getStudentPaymentSummary(studentId, session, month)).lastPayment;
-}
+export async function getSessionPaidTotal(studentId, session) { return (await getStudentPaymentSummary(studentId, session)).sessionTotal; }
+export async function getLastPayment(studentId, session, month) { return (await getStudentPaymentSummary(studentId, session, month)).lastPayment; }
 
 export async function applyDiscount({ studentId, amount, type, reason }) {
   const user = currentUser();
@@ -664,21 +627,18 @@ export async function deleteStudentCompletely(studentId, studentName) {
   const user = currentUser();
   const userDoc = await getDoc(doc(db, "users", user.uid));
   if (userDoc.data()?.role !== "superAdmin") throw new Error("Only a Super Admin can delete a student.");
-
   const studentRef = doc(db, COL.students, studentId);
   const studentSnap = await getDoc(studentRef);
   if (!studentSnap.exists()) throw new Error("Student not found.");
   const student = studentSnap.data();
-  
   const summary = { studentId, name: student.name || studentName, billsDeleted: 0, transactionsDeleted: 0, receiptsDeleted: 0, discountsDeleted: 0 };
 
   await deleteDoc(studentRef);
-
   const deleteColl = async (coll, key, val, summaryKey) => {
     try {
       const snap = await getDocs(query(collection(db, coll), where(key, "==", val)));
       for (const d of snap.docs) { await deleteDoc(doc(db, coll, d.id)); summary[summaryKey]++; }
-    } catch (err) { console.warn(err); }
+    } catch (err) {}
   };
 
   await deleteColl(COL.monthlyBills, "studentId", studentId, "billsDeleted");
@@ -722,7 +682,6 @@ export async function deleteTransaction(transactionId, reason = "") {
   const user = currentUser();
   const userDoc = await getDoc(doc(db, "users", user.uid));
   if (userDoc.data()?.role !== "superAdmin") throw new Error("Only a Super Admin can delete a transaction.");
-
   const txnRef = doc(db, COL.transactions, transactionId);
   const txnSnap = await getDoc(txnRef);
   if (!txnSnap.exists()) throw new Error("Transaction not found.");
@@ -756,25 +715,18 @@ export async function deleteTransaction(transactionId, reason = "") {
   return { success: true };
 }
 
-// ---------------------------------------------------------------------------
-// Attendance & Exams
-// ---------------------------------------------------------------------------
 export async function getAttendance(date, className) {
   try {
     const docId = `${date}_${className || "all"}`;
     const snap = await getDoc(doc(db, COL.attendance, docId));
     return snap.exists() ? snap.data() : { date, className, records: {} };
-  } catch (err) {
-    return { date, className, records: {} };
-  }
+  } catch (err) { return { date, className, records: {} }; }
 }
 
 export async function saveAttendance(date, className, records) {
   const user = currentUser();
   const docId = `${date}_${className || "all"}`;
-  await setDoc(doc(db, COL.attendance, docId), {
-    date, className, records, updatedBy: user.uid, updatedAt: serverTimestamp()
-  }, { merge: true });
+  await setDoc(doc(db, COL.attendance, docId), { date, className, records, updatedBy: user.uid, updatedAt: serverTimestamp() }, { merge: true });
   return { success: true };
 }
 
@@ -783,17 +735,13 @@ export async function getExams(session) {
     const q = query(collection(db, COL.exams), where("session", "==", session));
     const snap = await getDocs(q);
     return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  } catch (err) {
-    return [];
-  }
+  } catch (err) { return []; }
 }
 
 export async function createExam({ session, name, className }) {
   const user = currentUser();
   const ref = doc(collection(db, COL.exams));
-  await setDoc(ref, {
-    session, name, className, createdAt: serverTimestamp(), createdBy: user.uid
-  });
+  await setDoc(ref, { session, name, className, createdAt: serverTimestamp(), createdBy: user.uid });
   return ref.id;
 }
 
@@ -801,19 +749,13 @@ export async function getExamMarks(examId) {
   try {
     const snap = await getDocs(collection(db, COL.exams, examId, "marks"));
     const marks = {};
-    snap.docs.forEach((d) => {
-      marks[d.id] = d.data();
-    });
+    snap.docs.forEach((d) => { marks[d.id] = d.data(); });
     return marks;
-  } catch (err) {
-    return {};
-  }
+  } catch (err) { return {}; }
 }
 
 export async function saveStudentMarks({ examId, studentId, marks, remarks = "" }) {
   const user = currentUser();
-  await setDoc(doc(db, COL.exams, examId, "marks", studentId), {
-    marks, remarks, updatedBy: user.uid, updatedAt: serverTimestamp()
-  });
+  await setDoc(doc(db, COL.exams, examId, "marks", studentId), { marks, remarks, updatedBy: user.uid, updatedAt: serverTimestamp() });
   return { success: true };
 }
