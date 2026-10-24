@@ -182,7 +182,6 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    // Math: Total Due is reduced by discount. Amount Paid is increased by cash received.
     const netAmount = amt + late - disc; 
     const newPaid = (bill.totalPaid || 0) + netAmount;
     const newCarry = (bill.totalDue || 0) - newPaid;
@@ -220,9 +219,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
   };
   
   await setDoc(doc(db, COL.receipts, result.receiptRef.id), receiptData);
-  
-  // SAVE THE RECEIPT NUMBER DIRECTLY INTO THE TRANSACTION SO REPORTS CAN READ IT
-  await updateDoc(result.txnRef, { receiptNumber });
+  await updateDoc(result.txnRef, { receiptNumber }); // Save receipt# for reports
 
   await writeAuditLog({ action: "PAYMENT_COLLECTED", studentId, newValue: { amountReceived, receiptNumber }, transactionRef: result.txnRef.id });
   return { receiptId: result.receiptRef.id, receipt: receiptData, duplicateBlocked: false };
