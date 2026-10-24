@@ -1,410 +1,195 @@
-import React, { useState, useEffect } from "react";
-import {
-  getCollectionReport, getClassWiseCollectionReport, getStudentStatement,
-  getDueReport, getAdvanceReport, getPaymentMethodReport, getDiscountReport,
-  getTransactionHistoryReport, exportToCSV, getAllStudents,
-} from "../firebase/reportsService";
-import { deleteTransaction, getUserRoleOnce } from "../firebase/feeService";
+import React, { useEffect, useState } from "react";
+import { getTransactionHistoryReport, exportToCSV } from "../firebase/reportsService";
+import { getStudentFeeProfile } from "../firebase/feeService";
 import { auth } from "../firebase/config";
 import "../styles/feeManagement.css";
 
-const REPORT_TYPES = [
-  "Daily Collection", "Monthly Collection", "Annual Collection", "Class-wise Collection",
-  "Student-wise Fee Statement", "Due Fees", "Advance Payment", "Payment Method",
-  "Discount / Concession", "Transaction History",
-];
-
-const COLUMNS = {
-  collection: [
-    { key: "receiptNumber",   label: "Receipt#" },
-    { key: "paymentDate",     label: "Date", format: formatDate },
-    { key: "studentName",     label: "Student" },
-    { key: "studentId",       label: "Adm#" },
-    { key: "feeType",         label: "Fee Type" },
-    { key: "paymentMethod",   label: "Method" },
-    { key: "netAmount",       label: "Amount (₹)", format: fmtMoney },
-    { key: "discount",        label: "Discount", format: fmtMoney },
-    { key: "lateFee",         label: "Late Fee", format: fmtMoney },
-    { key: "referenceNumber", label: "Ref#" },
-    { key: "collectedByEmail", label: "Collected By" },
-  ],
-  classWise: [
-    { key: "className",  label: "Class" },
-    { key: "section",    label: "Section" },
-    { key: "totalFee",   label: "Total Billed",  format: fmtMoney },
-    { key: "totalPaid",  label: "Total Paid",    format: fmtMoney },
-    { key: "totalDue",   label: "Total Due",     format: fmtMoney },
-  ],
-  due: [
-    { key: "studentName",  label: "Student" },
-    { key: "admissionNumber", label: "Adm#" },
-    { key: "className",    label: "Class" },
-    { key: "guardianName", label: "Guardian" },
-    { key: "totalFee",     label: "Total Fee",   format: fmtMoney },
-    { key: "totalPaid",    label: "Paid",        format: fmtMoney },
-    { key: "totalDue",     label: "Due",         format: fmtMoney },
-  ],
-  paymentMethod: [
-    { key: "method", label: "Method" },
-    { key: "amount", label: "Amount (₹)", format: fmtMoney },
-  ],
-  studentStatement: [
-    { key: "createdAt",     label: "Date",       format: formatTimestamp },
-    { key: "componentType", label: "Component" },
-    { key: "feeType",       label: "Fee Type" },
-    { key: "paymentMethod", label: "Method" },
-    { key: "netAmount",     label: "Amount (₹)", format: fmtMoney },
-    { key: "discount",      label: "Discount",   format: fmtMoney },
-    { key: "lateFee",       label: "Late Fee",   format: fmtMoney },
-    { key: "remarks",       label: "Remarks" },
-  ],
-  transactionHistory: [
-    { key: "createdAt",     label: "Date",       format: formatTimestamp },
-    { key: "receiptNumber", label: "Receipt#" },
-    { key: "studentName",   label: "Student" },
-    { key: "studentId",     label: "Adm#" },
-    { key: "feeType",       label: "Fee Type" },
-    { key: "paymentMethod", label: "Method" },
-    { key: "netAmount",     label: "Amount (₹)", format: fmtMoney },
-    { key: "collectedByEmail", label: "Collected By" },
-  ],
-};
-
-function fmtMoney(v) {
-  const n = Number(v || 0);
-  return n === 0 ? "—" : `₹${n.toLocaleString()}`;
-}
-
-function formatDate(v) {
-  if (!v) return "—";
-  try {
-    const d = typeof v === "string" ? new Date(v) : v?.toDate?.();
-    return d ? d.toLocaleDateString() : "—";
-  } catch {
-    return "—";
-  }
-}
-
-function formatTimestamp(v) {
-  if (!v) return "—";
-  try {
-    const d = v?.toDate?.() || new Date(v);
-    return isNaN(d) ? "—" : d.toLocaleString();
-  } catch {
-    return "—";
-  }
-}
-
 export default function Reports({ session }) {
-  const [reportType, setReportType] = useState(REPORT_TYPES[0]);
-  const [filters, setFilters] = useState({
-    fromDate: "", toDate: "", className: "", paymentMethod: "", studentAdm: "",
-  });
-  
-  const [rows, setRows] = useState(null);
-  const [summary, setSummary] = useState(null);
-  const [columns, setColumns] = useState([]);
-  const [loading, setLoading] = useState(false);
-  
-  // State for deletion
-  const [role, setRole] = useState(null);
-  const [deleteBusy, setDeleteBusy] = useState(null);
-
-  // State for Recent Transactions (Top Section)
   const [recentTxns, setRecentTxns] = useState([]);
   const [loadingRecent, setLoadingRecent] = useState(true);
+  const [error, setError] = useState(null);
 
-  // Fetch user role and recent transactions on mount
+  const [reportType, setReportType] = useState("Daily Collection");
+  const [fromDate, setFromDate] = useState("");
+  const [toDate, setToDate] = useState("");
+  const [className, setClassName] = useState("");
+
+  const [reportRows, setReportRows] = useState(null);
+  const [runningReport, setRunningReport] = useState(false);
+
+  // Load the recent 5 transactions on mount
   useEffect(() => {
-    (async () => {
-      if (auth.currentUser) {
-        const doc = await getUserRoleOnce(auth.currentUser.uid);
-        setRole(doc?.role || null);
-      }
-      
-      try {
-        // Fetch last 5 transactions for the session
-        const allTxns = await getTransactionHistoryReport({ session });
-        setRecentTxns(allTxns.slice(0, 5));
-      } catch (err) {
-        console.warn("Could not load recent transactions:", err);
-      } finally {
-        setLoadingRecent(false);
-      }
-    })();
+    let active = true;
+    setLoadingRecent(true);
+    
+    // We call the transactions report with no filters to get the latest ones
+    getTransactionHistoryReport({ session })
+      .then((rows) => {
+        if (!active) return;
+        // Sort descending by date and take top 5
+        const sorted = rows.sort((a, b) => {
+          const da = a.createdAt?.toDate?.() || new Date(a.paymentDate || 0);
+          const db = b.createdAt?.toDate?.() || new Date(b.paymentDate || 0);
+          return db - da;
+        });
+        setRecentTxns(sorted.slice(0, 5));
+      })
+      .catch((err) => {
+        if (active) setError(err.message || "Failed to load recent transactions.");
+      })
+      .finally(() => {
+        if (active) setLoadingRecent(false);
+      });
+
+    return () => { active = false; };
   }, [session]);
 
-  const isSuperAdmin = role === "superAdmin";
-
-  async function runReport() {
-    setLoading(true);
-    setRows(null);
-    setSummary(null);
-    setColumns([]);
+  async function handleRunReport() {
+    setRunningReport(true);
+    setError(null);
+    setReportRows(null);
     try {
-      const baseFilters = { session, ...filters };
-      switch (reportType) {
-        case "Daily Collection":
-        case "Monthly Collection":
-        case "Annual Collection": {
-          const { rows: r, totalCollected, count } = await getCollectionReport(baseFilters);
-          setRows(r);
-          setColumns(COLUMNS.collection);
-          setSummary(`${count} transactions · Total collected: ₹${totalCollected.toLocaleString()}`);
-          break;
-        }
-        case "Class-wise Collection": {
-          const r = await getClassWiseCollectionReport(baseFilters);
-          setRows(r);
-          setColumns(COLUMNS.classWise);
-          break;
-        }
-        case "Student-wise Fee Statement": {
-          if (!filters.studentAdm) { setSummary("Enter an admission number above."); break; }
-          const students = await getAllStudents({ session });
-          const student = students.find((s) => s.admissionNumber === filters.studentAdm);
-          if (!student) { setSummary("Student not found."); break; }
-          const r = await getStudentStatement(student.id);
-          setRows(r);
-          setColumns(COLUMNS.studentStatement);
-          setSummary(`Statement for ${student.name} (Adm# ${student.admissionNumber})`);
-          break;
-        }
-        case "Due Fees": {
-          const r = await getDueReport(baseFilters);
-          setRows(r);
-          setColumns(COLUMNS.due);
-          setSummary(`${r.length} students with outstanding dues`);
-          break;
-        }
-        case "Advance Payment": {
-          const r = await getAdvanceReport(baseFilters);
-          setRows(r);
-          setColumns([]);
-          break;
-        }
-        case "Payment Method": {
-          const r = await getPaymentMethodReport(baseFilters);
-          const arr = Object.entries(r).map(([method, amount]) => ({ method, amount }));
-          setRows(arr);
-          setColumns(COLUMNS.paymentMethod);
-          break;
-        }
-        case "Discount / Concession": {
-          const r = await getDiscountReport(baseFilters);
-          setRows(r);
-          setColumns([
-            { key: "studentId", label: "Student ID" },
-            { key: "amount",    label: "Amount",   format: fmtMoney },
-            { key: "type",      label: "Type" },
-            { key: "reason",    label: "Reason" },
-          ]);
-          break;
-        }
-        case "Transaction History": {
-          const r = await getTransactionHistoryReport(baseFilters);
-          setRows(r);
-          setColumns(COLUMNS.transactionHistory);
-          setSummary("Includes payment and charge rows (charges marked \"(charge)\").");
-          break;
-        }
-        default:
-          break;
-      }
+      const filters = {
+        session,
+        fromDate: fromDate || undefined,
+        toDate: toDate || undefined,
+        className: className || undefined,
+      };
+
+      // Only "Transaction History" and "Daily Collection" use these specific filters right now
+      const rows = await getTransactionHistoryReport(filters);
+      setReportRows(rows);
     } catch (err) {
-      console.error("Report failed:", err);
-      setSummary(`Error: ${err.message}`);
+      setError(err.message || "Failed to generate report.");
     } finally {
-      setLoading(false);
+      setRunningReport(false);
     }
   }
 
-  function viewAllTransactions() {
-    setReportType("Transaction History");
-    setFilters(prev => ({ ...prev, fromDate: "", toDate: "", className: "", paymentMethod: "" }));
-    // We need to trigger the report after state updates, so we do it manually here
-    setLoading(true);
-    getTransactionHistoryReport({ session }).then(r => {
-      setRows(r);
-      setColumns(COLUMNS.transactionHistory);
-      setSummary("Includes payment and charge rows (charges marked \"(charge)\").");
-      setLoading(false);
-    }).catch(err => {
-      setSummary(`Error: ${err.message}`);
-      setLoading(false);
-    });
-  }
+  const renderTable = (rows) => {
+    if (!rows || rows.length === 0) {
+      return <p className="fm-empty-state">No transactions found for these filters.</p>;
+    }
 
-  async function handleDelete(txn) {
-    const isCharge = txn.isCharge === true;
-    const amount = isCharge ? txn.chargedAmount : txn.netAmount;
-    
-    const ok = window.confirm(
-      `Delete this transaction?\n\n` +
-        `Amount: ₹${amount || 0}\n` +
-        `Type: ${txn.feeType || txn.componentType || "monthly"}${isCharge ? " (charge)" : ""}\n` +
-        `Date: ${formatTimestamp(txn.createdAt)}\n\n` +
-        `This will:\n` +
-        (isCharge ? `• Remove the charge from the bill\n` : `• Reverse the payment from the bill\n`) +
-        `• Delete the receipt\n` +
-        `• Log the action in the audit trail\n\n` +
-        `This cannot be undone.`
+    return (
+      <div className="fm-table-scroll" style={{ marginTop: 16 }}>
+        <table className="fm-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Receipt#</th>
+              <th>Student</th>
+              <th>Class</th>
+              <th>Amount</th>
+              <th>Discount</th>
+              <th>Method</th>
+              <th>Ref#</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((r, i) => (
+              <tr key={r.id || i}>
+                <td>{r.paymentDate ? new Date(r.paymentDate).toLocaleDateString("en-GB") : "—"}</td>
+                <td>{r.receiptNumber || "—"}</td>
+                <td>{r.studentName || "—"}</td>
+                <td>{r.className || "—"}</td>
+                <td style={{ fontWeight: 600 }}>₹{r.amountReceived || r.netAmount || 0}</td>
+                <td style={{ color: "#059669" }}>{r.discount > 0 ? `-₹${r.discount}` : "—"}</td>
+                <td>{r.paymentMethod || "—"}</td>
+                <td>{r.referenceNumber || "—"}</td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     );
-    if (!ok) return;
-
-    setDeleteBusy(txn.id);
-    try {
-      await deleteTransaction(txn.id, "Deleted from Reports");
-      // Refresh both the recent list and the main report if open
-      const updatedTxns = await getTransactionHistoryReport({ session });
-      setRecentTxns(updatedTxns.slice(0, 5));
-      if (reportType === "Transaction History") {
-        setRows(updatedTxns);
-      }
-    } catch (err) {
-      alert(`❌ ${err.message}`);
-    } finally {
-      setDeleteBusy(null);
-    }
-  }
-
-  const activeColumns = columns.length > 0
-    ? columns
-    : (rows && rows.length > 0
-        ? Object.keys(rows[0]).map((k) => ({ key: k, label: k }))
-        : []);
-
-  const showDeleteColumn = (reportType === "Transaction History" || reportType === "Recent") && isSuperAdmin;
+  };
 
   return (
     <div className="fm-card">
       
-      {/* RECENT TRANSACTIONS TOP SECTION */}
-      <div style={{ marginBottom: 32, paddingBottom: 24, borderBottom: "1px solid var(--border-color)" }}>
-        <div className="fm-row-header">
-          <h2>Recent Transactions</h2>
-          <button className="fm-primary-btn" onClick={viewAllTransactions}>
-            View All History
-          </button>
-        </div>
-
-        {loadingRecent ? (
-          <p className="fm-empty-state">Loading recent transactions…</p>
-        ) : recentTxns.length === 0 ? (
-          <p className="fm-empty-state">No transactions recorded yet.</p>
-        ) : (
-          <div className="fm-table-scroll">
-            <table className="fm-table">
-              <thead>
-                <tr>
-                  {COLUMNS.transactionHistory.map((c) => <th key={c.key}>{c.label}</th>)}
-                  {showDeleteColumn && <th style={{ width: 80, textAlign: "center" }}>Action</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {recentTxns.map((row) => (
-                  <tr key={row.id}>
-                    {COLUMNS.transactionHistory.map((c) => {
-                      const raw = row[c.key];
-                      const val = c.format ? c.format(raw) : (raw ?? "—");
-                      return <td key={c.key} className="wrap-text">{String(val)}</td>;
-                    })}
-                    {showDeleteColumn && (
-                      <td style={{ textAlign: "center" }}>
-                        <button
-                          type="button"
-                          className="fm-btn-sm fm-btn-danger"
-                          onClick={() => handleDelete(row)}
-                          disabled={deleteBusy === row.id}
-                        >
-                          {deleteBusy === row.id ? "…" : "🗑"}
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
-
-      {/* MAIN REPORTS SECTION */}
-      <h2>Generate Report</h2>
-
-      <div className="fm-filter-row" style={{ flexWrap: "wrap" }}>
-        <select value={reportType} onChange={(e) => setReportType(e.target.value)}>
-          {REPORT_TYPES.map((t) => <option key={t}>{t}</option>)}
-        </select>
-        <input type="date" value={filters.fromDate}
-          onChange={(e) => setFilters({ ...filters, fromDate: e.target.value })} />
-        <input type="date" value={filters.toDate}
-          onChange={(e) => setFilters({ ...filters, toDate: e.target.value })} />
-        <input placeholder="Class" value={filters.className}
-          onChange={(e) => setFilters({ ...filters, className: e.target.value })} />
-        {(reportType === "Payment Method" || reportType === "Transaction History") && (
-          <select value={filters.paymentMethod}
-            onChange={(e) => setFilters({ ...filters, paymentMethod: e.target.value })}>
-            <option value="">All Methods</option>
-            {["Cash", "UPI", "Bank Transfer", "Cheque", "Other"].map((m) => <option key={m}>{m}</option>)}
-          </select>
-        )}
-        {reportType === "Student-wise Fee Statement" && (
-          <input placeholder="Admission Number" value={filters.studentAdm}
-            onChange={(e) => setFilters({ ...filters, studentAdm: e.target.value })} />
-        )}
-        <button onClick={runReport} className="fm-primary-btn" disabled={loading}>
-          {loading ? "Running…" : "Run Report"}
+      {/* Recent Transactions Section */}
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+        <h3 style={{ margin: 0 }}>Recent Transactions</h3>
+        <button 
+          className="fm-primary-btn" 
+          onClick={() => {
+            setFromDate("");
+            setToDate("");
+            setClassName("");
+            setReportType("Transaction History");
+            handleRunReport();
+          }}
+        >
+          View All History
         </button>
-        {rows && rows.length > 0 && (
-          <>
-            <button className="fm-secondary-btn" onClick={() => window.print()}>Print</button>
-            <button className="fm-secondary-btn" onClick={() => exportToCSV(rows, reportType.replace(/\s+/g, "_"))}>Export CSV</button>
-          </>
+      </div>
+
+      {loadingRecent ? (
+        <p className="fm-empty-state">Loading recent transactions…</p>
+      ) : recentTxns.length === 0 ? (
+        <p className="fm-empty-state">No transactions recorded yet.</p>
+      ) : (
+        renderTable(recentTxns)
+      )}
+
+      <hr style={{ margin: "32px 0", border: "none", borderTop: "1px solid #e5e7eb" }} />
+
+      {/* Generate Report Section */}
+      <h3>Generate Report</h3>
+      <div className="fm-filter-row" style={{ marginTop: 16 }}>
+        <select value={reportType} onChange={(e) => setReportType(e.target.value)}>
+          <option value="Daily Collection">Daily Collection</option>
+          <option value="Monthly Collection">Monthly Collection</option>
+          <option value="Transaction History">Transaction History</option>
+        </select>
+
+        <input 
+          type="date" 
+          value={fromDate} 
+          onChange={(e) => setFromDate(e.target.value)} 
+          title="From Date"
+        />
+        <input 
+          type="date" 
+          value={toDate} 
+          onChange={(e) => setToDate(e.target.value)} 
+          title="To Date"
+        />
+        <input 
+          type="text" 
+          placeholder="Class (e.g. X)" 
+          value={className} 
+          onChange={(e) => setClassName(e.target.value)} 
+        />
+
+        <button 
+          className="fm-primary-btn" 
+          onClick={handleRunReport} 
+          disabled={runningReport}
+        >
+          {runningReport ? "Running…" : "Run Report"}
+        </button>
+
+        {reportRows && reportRows.length > 0 && (
+          <button 
+            className="fm-secondary-btn" 
+            onClick={() => exportToCSV(reportRows, `${reportType.replace(/\s+/g, "_")}_Report`)}
+          >
+            Export CSV
+          </button>
         )}
       </div>
 
-      {summary && <p style={{ fontWeight: 500, marginBottom: 16 }}>{summary}</p>}
+      {error && <p className="fm-error" style={{ marginTop: 16 }}>{error}</p>}
 
-      {rows && (
-        rows.length === 0 ? (
-          <p className="fm-empty-state">No data for the selected filters.</p>
-        ) : (
-          <div className="fm-table-scroll">
-            <table className="fm-table">
-              <thead>
-                <tr>
-                  {activeColumns.map((c) => <th key={c.key}>{c.label}</th>)}
-                  {showDeleteColumn && <th style={{ width: 80, textAlign: "center" }}>Action</th>}
-                </tr>
-              </thead>
-              <tbody>
-                {rows.map((row, i) => (
-                  <tr key={row.id || i}>
-                    {activeColumns.map((c) => {
-                      const raw = row[c.key];
-                      const val = c.format ? c.format(raw) : (raw ?? "—");
-                      return <td key={c.key} className="wrap-text">{String(val)}</td>;
-                    })}
-                    {showDeleteColumn && (
-                      <td style={{ textAlign: "center" }}>
-                        <button
-                          type="button"
-                          className="fm-btn-sm fm-btn-danger"
-                          onClick={() => handleDelete(row)}
-                          disabled={deleteBusy === row.id}
-                        >
-                          {deleteBusy === row.id ? "…" : "🗑"}
-                        </button>
-                      </td>
-                    )}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
-        )
+      {reportRows && (
+        <div style={{ marginTop: 24 }}>
+          <h4>Results ({reportRows.length})</h4>
+          {renderTable(reportRows)}
+        </div>
       )}
+
     </div>
   );
 }
