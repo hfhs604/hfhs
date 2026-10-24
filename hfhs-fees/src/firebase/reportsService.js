@@ -69,7 +69,6 @@ export async function getTransactionHistoryReport({ session, fromDate, toDate, c
   try {
     let clauses = [where("session", "==", session), where("voided", "==", false)];
     
-    // Only add date filters if they actually exist
     if (fromDate) clauses.push(where("createdAt", ">=", Timestamp.fromDate(new Date(fromDate))));
     if (toDate) clauses.push(where("createdAt", "<=", Timestamp.fromDate(new Date(toDate + "T23:59:59"))));
 
@@ -79,14 +78,12 @@ export async function getTransactionHistoryReport({ session, fromDate, toDate, c
     
     let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
 
-    // Client-side sort to avoid missing index errors
     rows.sort((a, b) => {
       const da = a.createdAt?.toDate?.() || new Date(a.paymentDate || 0);
       const db = b.createdAt?.toDate?.() || new Date(b.paymentDate || 0);
       return db - da;
     });
 
-    // Client-side class filter to avoid complex composite indexes
     if (className) {
       rows = rows.filter(r => String(r.className || "").toUpperCase() === String(className).toUpperCase());
     }
@@ -180,7 +177,101 @@ export async function getClassWiseCollectionReport({ session, month } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. CSV Export
+// 4. Family Lookup (For RelatedStudentsLookup)
+// ---------------------------------------------------------------------------
+function normalizeName(s) {
+  return String(s || "")
+    .trim()
+    .replace(/\s+/g, " ")
+    .toLowerCase()
+    .replace(/[.,'"]/g, "");
+}
+
+export async function findStudentsByParentName({ session, searchTerm } = {}) {
+  const term = String(searchTerm || "").trim();
+  if (!term) return { direct: [], groups: [] };
+
+  const all = await getAllStudents({ session });
+  if (all.length === 0) return { direct: [], groups: [] };
+
+  const needle = normalizeName(term);
+
+  const direct = all.filter((s) => {
+    const haystack = [s.name, s.fatherName, s.motherName, s.guardianName]
+      .map(normalizeName)
+      .join(" | ");
+    return haystack.includes(needle);
+  });
+
+  const parentKeys = new Set();
+  direct.forEach((s) => {
+    if (s.fatherName) parentKeys.add(normalizeName(s.fatherName));
+    if (s.motherName) parentKeys.add(normalizeName(s.motherName));
+    if (s.guardianName && s.guardianName !== s.fatherName) {
+      parentKeys.add(normalizeName(s.guardianName));
+    }
+  });
+
+  all.forEach((s) => {
+    const parents = [s.fatherName, s.motherName, s.guardianName]
+      .map(normalizeName)
+      .filter(Boolean);
+    if (parents.some((p) => p.includes(needle))) {
+      parents.forEach((p) => parentKeys.add(p));
+    }
+  });
+
+  const groupsMap = new Map();
+
+  all.forEach((s) => {
+    const candidates = [
+      { key: normalizeName(s.fatherName), label: s.fatherName, kind: "Father" },
+      { key: normalizeName(s.motherName), label: s.motherName, kind: "Mother" },
+    ];
+    if (s.guardianName && s.guardianName !== s.fatherName) {
+      candidates.push({
+        key: normalizeName(s.guardianName),
+        label: s.guardianName,
+        kind: "Guardian",
+      });
+    }
+
+    candidates.forEach(({ key, label, kind }) => {
+      if (!key || !parentKeys.has(key)) return;
+      if (!groupsMap.has(key)) {
+        groupsMap.set(key, {
+          parentKey: key,
+          parentName: label,
+          relation: kind,
+          students: [],
+        });
+      }
+      groupsMap.get(key).students.push(s);
+    });
+  });
+
+  const groups = Array.from(groupsMap.values())
+    .filter((g) => g.students.length > 0)
+    .sort((a, b) => {
+      if (b.students.length !== a.students.length) {
+        return b.students.length - a.students.length;
+      }
+      return String(a.parentName).localeCompare(String(b.parentName));
+    });
+
+  groups.forEach((g) => {
+    g.students.sort((a, b) =>
+      String(a.className).localeCompare(String(b.className), undefined, {
+        numeric: true,
+      })
+    );
+  });
+
+  return { direct, groups };
+}
+
+// ---------------------------------------------------------------------------
+// 5. CSV Export
 // ---------------------------------------------------------------------------
 export function exportToCSV(rows, filename) {
   if (!rows || rows.length === 0) return;
