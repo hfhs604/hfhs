@@ -5,8 +5,7 @@ export default function ReceiptCard({ receipt, school }) {
     receiptNumber, paymentDate, session, studentName, admissionNumber,
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, previousDue, remainingDue, paymentMethod, referenceNumber,
-    componentType, totalDue,
-    particulars: passedParticulars,
+    componentType, totalDue, particulars: passedParticulars,
     amountReceivedThisTransaction,
   } = receipt;
 
@@ -15,18 +14,10 @@ export default function ReceiptCard({ receipt, school }) {
   const prevDue = Number(previousDue || 0);
   const thisAmount = Number(amountReceivedThisTransaction ?? amountReceived ?? 0);
   
-  // The total bill is now saved in the database AFTER subtracting the discount.
-  // We fallback to the old calculation just in case we view an old receipt.
-  const totalBill = Number(totalDue || 0) || (prevDue + thisAmount + disc);
-  
-  // The balance is what remains after the payment is applied to the discounted bill.
+  const totalBill = Number(totalDue || 0);
   const balance = Number(remainingDue || 0);
 
-  // Build the particulars table rows
-  let rows = Array.isArray(passedParticulars) && passedParticulars.length > 0
-    ? passedParticulars.map((p) => ({ ...p }))
-    : [];
-
+  let rows = Array.isArray(passedParticulars) && passedParticulars.length > 0 ? passedParticulars.map((p) => ({ ...p })) : [];
   if (rows.length === 0) {
     if (componentType === "books") rows.push({ label: "Books Fee", amount: thisAmount });
     else if (componentType === "previousYear") rows.push({ label: "Previous Year Balance", amount: thisAmount });
@@ -34,7 +25,6 @@ export default function ReceiptCard({ receipt, school }) {
     else if (componentType === "transport") rows.push({ label: "Transport Fee", amount: thisAmount });
     else if (thisAmount > 0) rows.push({ label: feeType || "Tuition Fee", amount: thisAmount });
   }
-
   if (late > 0) rows.push({ label: "Late Fee", amount: late });
 
   return (
@@ -71,28 +61,18 @@ export default function ReceiptCard({ receipt, school }) {
 
       <table className="receipt-table">
         <thead>
-          <tr>
-            <th>Particulars</th>
-            <th style={{ textAlign: "right" }}>Amount (₹)</th>
-          </tr>
+          <tr><th>Particulars</th><th style={{ textAlign: "right" }}>Amount (₹)</th></tr>
         </thead>
         <tbody>
           {prevDue > 0 && (
-            <tr>
-              <td>Previous Due</td>
-              <td align="right">{prevDue.toFixed(2)}</td>
-            </tr>
+            <tr><td>Previous Due</td><td align="right">{prevDue.toFixed(2)}</td></tr>
           )}
           {rows.map((p, i) => (
-            <tr key={i}>
-              <td>{p.label}</td>
-              <td align="right">{Number(p.amount).toFixed(2)}</td>
-            </tr>
+            <tr key={i}><td>{p.label}</td><td align="right">{Number(p.amount).toFixed(2)}</td></tr>
           ))}
         </tbody>
       </table>
 
-      {/* Summary block: Shows the Discounted Bill, the Amount Paid, and the Balance */}
       <div className="receipt-summary-block">
         <div className="receipt-summary-line">
           <span>Total Amount</span>
@@ -101,8 +81,7 @@ export default function ReceiptCard({ receipt, school }) {
 
         {disc > 0 && (
           <div className="receipt-summary-line" style={{ color: "#059669", fontSize: "8px", marginTop: -2 }}>
-            <span> (Includes Discount of ₹{disc.toFixed(0)})</span>
-            <span></span>
+            <span> (Includes Discount of ₹{disc.toFixed(0)})</span><span></span>
           </div>
         )}
         
@@ -118,10 +97,7 @@ export default function ReceiptCard({ receipt, school }) {
       </div>
 
       <div className="receipt-payment-row">
-        <span>
-          Paid via <strong>{paymentMethod}</strong>
-          {referenceNumber ? ` · Ref: ${referenceNumber}` : ""}
-        </span>
+        <span>Paid via <strong>{paymentMethod}</strong>{referenceNumber ? ` · Ref: ${referenceNumber}` : ""}</span>
       </div>
 
       <footer className="receipt-footer">
