@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import {
-  searchStudents, collectPayment, getMonthlyBill, addBooksFee,
-  addPreviousYearBalance, addKitFee, getStudentPaymentSummary, getStudentFeeProfile,
+  searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
@@ -10,23 +9,12 @@ import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
-function fmtDate(d) {
-  if (!d) return "—";
-  try {
-    const date = d instanceof Date ? d : new Date(d);
-    const day = String(date.getDate()).padStart(2, "0");
-    const months = ["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"];
-    return `${day}-${months[date.getMonth()]}`;
-  } catch { return "—"; }
-}
-
 export default function FeeCollection({ session, month, role, initialStudentId, onReceiptGenerated }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [results, setResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [bill, setBill] = useState(null);
   const [sessionPaid, setSessionPaid] = useState(0);
-  const [lastPayment, setLastPayment] = useState(null);
   const [loadingBill, setLoadingBill] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
@@ -63,7 +51,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       ]);
       setBill(b);
       setSessionPaid(summary.sessionTotal);
-      setLastPayment(summary.lastPayment);
       return b;
     } catch (e) {
       setError(e.message);
@@ -93,17 +80,19 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- DYNAMIC MATH FOR THE UI ---
+  // --- CORRECTED INVOICE MATH ---
   const baseBill = bill ? (bill.totalDue || 0) : 0;
+  const alreadyPaid = bill ? (bill.totalPaid || 0) : 0;
+  
   const enteredDiscount = Number(form.discount || 0);
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
   
-  // The total is the base bill minus discount plus late fee
+  // 1. Base Bill minus Discount plus Late Fee = Current Total Bill
   const displayTotal = baseBill - enteredDiscount + enteredLateFee;
   
-  // The balance is the adjusted total minus the new payment
-  const displayBalance = Math.max(displayTotal - amountAdd, 0);
+  // 2. Current Total Bill minus Already Paid minus Amount Entered Now = Balance
+  const displayBalance = Math.max(displayTotal - alreadyPaid - amountAdd, 0);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -112,15 +101,13 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setSubmitting(true);
     setError(null);
     try {
-      const totalReceived = amountAdd;
-
       const { receipt, duplicateBlocked } = await collectPayment({
         studentId: selectedStudent.id,
         session,
         month,
         idempotencyKey,
         ...form,
-        amountReceived: totalReceived,
+        amountReceived: amountAdd,
       });
 
       const freshBill = await refreshAll(selectedStudent.id);
@@ -154,12 +141,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       {flash && <div className="fm-flash">{flash}</div>}
 
       <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
-        <input
-          type="text"
-          placeholder="Search by name or admission no."
-          value={searchTerm}
-          onChange={(e) => setSearchTerm(e.target.value)}
-        />
+        <input type="text" placeholder="Search by name or admission no." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         <button type="submit">Search</button>
       </form>
 
@@ -177,9 +159,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         <>
           <div className="fm-student-header fm-student-header-compact">
             <h3>{selectedStudent.name}</h3>
-            <p>
-              Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}
-            </p>
+            <p>Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}</p>
           </div>
 
           {loadingBill && <p className="fm-subtle">Loading bill…</p>}
@@ -206,12 +186,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
                         <td align="right">₹{bill.transportBilled}</td>
                       </tr>
                     )}
-                    {bill.devFeeBilled > 0 && (
-                      <tr>
-                        <td style={{ padding: "4px 0" }}>Development Fee</td>
-                        <td align="right">₹{bill.devFeeBilled}</td>
-                      </tr>
-                    )}
                   </tbody>
                 </table>
               </div>
@@ -229,7 +203,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
                   </div>
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Paid (This Month)</span>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{bill.totalPaid || 0}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{alreadyPaid}</div>
                   </div>
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Amount Entered</span>
@@ -248,16 +222,13 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
             <label>
               Fee Type
               <select value={form.feeType} onChange={(e) => setForm({ ...form, feeType: e.target.value })}>
-                {["Tuition Fee", "Examination Fee", "Computer Fee", "Library Fee", "Activity Fee", "Other Charges"].map((c) => (
-                  <option key={c}>{c}</option>
-                ))}
+                {["Tuition Fee", "Examination Fee", "Computer Fee", "Library Fee", "Activity Fee", "Other Charges"].map((c) => <option key={c}>{c}</option>)}
               </select>
             </label>
 
             <label>
               Amount Received (₹) *
-              <input type="number" required min="0" value={form.amountReceived}
-                onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
+              <input type="number" required min="0" value={form.amountReceived} onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
             </label>
 
             <label>
@@ -277,8 +248,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
               <input type="text" value={form.referenceNumber} onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
             </label>
 
-            <div /> {/* Empty div for grid alignment */}
-
             <label>
               Discount (₹)
               <input type="number" min="0" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} />
@@ -288,20 +257,13 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
               Late Fee (₹)
               <input type="number" min="0" value={form.lateFee} onChange={(e) => setForm({ ...form, lateFee: e.target.value })} />
             </label>
-
-            <label className="fm-full-width">
-              Remarks
-              <input type="text" value={form.remarks} onChange={(e) => setForm({ ...form, remarks: e.target.value })} />
-            </label>
           </form>
 
           {error && <p className="fm-error">{error}</p>}
 
           <div className="fm-action-row">
             <div className="fm-action-buttons" style={{ marginLeft: "auto" }}>
-              <button type="button" className="fm-secondary-btn" onClick={() => {
-                  setSelectedStudent(null); setBill(null); setResults([]); setSearchTerm(""); setForm({...form, discount: 0, lateFee: 0, amountReceived: ""});
-                }}>
+              <button type="button" className="fm-secondary-btn" onClick={() => { setSelectedStudent(null); setBill(null); setResults([]); setSearchTerm(""); setForm({...form, discount: 0, lateFee: 0, amountReceived: ""}); }}>
                 ← Back
               </button>
               <button type="submit" disabled={submitting} className="fm-primary-btn" onClick={handleSubmit}>
