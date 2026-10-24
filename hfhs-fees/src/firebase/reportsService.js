@@ -15,10 +15,55 @@ const COL = {
   monthlyBills: "monthlyBills",
 };
 
-const MAX_QUERY_RESULTS = 500;
+// ---------------------------------------------------------------------------
+// 1. Student Lists (For Due Management & Batch Collection)
+// ---------------------------------------------------------------------------
+export async function getAllStudentsWithBills({ session, className, month } = {}) {
+  const targetMonth = month || new Date().toISOString().slice(0, 7);
+  let students = [], bills = [];
+
+  try {
+    let sClauses = [];
+    if (session) sClauses.push(where("session", "==", session));
+    if (className) sClauses.push(where("className", "==", className));
+    const sSnap = await getDocs(query(collection(db, COL.students), ...sClauses));
+    students = sSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) {
+    console.warn("getAllStudentsWithBills: students query failed", err);
+  }
+
+  try {
+    let bClauses = [where("month", "==", targetMonth)];
+    if (session) bClauses.push(where("session", "==", session));
+    const bSnap = await getDocs(query(collection(db, COL.monthlyBills), ...bClauses));
+    bills = bSnap.docs.map((d) => d.data());
+  } catch (err) {
+    console.warn("getAllStudentsWithBills: bills query failed", err);
+  }
+
+  const billByStudent = {};
+  bills.forEach((b) => { billByStudent[b.studentId] = b; });
+
+  return students.map((s) => {
+    const bill = billByStudent[s.id];
+    const totalDue = bill?.carriedForward || 0;
+    const totalPaid = bill?.totalPaid || 0;
+    const totalFee = bill?.totalDue || 0;
+    
+    let accountStatus = "PAID";
+    if (totalDue > 0 && totalPaid > 0) accountStatus = "PARTIAL";
+    else if (totalDue > 0) accountStatus = "DUE";
+
+    return { ...s, month: targetMonth, totalDue, totalPaid, totalFee, totalAdvance: 0, accountStatus };
+  });
+}
+
+export async function getAllStudents(opts = {}) {
+  return getAllStudentsWithBills(opts);
+}
 
 // ---------------------------------------------------------------------------
-// 1. Transaction History (For the Reports Page)
+// 2. Transaction History (For the Reports Page)
 // ---------------------------------------------------------------------------
 export async function getTransactionHistoryReport({ session, fromDate, toDate, className } = {}) {
   try {
@@ -54,7 +99,7 @@ export async function getTransactionHistoryReport({ session, fromDate, toDate, c
 }
 
 // ---------------------------------------------------------------------------
-// 2. Dashboard Charts (For the Dashboard Page)
+// 3. Dashboard Charts (For the Dashboard Page)
 // ---------------------------------------------------------------------------
 export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}) {
   try {
@@ -135,22 +180,8 @@ export async function getClassWiseCollectionReport({ session, month } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// 3. Helpers
+// 4. CSV Export
 // ---------------------------------------------------------------------------
-export async function getAllStudents(opts = {}) {
-  const { session, className } = opts;
-  try {
-    let clauses = [];
-    if (session) clauses.push(where("session", "==", session));
-    if (className) clauses.push(where("className", "==", className));
-    
-    const snap = await getDocs(query(collection(db, COL.students), ...clauses));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  } catch (err) {
-    return [];
-  }
-}
-
 export function exportToCSV(rows, filename) {
   if (!rows || rows.length === 0) return;
   const headers = Object.keys(rows[0]).filter((k) => typeof rows[0][k] !== "object");
