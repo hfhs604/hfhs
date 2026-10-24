@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import {
-  searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
+  searchStudents, collectPayment, getMonthlyBill, addBooksFee,
+  addPreviousYearBalance, addKitFee, getStudentPaymentSummary, getStudentFeeProfile,
+  refundAdvance
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
@@ -80,7 +82,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- INVOICE MATH ---
+  // --- THE FIXED DISCOUNT MATH ---
   const baseBill = bill ? (bill.totalDue || 0) : 0;
   const alreadyPaid = bill ? (bill.totalPaid || 0) : 0;
   
@@ -88,7 +90,10 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
   
+  // 1. Base Bill minus Discount plus Late Fee = Total Billed Today
   const displayTotal = baseBill - enteredDiscount + enteredLateFee;
+  
+  // 2. Total Billed minus Already Paid minus Amount Entered Now = Current Balance
   const displayBalance = Math.max(displayTotal - alreadyPaid - amountAdd, 0);
 
   async function handleSubmit(e) {
