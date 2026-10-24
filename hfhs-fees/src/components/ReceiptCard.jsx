@@ -5,56 +5,38 @@ export default function ReceiptCard({ receipt, school }) {
     receiptNumber, paymentDate, session, studentName, admissionNumber,
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, previousDue, remainingDue, paymentMethod, referenceNumber,
-    componentType, totalDue, isCharge, chargedAmount,
+    componentType, totalDue,
     particulars: passedParticulars,
     amountReceivedThisTransaction,
   } = receipt;
 
-  // Core values from the transaction
   const disc = Number(discount || 0);
   const late = Number(lateFee || 0);
   const prevDue = Number(previousDue || 0);
   const thisAmount = Number(amountReceivedThisTransaction ?? amountReceived ?? 0);
   
-  // The total that was billed for this transaction
-  const totalAmount = Number(totalDue || 0) || (prevDue + thisAmount);
+  // The total bill is now saved in the database AFTER subtracting the discount.
+  // We fallback to the old calculation just in case we view an old receipt.
+  const totalBill = Number(totalDue || 0) || (prevDue + thisAmount + disc);
+  
+  // The balance is what remains after the payment is applied to the discounted bill.
   const balance = Number(remainingDue || 0);
-  const chargeAmt = Number(chargedAmount || 0);
 
-  // Build the particulars table.
+  // Build the particulars table rows
   let rows = Array.isArray(passedParticulars) && passedParticulars.length > 0
     ? passedParticulars.map((p) => ({ ...p }))
     : [];
 
   if (rows.length === 0) {
-    if (isCharge) {
-      rows.push({ label: feeType || "Fee Charge", amount: chargeAmt });
-    } else if (componentType === "books") {
-      rows.push({ label: "Books Fee", amount: thisAmount });
-    } else if (componentType === "previousYear") {
-      rows.push({ label: "Previous Year Balance", amount: thisAmount });
-    } else if (componentType === "kit") {
-      rows.push({ label: "Admission / Kit Fee", amount: thisAmount });
-    } else if (componentType === "transport") {
-      rows.push({ label: "Transport Fee", amount: thisAmount });
-    } else if (thisAmount > 0) {
-      rows.push({ label: feeType || "Tuition Fee", amount: thisAmount });
-    }
+    if (componentType === "books") rows.push({ label: "Books Fee", amount: thisAmount });
+    else if (componentType === "previousYear") rows.push({ label: "Previous Year Balance", amount: thisAmount });
+    else if (componentType === "kit") rows.push({ label: "Admission / Kit Fee", amount: thisAmount });
+    else if (componentType === "transport") rows.push({ label: "Transport Fee", amount: thisAmount });
+    else if (thisAmount > 0) rows.push({ label: feeType || "Tuition Fee", amount: thisAmount });
   }
 
-  if (!isCharge) {
-    if (late > 0) rows.push({ label: "Late Fee", amount: late });
-    if (disc > 0) rows.push({ label: "Discount", amount: -disc, isDiscount: true });
-  }
+  if (late > 0) rows.push({ label: "Late Fee", amount: late });
 
-  const titleLabel = isCharge ? "FEE CHARGE SLIP" : "FEE RECEIPT";
-  const dateLabel = isCharge
-    ? (receipt.createdAt?.toDate?.()?.toLocaleDateString?.() || "—")
-    : paymentDate;
-
-  // Calculate display values safely without negative numbers breaking the layout
-  const displayAmountReceived = isCharge ? chargeAmt : thisAmount;
-  
   return (
     <div className="receipt-card">
       <header className="receipt-header">
@@ -74,23 +56,9 @@ export default function ReceiptCard({ receipt, school }) {
         </div>
       </header>
 
-      <div
-        style={{
-          textAlign: "center",
-          fontSize: 10,
-          fontWeight: 700,
-          letterSpacing: "0.08em",
-          color: "#1a3d6d",
-          margin: "2px 0 4px",
-          textTransform: "uppercase",
-        }}
-      >
-        {titleLabel}
-      </div>
-
       <div className="receipt-meta-row">
-        <span><strong>{isCharge ? "Slip#" : "Receipt#"}</strong> {receiptNumber}</span>
-        <span><strong>Date</strong> {dateLabel}</span>
+        <span><strong>Receipt#</strong> {receiptNumber}</span>
+        <span><strong>Date</strong> {paymentDate}</span>
         <span><strong>Session</strong> {session}</span>
       </div>
 
@@ -118,63 +86,49 @@ export default function ReceiptCard({ receipt, school }) {
           {rows.map((p, i) => (
             <tr key={i}>
               <td>{p.label}</td>
-              <td align="right">
-                {p.isDiscount
-                  ? `-${Math.abs(p.amount).toFixed(2)}`
-                  : Number(p.amount).toFixed(2)}
-              </td>
+              <td align="right">{Number(p.amount).toFixed(2)}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
+      {/* Summary block: Shows the Discounted Bill, the Amount Paid, and the Balance */}
       <div className="receipt-summary-block">
         <div className="receipt-summary-line">
-          <span>{isCharge ? "Total Charges" : "Total Amount"}</span>
-          <span>₹{totalAmount.toFixed(0)}</span>
+          <span>Total Amount</span>
+          <span>₹{totalBill.toFixed(0)}</span>
         </div>
-        {!isCharge && (
-          <div className="receipt-summary-line">
-            <span>Amount Received</span>
-            <span>₹{displayAmountReceived.toFixed(0)}</span>
+
+        {disc > 0 && (
+          <div className="receipt-summary-line" style={{ color: "#059669", fontSize: "8px", marginTop: -2 }}>
+            <span> (Includes Discount of ₹{disc.toFixed(0)})</span>
+            <span></span>
           </div>
         )}
-        {isCharge && (
-          <div className="receipt-summary-line">
-            <span>Amount Charged This Slip</span>
-            <span>₹{chargeAmt.toFixed(0)}</span>
-          </div>
-        )}
+        
+        <div className="receipt-summary-line" style={{ marginTop: 6 }}>
+          <span>Amount Received</span>
+          <span>₹{thisAmount.toFixed(0)}</span>
+        </div>
+
         <div className="receipt-summary-line receipt-summary-balance">
-          <span>Balance</span>
-          <span>₹{Math.max(balance, 0).toFixed(0)}</span>
+          <span>Balance Due</span>
+          <span>₹{balance.toFixed(0)}</span>
         </div>
       </div>
 
-      {!isCharge ? (
-        <div className="receipt-payment-row">
-          <span>
-            Paid via <strong>{paymentMethod}</strong>
-            {referenceNumber ? ` · Ref: ${referenceNumber}` : ""}
-          </span>
-        </div>
-      ) : (
-        <div className="receipt-payment-row">
-          <span style={{ fontStyle: "italic" }}>
-            This is a fee charge notice — no payment has been received against this slip.
-          </span>
-        </div>
-      )}
+      <div className="receipt-payment-row">
+        <span>
+          Paid via <strong>{paymentMethod}</strong>
+          {referenceNumber ? ` · Ref: ${referenceNumber}` : ""}
+        </span>
+      </div>
 
       <footer className="receipt-footer">
         <div className="receipt-sign-area">
           <div className="receipt-signature-box">Authorised Signature</div>
         </div>
-        <p className="receipt-computer-generated">
-          {isCharge
-            ? "This is a computer-generated fee charge slip."
-            : "This is a computer-generated receipt."}
-        </p>
+        <p className="receipt-computer-generated">This is a computer-generated receipt.</p>
       </footer>
     </div>
   );
