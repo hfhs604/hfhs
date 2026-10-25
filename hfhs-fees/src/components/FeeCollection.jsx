@@ -38,7 +38,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       getStudentFeeProfile(initialStudentId).then(s => {
         setSelectedStudent(s);
         refreshAll(s.id);
-      });
+      }).catch(err => setError(err.message));
     }
   }, [initialStudentId]);
 
@@ -61,17 +61,34 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   }
 
   async function handleSearch(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (!searchTerm.trim()) return;
     setError(null);
-    const found = await searchStudents(searchTerm.trim());
-    setResults(found);
+    setLoadingBill(true);
+    try {
+      const found = await searchStudents(searchTerm.trim());
+      setResults(found);
+    } catch (err) {
+      setError("Search failed. Please try again.");
+    } finally {
+      setLoadingBill(false);
+    }
   }
 
-  async function selectStudent(student) {
+  // FIXED: Ensure this fires properly and clears search results
+  async function selectStudent(student, e) {
+    if (e) e.preventDefault();
+    
+    // 1. Immediately set the student
     setSelectedStudent(student);
+    setResults([]); // Clear search results so UI updates
     setIdempotencyKey(uuidv4());
     setError(null);
+
+    // 2. Reset form just in case
+    setForm(f => ({ ...f, amountReceived: "", discount: 0, lateFee: 0, remarks: "" }));
+
+    // 3. Load the bill
     await refreshAll(student.id);
   }
 
@@ -88,13 +105,8 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
   
-  // 1. The Gross Bill: (Previous Due + Tuition + Transport)
-  const grossBill = bill ? ((bill.previousDue || 0) + (bill.tuitionBilled || 0) + (bill.transportBilled || 0)) : 0;
-  
-  // 2. Total Billed after discount
+  const grossBill = bill ? ((bill.previousDue || 0) + (bill.tuitionBilled || 0) + (bill.transportBilled || 0) + (bill.devFeeBilled || 0)) : 0;
   const displayTotal = grossBill - enteredDiscount + enteredLateFee;
-  
-  // 3. The Current Balance (Total - Already Paid - New Amount)
   const displayBalance = Math.max(displayTotal - alreadyPaid - amountAdd, 0);
 
   async function handleSubmit(e) {
@@ -113,7 +125,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         amountReceived: amountAdd,
       });
 
-      // We fetch fresh bill so the "Session Paid" card updates
       const freshBill = await refreshAll(selectedStudent.id);
       
       const enrichedReceipt = {
@@ -145,15 +156,28 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       {flash && <div className="fm-flash">{flash}</div>}
 
       <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
-        <input type="text" placeholder="Search by name or admission no." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+        <input 
+          type="text" 
+          placeholder="Search by name or admission no." 
+          value={searchTerm} 
+          onChange={(e) => setSearchTerm(e.target.value)} 
+        />
         <button type="submit">Search</button>
       </form>
 
+      {/* FIX: Ensure the onClick passes the event and student correctly */}
       {results.length > 0 && !selectedStudent && (
-        <ul className="fm-result-list fm-result-list-compact">
+        <ul className="fm-result-list fm-result-list-compact" style={{ margin: 0, padding: 0 }}>
           {results.map((s) => (
-            <li key={s.id} onClick={() => selectStudent(s)}>
-              <strong>{s.name}</strong> — Adm# {s.admissionNumber} — Class {s.className}
+            <li 
+              key={s.id} 
+              onClick={(e) => selectStudent(s, e)}
+              style={{ padding: "12px 16px", cursor: "pointer", borderBottom: "1px solid #e2e8f0" }}
+            >
+              <strong style={{ color: "#1e293b" }}>{s.name}</strong> 
+              <span style={{ color: "#64748b", marginLeft: 8 }}>
+                — Adm# {s.admissionNumber} — Class {s.className}
+              </span>
             </li>
           ))}
         </ul>
@@ -161,15 +185,31 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
 
       {selectedStudent && (
         <>
-          <div className="fm-student-header fm-student-header-compact">
-            <h3>{selectedStudent.name}</h3>
-            <p>Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}</p>
+          <div className="fm-student-header fm-student-header-compact" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
+            <div>
+              <h3 style={{ margin: 0, color: "#1e293b" }}>{selectedStudent.name}</h3>
+              <p style={{ margin: "4px 0 0", color: "#64748b" }}>Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}</p>
+            </div>
+            <button 
+              type="button" 
+              className="fm-secondary-btn" 
+              onClick={() => { setSelectedStudent(null); setBill(null); setSearchTerm(""); }}
+            >
+              Change Student
+            </button>
           </div>
 
           {loadingBill && <p className="fm-subtle">Loading bill…</p>}
 
+          {!loadingBill && !bill && (
+            <div style={{ padding: 16, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, marginTop: 16 }}>
+              <p style={{ margin: 0, color: "#991b1b", fontWeight: 600 }}>No bill generated for {month}.</p>
+              <p style={{ margin: "4px 0 0", color: "#991b1b", fontSize: 13 }}>Please go to Settings → Start New Month to generate the bill before collecting payment.</p>
+            </div>
+          )}
+
           {bill && (
-            <div className="fm-bill-two-col fm-bill-two-col-compact" style={{ background: "#f8fafc", padding: 16, borderRadius: 8 }}>
+            <div className="fm-bill-two-col fm-bill-two-col-compact" style={{ background: "#f8fafc", padding: 16, borderRadius: 8, marginTop: 16 }}>
               <div className="fm-bill-left" style={{ flex: 1 }}>
                 <h4 style={{ color: "#475569", textTransform: "uppercase", fontSize: 12, marginBottom: 12 }}>Current Bill Breakdown</h4>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
@@ -188,6 +228,12 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
                       <tr>
                         <td style={{ padding: "4px 0" }}>Transport Fee</td>
                         <td align="right">₹{bill.transportBilled}</td>
+                      </tr>
+                    )}
+                    {bill.devFeeBilled > 0 && (
+                      <tr>
+                        <td style={{ padding: "4px 0" }}>Development Fee</td>
+                        <td align="right">₹{bill.devFeeBilled}</td>
                       </tr>
                     )}
                   </tbody>
@@ -222,59 +268,60 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
             </div>
           )}
 
-          <form onSubmit={handleSubmit} className="fm-payment-form fm-payment-form-compact" style={{ marginTop: 24 }}>
-            <label>
-              Fee Type
-              <select value={form.feeType} onChange={(e) => setForm({ ...form, feeType: e.target.value })}>
-                {["Tuition Fee", "Examination Fee", "Computer Fee", "Library Fee", "Activity Fee", "Other Charges"].map((c) => <option key={c}>{c}</option>)}
-              </select>
-            </label>
+          {bill && (
+            <form onSubmit={handleSubmit} className="fm-payment-form fm-payment-form-compact" style={{ marginTop: 24 }}>
+              <label>
+                Fee Type
+                <select value={form.feeType} onChange={(e) => setForm({ ...form, feeType: e.target.value })}>
+                  {["Tuition Fee", "Examination Fee", "Computer Fee", "Library Fee", "Activity Fee", "Other Charges"].map((c) => <option key={c}>{c}</option>)}
+                </select>
+              </label>
 
-            <label>
-              Amount Received (₹) *
-              <input type="number" required min="0" value={form.amountReceived} onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
-            </label>
+              <label>
+                Amount Received (₹) *
+                <input type="number" required min="0" value={form.amountReceived} onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
+              </label>
 
-            <label>
-              Payment Date
-              <input type="date" value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} />
-            </label>
+              <label>
+                Payment Date
+                <input type="date" value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} />
+              </label>
 
-            <label>
-              Payment Method
-              <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
-                {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
-              </select>
-            </label>
+              <label>
+                Payment Method
+                <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
+                  {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
+                </select>
+              </label>
 
-            <label>
-              Transaction / Reference No.
-              <input type="text" value={form.referenceNumber} onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
-            </label>
+              <label>
+                Transaction / Reference No.
+                <input type="text" value={form.referenceNumber} onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
+              </label>
 
-            <label>
-              Discount (₹)
-              <input type="number" min="0" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} />
-            </label>
+              <label>
+                Discount (₹)
+                <input type="number" min="0" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} />
+              </label>
 
-            <label>
-              Late Fee (₹)
-              <input type="number" min="0" value={form.lateFee} onChange={(e) => setForm({ ...form, lateFee: e.target.value })} />
-            </label>
-          </form>
+              <label>
+                Late Fee (₹)
+                <input type="number" min="0" value={form.lateFee} onChange={(e) => setForm({ ...form, lateFee: e.target.value })} />
+              </label>
+            </form>
+          )}
 
-          {error && <p className="fm-error">{error}</p>}
+          {error && <p className="fm-error" style={{ marginTop: 12 }}>{error}</p>}
 
-          <div className="fm-action-row" style={{ marginBottom: 20 }}>
-            <div className="fm-action-buttons" style={{ marginLeft: "auto" }}>
-              <button type="button" className="fm-secondary-btn" onClick={() => { setSelectedStudent(null); setBill(null); setResults([]); setSearchTerm(""); setForm({...form, discount: 0, lateFee: 0, amountReceived: ""}); }}>
-                ← Back
-              </button>
-              <button type="submit" disabled={submitting} className="fm-primary-btn" onClick={handleSubmit}>
-                {submitting ? "Recording…" : "Record Payment"}
-              </button>
+          {bill && (
+            <div className="fm-action-row" style={{ marginTop: 24 }}>
+              <div className="fm-action-buttons" style={{ marginLeft: "auto" }}>
+                <button type="submit" disabled={submitting || !bill} className="fm-primary-btn" onClick={handleSubmit}>
+                  {submitting ? "Recording…" : "Record Payment"}
+                </button>
+              </div>
             </div>
-          </div>
+          )}
         </>
       )}
 
