@@ -4,7 +4,7 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
 import {
   searchStudents, collectPayment, getStudentPaymentSummary, getStudentFeeProfile,
-  addBooksFee, addPreviousYearBalance, addKitFee
+  addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
@@ -18,13 +18,18 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const [results, setResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [bill, setBill] = useState(null);
-  const [sessionPaid, setSessionPaid] = useState(0);
+  const [summaryData, setSummaryData] = useState({ sessionTotal: 0, lastPayment: null });
+  const [history, setHistory] = useState([]);
+  
   const [loadingBill, setLoadingBill] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState(null);
   const [idempotencyKey, setIdempotencyKey] = useState(null);
   const [flash, setFlash] = useState("");
   const [receiptPopup, setReceiptPopup] = useState(null);
+  
+  const [userRole, setUserRole] = useState(null);
+  const [deletingId, setDeletingId] = useState(null);
 
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonMsg, setAddonMsg] = useState("");
@@ -46,6 +51,13 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   });
 
   useEffect(() => {
+    // Fetch admin role to check delete permissions
+    if (auth.currentUser) {
+      getUserRole(auth.currentUser.uid).then(r => setUserRole(r?.role || null));
+    }
+  }, []);
+
+  useEffect(() => {
     if (initialStudentId) {
       getStudentFeeProfile(initialStudentId).then(s => {
         setSelectedStudent(s);
@@ -60,9 +72,10 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
       const billRef = doc(db, "monthlyBills", `${session}_${month}_${safeId}`);
       
-      const [billSnap, summary] = await Promise.all([
+      const [billSnap, summary, hist] = await Promise.all([
         getDoc(billRef),
         getStudentPaymentSummary(studentId, session, month),
+        getPaymentHistory(studentId),
       ]);
 
       if (billSnap.exists()) {
@@ -70,7 +83,8 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       } else {
         setBill(null);
       }
-      setSessionPaid(summary.sessionTotal);
+      setSummaryData(summary);
+      setHistory(hist || []);
     } catch (e) {
       setError(e.message);
     } finally {
@@ -106,6 +120,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   function handleBack() {
     setSelectedStudent(null);
     setBill(null);
+    setHistory([]);
     setResults([]);
     setSearchTerm("");
     setError(null);
@@ -117,7 +132,15 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- CLEAN, INVOICE-STYLE MATH ---
+  function formatDate(dateObj) {
+    if (!dateObj) return "—";
+    try {
+      const d = dateObj.toDate ? dateObj.toDate() : new Date(dateObj);
+      return d.toLocaleDateString("en-GB", { day: '2-digit', month: 'short', year: 'numeric' });
+    } catch { return "—"; }
+  }
+
+  // --- EXACT MATH ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
@@ -127,22 +150,17 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const kit = bill ? (bill.kitFeeBilled || 0) : 0;
 
   const totalBilled = previousDue + tuition + transport + devFee + books + prevYear + kit;
+  const dbCarryForward = bill ? (bill.carriedForward || 0) : 0;
   
-  // The amount already paid in this specific month (before today)
-  const effectivePaid = bill ? (bill.totalPaid || 0) : 0;
+  const effectivePaid = Math.max(totalBilled - dbCarryForward, 0);
 
   const enteredDiscount = Number(form.discount || 0);
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
 
-  // Net Bill = Gross Bill - Discount + Late Fee
   const netBill = totalBilled - enteredDiscount + enteredLateFee;
-  
-  // Balance = Net Bill - Already Paid - Amount Entered Right Now
   const finalBalance = Math.max(netBill - effectivePaid - amountAdd, 0);
-  
-  // Session Paid = Past Session Total + Amount Entered Right Now
-  const liveSessionPaid = sessionPaid + amountAdd;
+  const liveSessionPaid = summaryData.sessionTotal + amountAdd;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -191,58 +209,47 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     }
   }
 
-  function promptForAmount(slot) {
-    setPromptSlot(slot);
-    setPromptValue("");
-    setPromptConfirming(false);
+  async function handleDeleteTransaction(txn) {
+    const ok = window.confirm(`Are you sure you want to DELETE this transaction?\n\nAmount: ₹${txn.amountReceived || txn.netAmount || 0}\nDate: ${formatDate(txn.createdAt)}\n\nThis cannot be undone.`);
+    if (!ok) return;
+
+    setDeletingId(txn.id);
+    setError(null);
+    try {
+      await deleteTransaction(txn.id, "Deleted from Collect Fee panel");
+      showFlash("✅ Transaction deleted successfully.");
+      await refreshAll(selectedStudent.id);
+    } catch (err) {
+      setError(`❌ Failed to delete: ${err.message}`);
+    } finally {
+      setDeletingId(null);
+    }
   }
 
-  function cancelPrompt() {
-    setPromptSlot(null);
-    setPromptValue("");
-    setPromptConfirming(false);
-  }
+  function promptForAmount(slot) { setPromptSlot(slot); setPromptValue(""); setPromptConfirming(false); }
+  function cancelPrompt() { setPromptSlot(null); setPromptValue(""); setPromptConfirming(false); }
 
   async function handleAddon(fn, amount, label) {
-    setAddonBusy(true);
-    setAddonMsg("");
+    setAddonBusy(true); setAddonMsg("");
     try {
-      const res = await fn({
-        studentId: selectedStudent.id,
-        amount,
-        session,
-        month,
-        paymentDate: new Date().toISOString(),
-        idempotencyKey: uuidv4(),
-      });
-
+      const res = await fn({ studentId: selectedStudent.id, amount, session, month, paymentDate: new Date().toISOString(), idempotencyKey: uuidv4() });
       showFlash(`✅ ${label} ₹${amount} added`);
       await refreshAll(selectedStudent.id);
       setAddonMsg(res.duplicateBlocked ? "Already recorded." : `${label} ₹${amount} added.`);
-    } catch (e) {
-      setAddonMsg(`❌ ${e.message}`);
-    } finally {
-      setAddonBusy(false);
-    }
+    } catch (e) { setAddonMsg(`❌ ${e.message}`); } finally { setAddonBusy(false); }
   }
 
   async function confirmPrompt() {
     if (promptConfirming) return;
     const amt = Number(promptValue);
-    if (!amt || amt <= 0) {
-      setAddonMsg("Please enter a valid amount.");
-      return;
-    }
-
+    if (!amt || amt <= 0) { setAddonMsg("Please enter a valid amount."); return; }
     setPromptConfirming(true);
     try {
       if (promptSlot === "books") await handleAddon(addBooksFee, amt, "Books");
       else if (promptSlot === "previousYear") await handleAddon(addPreviousYearBalance, amt, "Previous Year Balance");
       else if (promptSlot === "kit") await handleAddon(addKitFee, amt, "Admission / Kit");
       cancelPrompt();
-    } catch (e) {
-      setPromptConfirming(false);
-    }
+    } catch (e) { setPromptConfirming(false); }
   }
 
   return (
@@ -255,13 +262,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       {flash && <div className="fm-flash">{flash}</div>}
 
       <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
-        <input 
-          type="text" 
-          placeholder="Search by name or admission no." 
-          value={searchTerm} 
-          onChange={(e) => setSearchTerm(e.target.value)} 
-          disabled={!!selectedStudent}
-        />
+        <input type="text" placeholder="Search by name or admission no." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} disabled={!!selectedStudent} />
         <button type="submit" disabled={!!selectedStudent}>Search</button>
       </form>
 
@@ -283,9 +284,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
               <h3 style={{ margin: 0, color: "#1e293b" }}>{selectedStudent.name}</h3>
               <p style={{ margin: "4px 0 0", color: "#64748b" }}>Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}</p>
             </div>
-            <button type="button" className="fm-secondary-btn" onClick={handleBack}>
-              ← Back
-            </button>
+            <button type="button" className="fm-secondary-btn" onClick={handleBack}>← Back</button>
           </div>
 
           {loadingBill && <p className="fm-subtle">Loading bill…</p>}
@@ -303,46 +302,13 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
                 <h4 style={{ color: "#475569", textTransform: "uppercase", fontSize: 12, marginBottom: 12 }}>Current Bill Breakdown</h4>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <tbody>
-                    {previousDue > 0 && (
-                      <tr style={{ color: "#dc2626" }}>
-                        <td style={{ padding: "4px 0" }}>Previous Due</td>
-                        <td align="right">₹{previousDue}</td>
-                      </tr>
-                    )}
-                    <tr>
-                      <td style={{ padding: "4px 0" }}>Tuition Fee</td>
-                      <td align="right">₹{tuition}</td>
-                    </tr>
-                    {transport > 0 && (
-                      <tr>
-                        <td style={{ padding: "4px 0" }}>Transport Fee</td>
-                        <td align="right">₹{transport}</td>
-                      </tr>
-                    )}
-                    {devFee > 0 && (
-                      <tr>
-                        <td style={{ padding: "4px 0" }}>Development Fee</td>
-                        <td align="right">₹{devFee}</td>
-                      </tr>
-                    )}
-                    {books > 0 && (
-                      <tr>
-                        <td style={{ padding: "4px 0" }}>Books Fee</td>
-                        <td align="right">₹{books}</td>
-                      </tr>
-                    )}
-                    {prevYear > 0 && (
-                      <tr>
-                        <td style={{ padding: "4px 0" }}>Previous Year</td>
-                        <td align="right">₹{prevYear}</td>
-                      </tr>
-                    )}
-                    {kit > 0 && (
-                      <tr>
-                        <td style={{ padding: "4px 0" }}>Kit Fee</td>
-                        <td align="right">₹{kit}</td>
-                      </tr>
-                    )}
+                    {previousDue > 0 && <tr style={{ color: "#dc2626" }}><td style={{ padding: "4px 0" }}>Previous Due</td><td align="right">₹{previousDue}</td></tr>}
+                    <tr><td style={{ padding: "4px 0" }}>Tuition Fee</td><td align="right">₹{tuition}</td></tr>
+                    {transport > 0 && <tr><td style={{ padding: "4px 0" }}>Transport Fee</td><td align="right">₹{transport}</td></tr>}
+                    {devFee > 0 && <tr><td style={{ padding: "4px 0" }}>Development Fee</td><td align="right">₹{devFee}</td></tr>}
+                    {books > 0 && <tr><td style={{ padding: "4px 0" }}>Books Fee</td><td align="right">₹{books}</td></tr>}
+                    {prevYear > 0 && <tr><td style={{ padding: "4px 0" }}>Previous Year</td><td align="right">₹{prevYear}</td></tr>}
+                    {kit > 0 && <tr><td style={{ padding: "4px 0" }}>Kit Fee</td><td align="right">₹{kit}</td></tr>}
                   </tbody>
                 </table>
               </div>
@@ -364,6 +330,16 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Paid (This Month)</span>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{effectivePaid}</div>
+                    {summaryData.lastPayment && (
+                      <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
+                        Last: {formatDate(summaryData.lastPayment.date)} (₹{summaryData.lastPayment.amount})
+                      </div>
+                    )}
+                  </div>
+
+                  <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
+                    <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Discount Given</span>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>₹{enteredDiscount}</div>
                   </div>
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
@@ -371,9 +347,9 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#2563eb", marginTop: 4 }}>₹{amountAdd}</div>
                   </div>
 
-                  <div style={{ background: "#fef2f2", padding: 12, borderRadius: 6, border: "1px solid #fecaca" }}>
+                  <div style={{ background: "#fef2f2", padding: 12, borderRadius: 6, border: "1px solid #fecaca", gridColumn: "1 / -1" }}>
                     <span style={{ fontSize: 10, color: "#991b1b", fontWeight: 600, textTransform: "uppercase" }}>Current Balance</span>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626", marginTop: 4 }}>₹{finalBalance}</div>
+                    <div style={{ fontSize: 20, fontWeight: 700, color: "#dc2626", marginTop: 4 }}>₹{finalBalance}</div>
                   </div>
                   
                 </div>
@@ -425,15 +401,9 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
               
               {canManageAddons && (
                 <div className="fm-action-addons" style={{ display: "flex", gap: 8 }}>
-                  <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("books")}>
-                    📚 + Books
-                  </button>
-                  <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("previousYear")}>
-                    📜 + Prev Year
-                  </button>
-                  <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("kit")}>
-                    👕 + Kit
-                  </button>
+                  <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("books")}>📚 + Books</button>
+                  <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("previousYear")}>📜 + Prev Year</button>
+                  <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("kit")}>👕 + Kit</button>
                 </div>
               )}
 
@@ -444,35 +414,73 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
               </div>
             </div>
           )}
+
+          {/* --- TRANSACTION HISTORY TABLE --- */}
+          <div style={{ marginTop: 40, borderTop: "1px solid #e2e8f0", paddingTop: 20 }}>
+            <h3>Student Transaction History</h3>
+            {history.length === 0 ? (
+              <p className="fm-empty-state">No transactions recorded yet for this student.</p>
+            ) : (
+              <div className="fm-table-scroll">
+                <table className="fm-table">
+                  <thead>
+                    <tr>
+                      <th>Date</th>
+                      <th>Receipt#</th>
+                      <th>Fee Type</th>
+                      <th>Amount</th>
+                      <th>Method</th>
+                      <th>Action</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {history.map((t, idx) => (
+                      <tr key={t.id || idx}>
+                        <td>{formatDate(t.createdAt || t.paymentDate)}</td>
+                        <td>{t.receiptNumber || "—"}</td>
+                        <td>{t.feeType || "Tuition Fee"}</td>
+                        <td style={{ fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
+                        <td>{t.paymentMethod || "Cash"}</td>
+                        <td>
+                          <button 
+                            type="button" 
+                            className="fm-link-btn" 
+                            style={{ marginRight: 12 }} 
+                            onClick={() => setReceiptPopup(t)}
+                          >
+                            View / Print
+                          </button>
+                          
+                          {(userRole === "superAdmin" || userRole === "admin") && (
+                            <button 
+                              type="button" 
+                              className="fm-link-btn fm-danger-link" 
+                              onClick={() => handleDeleteTransaction(t)}
+                              disabled={deletingId === t.id}
+                            >
+                              {deletingId === t.id ? "Deleting…" : "Delete"}
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </>
       )}
 
       {promptSlot && (
         <div className="fm-modal-overlay">
           <div className="fm-modal" style={{ maxWidth: 380 }}>
-            <h3>
-              {promptSlot === "books" && "Add Books Fee"}
-              {promptSlot === "previousYear" && "Add Previous Year Balance"}
-              {promptSlot === "kit" && "Add Admission / Kit Fee"}
-            </h3>
+            <h3>{promptSlot === "books" && "Add Books Fee"}{promptSlot === "previousYear" && "Add Previous Year Balance"}{promptSlot === "kit" && "Add Admission / Kit Fee"}</h3>
             <p style={{ margin: "12px 0", fontSize: 14, color: "#4b5563" }}>Enter the amount in ₹</p>
-            <input
-              type="number"
-              min="1"
-              autoFocus
-              value={promptValue}
-              onChange={(e) => setPromptValue(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && confirmPrompt()}
-              disabled={promptConfirming}
-              style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15 }}
-            />
+            <input type="number" min="1" autoFocus value={promptValue} onChange={(e) => setPromptValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmPrompt()} disabled={promptConfirming} style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15 }} />
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
-              <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>
-                Cancel
-              </button>
-              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}>
-                {promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}
-              </button>
+              <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>Cancel</button>
+              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}>{promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}</button>
             </div>
           </div>
         </div>
