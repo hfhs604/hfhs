@@ -1,7 +1,6 @@
 /**
  * feeService.js
  * Fee Management data layer for Holy Faith High School.
- * Optimized for minimal Firestore reads.
  */
 
 import { db, auth } from "../firebase/config";
@@ -172,7 +171,7 @@ export async function listBillsForMonth(session, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Payment Collection (FIXED MATH)
+// Payment Collection (TRUE CASH TRACKING)
 // ---------------------------------------------------------------------------
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
@@ -191,21 +190,17 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    // The total credit applied to the bill is the cash received + the discount given.
-    const totalCredit = amt + disc;
-    
-    // totalPaid in the DB strictly tracks CASH received so the UI boxes are accurate
-    const newPaid = (bill.totalPaid || 0) + amt;
-    
-    // Remaining balance is the original bill minus the total credit
-    const newCarry = (bill.totalDue || 0) - totalCredit;
+    const totalCredit = amt + disc; // The total reduction to the bill
+    const newPaid = (bill.totalPaid || 0) + totalCredit; // We track the total credit here for the bill math
+    const newCarry = (bill.totalDue || 0) - newPaid;
 
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
 
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
-      discount: disc, lateFee: late, netAmount: amt, // Store cash as netAmount for dashboard
+      discount: disc, lateFee: late, 
+      netAmount: amt, // We strictly store CASH here so Dashboard & UI show real cash
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
