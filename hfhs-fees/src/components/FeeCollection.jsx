@@ -26,7 +26,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const [flash, setFlash] = useState("");
   const [receiptPopup, setReceiptPopup] = useState(null);
 
-  // Add-on state
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonMsg, setAddonMsg] = useState("");
   const [promptSlot, setPromptSlot] = useState(null);
@@ -96,8 +95,8 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
 
   async function selectStudent(student) {
     setSelectedStudent(student);
-    setResults([]); // This clears the search list
-    setSearchTerm(""); // Clears the search box
+    setResults([]);
+    setSearchTerm("");
     setIdempotencyKey(uuidv4());
     setError(null);
     setForm(f => ({ ...f, amountReceived: "", discount: 0, lateFee: 0, remarks: "" }));
@@ -118,7 +117,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- EXACT MATH FOR THE 4 BOXES ---
+  // --- CLEAN, INVOICE-STYLE MATH ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
@@ -128,16 +127,21 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const kit = bill ? (bill.kitFeeBilled || 0) : 0;
 
   const totalBilled = previousDue + tuition + transport + devFee + books + prevYear + kit;
-  const dbCarryForward = bill ? (bill.carriedForward || 0) : 0;
   
-  const effectivePaid = Math.max(totalBilled - dbCarryForward, 0);
+  // The amount already paid in this specific month (before today)
+  const effectivePaid = bill ? (bill.totalPaid || 0) : 0;
 
   const enteredDiscount = Number(form.discount || 0);
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
 
+  // Net Bill = Gross Bill - Discount + Late Fee
   const netBill = totalBilled - enteredDiscount + enteredLateFee;
+  
+  // Balance = Net Bill - Already Paid - Amount Entered Right Now
   const finalBalance = Math.max(netBill - effectivePaid - amountAdd, 0);
+  
+  // Session Paid = Past Session Total + Amount Entered Right Now
   const liveSessionPaid = sessionPaid + amountAdd;
 
   async function handleSubmit(e) {
@@ -187,7 +191,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     }
   }
 
-  // --- ADD-ON LOGIC ---
   function promptForAmount(slot) {
     setPromptSlot(slot);
     setPromptValue("");
@@ -257,7 +260,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
           placeholder="Search by name or admission no." 
           value={searchTerm} 
           onChange={(e) => setSearchTerm(e.target.value)} 
-          disabled={!!selectedStudent} // Disable search if a student is selected
+          disabled={!!selectedStudent}
         />
         <button type="submit" disabled={!!selectedStudent}>Search</button>
       </form>
@@ -420,7 +423,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
           {bill && (
             <div className="fm-action-row" style={{ marginTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
               
-              {/* RESTORED ADD-ON BUTTONS */}
               {canManageAddons && (
                 <div className="fm-action-addons" style={{ display: "flex", gap: 8 }}>
                   <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("books")}>
@@ -445,7 +447,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         </>
       )}
 
-      {/* ADD-ON AMOUNT PROMPT MODAL */}
       {promptSlot && (
         <div className="fm-modal-overlay">
           <div className="fm-modal" style={{ maxWidth: 380 }}>
