@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { doc, getDoc } from "firebase/firestore";
-import { db, auth } from "../firebase/config"; // <-- FIXED: Added 'auth' here
+import { db, auth } from "../firebase/config";
 import {
   searchStudents, collectPayment, getStudentPaymentSummary, getStudentFeeProfile,
   addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole
@@ -13,7 +13,7 @@ import "../styles/feeManagement.css";
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 const ADDON_ROLES = ["superAdmin", "admin", "accountant"];
 
-export default function FeeCollection({ session, month, role, initialStudentId, onReceiptGenerated }) {
+export default function FeeCollection({ session, month, role, initialStudentId }) {
   const [searchTerm, setSearchTerm] = useState("");
   const [results, setResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
@@ -51,7 +51,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   });
 
   useEffect(() => {
-    // Fetch admin role to check delete permissions
     if (auth.currentUser) {
       getUserRole(auth.currentUser.uid).then(r => setUserRole(r?.role || null));
     }
@@ -140,7 +139,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     } catch { return "—"; }
   }
 
-  // --- EXACT MATH ---
+  // --- MATH ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
@@ -152,6 +151,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const totalBilled = previousDue + tuition + transport + devFee + books + prevYear + kit;
   const dbCarryForward = bill ? (bill.carriedForward || 0) : 0;
   
+  // Calculate actual cash paid by finding the difference between the bill and remaining balance
   const effectivePaid = Math.max(totalBilled - dbCarryForward, 0);
 
   const enteredDiscount = Number(form.discount || 0);
@@ -197,9 +197,10 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         remainingDue: finalBalance,
       };
 
-      onReceiptGenerated?.(enrichedReceipt, duplicateBlocked);
       showFlash("✅ Payment Successful");
+      // Automatically open the popup after save
       setReceiptPopup(enrichedReceipt);
+      
       setIdempotencyKey(uuidv4());
       setForm(f => ({ ...f, amountReceived: "", referenceNumber: "", discount: 0, lateFee: 0, remarks: "" }));
     } catch (err) {
@@ -415,7 +416,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
             </div>
           )}
 
-          {/* --- TRANSACTION HISTORY TABLE --- */}
+          {/* --- TRANSACTION HISTORY TABLE WITH MODERN ICONS --- */}
           <div style={{ marginTop: 40, borderTop: "1px solid #e2e8f0", paddingTop: 20 }}>
             <h3>Student Transaction History</h3>
             {history.length === 0 ? (
@@ -430,7 +431,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
                       <th>Fee Type</th>
                       <th>Amount</th>
                       <th>Method</th>
-                      <th>Action</th>
+                      <th style={{ textAlign: "center" }}>Actions</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -441,24 +442,37 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
                         <td>{t.feeType || "Tuition Fee"}</td>
                         <td style={{ fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
                         <td>{t.paymentMethod || "Cash"}</td>
-                        <td>
+                        <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                          
                           <button 
                             type="button" 
-                            className="fm-link-btn" 
-                            style={{ marginRight: 12 }} 
+                            title="View Receipt"
+                            className="fm-icon-btn" 
+                            style={{ marginRight: 8 }} 
                             onClick={() => setReceiptPopup(t)}
                           >
-                            View / Print
+                            👁️
                           </button>
                           
+                          <button 
+                            type="button" 
+                            title="Print Receipt"
+                            className="fm-icon-btn" 
+                            style={{ marginRight: 8 }} 
+                            onClick={() => setReceiptPopup(t)}
+                          >
+                            🖨️
+                          </button>
+
                           {(userRole === "superAdmin" || userRole === "admin") && (
                             <button 
                               type="button" 
-                              className="fm-link-btn fm-danger-link" 
+                              title="Delete Transaction"
+                              className="fm-icon-btn fm-danger-link" 
                               onClick={() => handleDeleteTransaction(t)}
                               disabled={deletingId === t.id}
                             >
-                              {deletingId === t.id ? "Deleting…" : "Delete"}
+                              {deletingId === t.id ? "⏳" : "🗑️"}
                             </button>
                           )}
                         </td>
@@ -486,6 +500,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         </div>
       )}
 
+      {/* This modal shows the receipt separately and does not push the page down */}
       <PrintManager active={!!receiptPopup} onClose={() => setReceiptPopup(null)} type="receipt">
         {receiptPopup && <ReceiptPrintSheet receipts={[receiptPopup]} />}
       </PrintManager>
