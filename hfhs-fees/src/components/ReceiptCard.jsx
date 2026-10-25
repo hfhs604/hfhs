@@ -4,7 +4,7 @@ export default function ReceiptCard({ receipt, school }) {
   const {
     receiptNumber, paymentDate, session, studentName, admissionNumber,
     className, section, guardianName, feeType, amountReceived, discount,
-    lateFee, previousDue, remainingDue, paymentMethod, referenceNumber,
+    lateFee, remainingDue, paymentMethod, referenceNumber,
     particulars: passedParticulars,
   } = receipt;
 
@@ -12,10 +12,8 @@ export default function ReceiptCard({ receipt, school }) {
   const late = Number(lateFee || 0);
   const thisAmount = Number(amountReceived || 0);
 
-  // Use the exact breakdown passed from the screen
   let rows = Array.isArray(passedParticulars) ? [...passedParticulars] : [];
   
-  // Fallback just in case there are no particulars
   if (rows.length === 0 && thisAmount > 0) {
     rows.push({ label: feeType || "Fee Payment", amount: thisAmount });
   }
@@ -23,13 +21,8 @@ export default function ReceiptCard({ receipt, school }) {
     rows.push({ label: "Late Fee", amount: late });
   }
 
-  // Calculate the Gross Total from the actual line items
   const grossTotal = rows.reduce((sum, item) => sum + Number(item.amount || 0), 0);
-
-  // Net Bill = Gross Total - Discount
   const netBill = grossTotal - disc;
-
-  // Balance Due (Trust the screen's final calculation)
   const finalBalance = Number(remainingDue || 0);
 
   return (
