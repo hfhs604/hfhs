@@ -1,7 +1,9 @@
 import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase/config";
 import {
-  searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
+  searchStudents, collectPayment, getStudentPaymentSummary, getStudentFeeProfile,
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
@@ -45,16 +47,23 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   async function refreshAll(studentId) {
     setLoadingBill(true);
     try {
-      const [b, summary] = await Promise.all([
-        getMonthlyBill(session, month, studentId),
+      const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+      const billRef = doc(db, "monthlyBills", `${session}_${month}_${safeId}`);
+      
+      // Force a hard fetch from the server (bypass cache)
+      const [billSnap, summary] = await Promise.all([
+        getDoc(billRef),
         getStudentPaymentSummary(studentId, session, month),
       ]);
-      setBill(b);
+
+      if (billSnap.exists()) {
+        setBill({ id: billSnap.id, ...billSnap.data() });
+      } else {
+        setBill(null);
+      }
       setSessionPaid(summary.sessionTotal);
-      return b;
     } catch (e) {
       setError(e.message);
-      return null;
     } finally {
       setLoadingBill(false);
     }
@@ -69,26 +78,18 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       const found = await searchStudents(searchTerm.trim());
       setResults(found);
     } catch (err) {
-      setError("Search failed. Please try again.");
+      setError("Search failed.");
     } finally {
       setLoadingBill(false);
     }
   }
 
-  // FIXED: Ensure this fires properly and clears search results
-  async function selectStudent(student, e) {
-    if (e) e.preventDefault();
-    
-    // 1. Immediately set the student
+  async function selectStudent(student) {
     setSelectedStudent(student);
-    setResults([]); // Clear search results so UI updates
+    setResults([]);
     setIdempotencyKey(uuidv4());
     setError(null);
-
-    // 2. Reset form just in case
     setForm(f => ({ ...f, amountReceived: "", discount: 0, lateFee: 0, remarks: "" }));
-
-    // 3. Load the bill
     await refreshAll(student.id);
   }
 
@@ -97,7 +98,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- DYNAMIC REAL-TIME MATH ---
+  // --- REAL-TIME MATH FOR THE UI ---
   const baseBill = bill ? (bill.totalDue || 0) : 0;
   const alreadyPaid = bill ? (bill.totalPaid || 0) : 0;
   
@@ -105,8 +106,10 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
   
-  const grossBill = bill ? ((bill.previousDue || 0) + (bill.tuitionBilled || 0) + (bill.transportBilled || 0) + (bill.devFeeBilled || 0)) : 0;
-  const displayTotal = grossBill - enteredDiscount + enteredLateFee;
+  // Total Billed today = Base Bill - Discount + Late Fee
+  const displayTotal = baseBill - enteredDiscount + enteredLateFee;
+  
+  // Balance = Total Billed - Already Paid - Amount Entered Now
   const displayBalance = Math.max(displayTotal - alreadyPaid - amountAdd, 0);
 
   async function handleSubmit(e) {
@@ -125,13 +128,13 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         amountReceived: amountAdd,
       });
 
-      const freshBill = await refreshAll(selectedStudent.id);
+      // Hard refresh from server to get the exact new numbers
+      await refreshAll(selectedStudent.id);
       
       const enrichedReceipt = {
         ...receipt,
         totalDue: displayTotal,
         remainingDue: displayBalance,
-        previousDue: freshBill?.previousDue || 0,
       };
 
       onReceiptGenerated?.(enrichedReceipt, duplicateBlocked);
@@ -156,28 +159,16 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       {flash && <div className="fm-flash">{flash}</div>}
 
       <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
-        <input 
-          type="text" 
-          placeholder="Search by name or admission no." 
-          value={searchTerm} 
-          onChange={(e) => setSearchTerm(e.target.value)} 
-        />
+        <input type="text" placeholder="Search by name or admission no." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
         <button type="submit">Search</button>
       </form>
 
-      {/* FIX: Ensure the onClick passes the event and student correctly */}
       {results.length > 0 && !selectedStudent && (
         <ul className="fm-result-list fm-result-list-compact" style={{ margin: 0, padding: 0 }}>
           {results.map((s) => (
-            <li 
-              key={s.id} 
-              onClick={(e) => selectStudent(s, e)}
-              style={{ padding: "12px 16px", cursor: "pointer", borderBottom: "1px solid #e2e8f0" }}
-            >
+            <li key={s.id} onClick={() => selectStudent(s)} style={{ padding: "12px 16px", cursor: "pointer", borderBottom: "1px solid #e2e8f0" }}>
               <strong style={{ color: "#1e293b" }}>{s.name}</strong> 
-              <span style={{ color: "#64748b", marginLeft: 8 }}>
-                — Adm# {s.admissionNumber} — Class {s.className}
-              </span>
+              <span style={{ color: "#64748b", marginLeft: 8 }}>— Adm# {s.admissionNumber} — Class {s.className}</span>
             </li>
           ))}
         </ul>
@@ -190,11 +181,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
               <h3 style={{ margin: 0, color: "#1e293b" }}>{selectedStudent.name}</h3>
               <p style={{ margin: "4px 0 0", color: "#64748b" }}>Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}</p>
             </div>
-            <button 
-              type="button" 
-              className="fm-secondary-btn" 
-              onClick={() => { setSelectedStudent(null); setBill(null); setSearchTerm(""); }}
-            >
+            <button type="button" className="fm-secondary-btn" onClick={() => { setSelectedStudent(null); setBill(null); setSearchTerm(""); }}>
               Change Student
             </button>
           </div>
@@ -204,7 +191,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
           {!loadingBill && !bill && (
             <div style={{ padding: 16, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, marginTop: 16 }}>
               <p style={{ margin: 0, color: "#991b1b", fontWeight: 600 }}>No bill generated for {month}.</p>
-              <p style={{ margin: "4px 0 0", color: "#991b1b", fontSize: 13 }}>Please go to Settings → Start New Month to generate the bill before collecting payment.</p>
+              <p style={{ margin: "4px 0 0", color: "#991b1b", fontSize: 13 }}>Please go to Settings → Start New Month to generate the bill.</p>
             </div>
           )}
 
@@ -270,42 +257,35 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
 
           {bill && (
             <form onSubmit={handleSubmit} className="fm-payment-form fm-payment-form-compact" style={{ marginTop: 24 }}>
-              <label>
-                Fee Type
+              <label>Fee Type
                 <select value={form.feeType} onChange={(e) => setForm({ ...form, feeType: e.target.value })}>
                   {["Tuition Fee", "Examination Fee", "Computer Fee", "Library Fee", "Activity Fee", "Other Charges"].map((c) => <option key={c}>{c}</option>)}
                 </select>
               </label>
 
-              <label>
-                Amount Received (₹) *
+              <label>Amount Received (₹) *
                 <input type="number" required min="0" value={form.amountReceived} onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
               </label>
 
-              <label>
-                Payment Date
+              <label>Payment Date
                 <input type="date" value={form.paymentDate} onChange={(e) => setForm({ ...form, paymentDate: e.target.value })} />
               </label>
 
-              <label>
-                Payment Method
+              <label>Payment Method
                 <select value={form.paymentMethod} onChange={(e) => setForm({ ...form, paymentMethod: e.target.value })}>
                   {PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}
                 </select>
               </label>
 
-              <label>
-                Transaction / Reference No.
+              <label>Transaction / Ref No.
                 <input type="text" value={form.referenceNumber} onChange={(e) => setForm({ ...form, referenceNumber: e.target.value })} />
               </label>
 
-              <label>
-                Discount (₹)
+              <label>Discount (₹)
                 <input type="number" min="0" value={form.discount} onChange={(e) => setForm({ ...form, discount: e.target.value })} />
               </label>
 
-              <label>
-                Late Fee (₹)
+              <label>Late Fee (₹)
                 <input type="number" min="0" value={form.lateFee} onChange={(e) => setForm({ ...form, lateFee: e.target.value })} />
               </label>
             </form>
