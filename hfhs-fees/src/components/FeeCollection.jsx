@@ -4,12 +4,14 @@ import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
 import {
   searchStudents, collectPayment, getStudentPaymentSummary, getStudentFeeProfile,
+  addBooksFee, addPreviousYearBalance, addKitFee
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
+const ADDON_ROLES = ["superAdmin", "admin", "accountant"];
 
 export default function FeeCollection({ session, month, role, initialStudentId, onReceiptGenerated }) {
   const [searchTerm, setSearchTerm] = useState("");
@@ -23,6 +25,15 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const [idempotencyKey, setIdempotencyKey] = useState(null);
   const [flash, setFlash] = useState("");
   const [receiptPopup, setReceiptPopup] = useState(null);
+
+  // Add-on state
+  const [addonBusy, setAddonBusy] = useState(false);
+  const [addonMsg, setAddonMsg] = useState("");
+  const [promptSlot, setPromptSlot] = useState(null);
+  const [promptValue, setPromptValue] = useState("");
+  const [promptConfirming, setPromptConfirming] = useState(false);
+
+  const canManageAddons = ADDON_ROLES.includes(role);
 
   const [form, setForm] = useState({
     amountReceived: "",
@@ -85,11 +96,21 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
 
   async function selectStudent(student) {
     setSelectedStudent(student);
-    setResults([]);
+    setResults([]); // This clears the search list
+    setSearchTerm(""); // Clears the search box
     setIdempotencyKey(uuidv4());
     setError(null);
     setForm(f => ({ ...f, amountReceived: "", discount: 0, lateFee: 0, remarks: "" }));
     await refreshAll(student.id);
+  }
+
+  function handleBack() {
+    setSelectedStudent(null);
+    setBill(null);
+    setResults([]);
+    setSearchTerm("");
+    setError(null);
+    setAddonMsg("");
   }
 
   function showFlash(msg) {
@@ -97,16 +118,18 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- FIXED EXACT MATH ---
+  // --- EXACT MATH FOR THE 4 BOXES ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
   const devFee = bill ? (bill.devFeeBilled || 0) : 0;
-  
-  const totalBilled = previousDue + tuition + transport + devFee;
+  const books = bill ? (bill.booksBilled || 0) : 0;
+  const prevYear = bill ? (bill.previousYearBilled || 0) : 0;
+  const kit = bill ? (bill.kitFeeBilled || 0) : 0;
+
+  const totalBilled = previousDue + tuition + transport + devFee + books + prevYear + kit;
   const dbCarryForward = bill ? (bill.carriedForward || 0) : 0;
   
-  // This accurately calculates what has already been paid in the database
   const effectivePaid = Math.max(totalBilled - dbCarryForward, 0);
 
   const enteredDiscount = Number(form.discount || 0);
@@ -129,6 +152,9 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     if (tuition > 0) actualParticulars.push({ label: "Tuition Fee", amount: tuition });
     if (transport > 0) actualParticulars.push({ label: "Transport Fee", amount: transport });
     if (devFee > 0) actualParticulars.push({ label: "Development Fee", amount: devFee });
+    if (books > 0) actualParticulars.push({ label: "Books Fee", amount: books });
+    if (prevYear > 0) actualParticulars.push({ label: "Previous Year", amount: prevYear });
+    if (kit > 0) actualParticulars.push({ label: "Admission / Kit", amount: kit });
 
     try {
       const { receipt, duplicateBlocked } = await collectPayment({
@@ -140,7 +166,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         amountReceived: amountAdd,
       });
 
-      // Hard refresh the data from the database to lock in the new totals
       await refreshAll(selectedStudent.id);
       
       const enrichedReceipt = {
@@ -154,13 +179,66 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       showFlash("✅ Payment Successful");
       setReceiptPopup(enrichedReceipt);
       setIdempotencyKey(uuidv4());
-      
-      // Reset form for the next transaction, but DO NOT clear selectedStudent
       setForm(f => ({ ...f, amountReceived: "", referenceNumber: "", discount: 0, lateFee: 0, remarks: "" }));
     } catch (err) {
       setError(err.message || "Payment could not be recorded.");
     } finally {
       setSubmitting(false);
+    }
+  }
+
+  // --- ADD-ON LOGIC ---
+  function promptForAmount(slot) {
+    setPromptSlot(slot);
+    setPromptValue("");
+    setPromptConfirming(false);
+  }
+
+  function cancelPrompt() {
+    setPromptSlot(null);
+    setPromptValue("");
+    setPromptConfirming(false);
+  }
+
+  async function handleAddon(fn, amount, label) {
+    setAddonBusy(true);
+    setAddonMsg("");
+    try {
+      const res = await fn({
+        studentId: selectedStudent.id,
+        amount,
+        session,
+        month,
+        paymentDate: new Date().toISOString(),
+        idempotencyKey: uuidv4(),
+      });
+
+      showFlash(`✅ ${label} ₹${amount} added`);
+      await refreshAll(selectedStudent.id);
+      setAddonMsg(res.duplicateBlocked ? "Already recorded." : `${label} ₹${amount} added.`);
+    } catch (e) {
+      setAddonMsg(`❌ ${e.message}`);
+    } finally {
+      setAddonBusy(false);
+    }
+  }
+
+  async function confirmPrompt() {
+    if (promptConfirming) return;
+    const amt = Number(promptValue);
+    if (!amt || amt <= 0) {
+      setAddonMsg("Please enter a valid amount.");
+      return;
+    }
+
+    setPromptConfirming(true);
+    try {
+      if (promptSlot === "books") await handleAddon(addBooksFee, amt, "Books");
+      else if (promptSlot === "previousYear") await handleAddon(addPreviousYearBalance, amt, "Previous Year Balance");
+      else if (promptSlot === "kit") await handleAddon(addKitFee, amt, "Admission / Kit");
+      cancelPrompt();
+    } catch (e) {
+      setPromptConfirming(false);
     }
   }
 
@@ -174,8 +252,14 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       {flash && <div className="fm-flash">{flash}</div>}
 
       <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
-        <input type="text" placeholder="Search by name or admission no." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
-        <button type="submit">Search</button>
+        <input 
+          type="text" 
+          placeholder="Search by name or admission no." 
+          value={searchTerm} 
+          onChange={(e) => setSearchTerm(e.target.value)} 
+          disabled={!!selectedStudent} // Disable search if a student is selected
+        />
+        <button type="submit" disabled={!!selectedStudent}>Search</button>
       </form>
 
       {results.length > 0 && !selectedStudent && (
@@ -196,8 +280,8 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
               <h3 style={{ margin: 0, color: "#1e293b" }}>{selectedStudent.name}</h3>
               <p style={{ margin: "4px 0 0", color: "#64748b" }}>Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}</p>
             </div>
-            <button type="button" className="fm-secondary-btn" onClick={() => { setSelectedStudent(null); setBill(null); setSearchTerm(""); }}>
-              Change Student
+            <button type="button" className="fm-secondary-btn" onClick={handleBack}>
+              ← Back
             </button>
           </div>
 
@@ -236,6 +320,24 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
                       <tr>
                         <td style={{ padding: "4px 0" }}>Development Fee</td>
                         <td align="right">₹{devFee}</td>
+                      </tr>
+                    )}
+                    {books > 0 && (
+                      <tr>
+                        <td style={{ padding: "4px 0" }}>Books Fee</td>
+                        <td align="right">₹{books}</td>
+                      </tr>
+                    )}
+                    {prevYear > 0 && (
+                      <tr>
+                        <td style={{ padding: "4px 0" }}>Previous Year</td>
+                        <td align="right">₹{prevYear}</td>
+                      </tr>
+                    )}
+                    {kit > 0 && (
+                      <tr>
+                        <td style={{ padding: "4px 0" }}>Kit Fee</td>
+                        <td align="right">₹{kit}</td>
                       </tr>
                     )}
                   </tbody>
@@ -313,9 +415,26 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
           )}
 
           {error && <p className="fm-error" style={{ marginTop: 12 }}>{error}</p>}
+          {addonMsg && <p className="fm-addon-msg">{addonMsg}</p>}
 
           {bill && (
-            <div className="fm-action-row" style={{ marginTop: 24 }}>
+            <div className="fm-action-row" style={{ marginTop: 24, display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 12 }}>
+              
+              {/* RESTORED ADD-ON BUTTONS */}
+              {canManageAddons && (
+                <div className="fm-action-addons" style={{ display: "flex", gap: 8 }}>
+                  <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("books")}>
+                    📚 + Books
+                  </button>
+                  <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("previousYear")}>
+                    📜 + Prev Year
+                  </button>
+                  <button type="button" className="fm-addon-btn" disabled={addonBusy} onClick={() => promptForAmount("kit")}>
+                    👕 + Kit
+                  </button>
+                </div>
+              )}
+
               <div className="fm-action-buttons" style={{ marginLeft: "auto" }}>
                 <button type="submit" disabled={submitting || !bill} className="fm-primary-btn" onClick={handleSubmit}>
                   {submitting ? "Recording…" : "Record Payment"}
@@ -324,6 +443,38 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
             </div>
           )}
         </>
+      )}
+
+      {/* ADD-ON AMOUNT PROMPT MODAL */}
+      {promptSlot && (
+        <div className="fm-modal-overlay">
+          <div className="fm-modal" style={{ maxWidth: 380 }}>
+            <h3>
+              {promptSlot === "books" && "Add Books Fee"}
+              {promptSlot === "previousYear" && "Add Previous Year Balance"}
+              {promptSlot === "kit" && "Add Admission / Kit Fee"}
+            </h3>
+            <p style={{ margin: "12px 0", fontSize: 14, color: "#4b5563" }}>Enter the amount in ₹</p>
+            <input
+              type="number"
+              min="1"
+              autoFocus
+              value={promptValue}
+              onChange={(e) => setPromptValue(e.target.value)}
+              onKeyDown={(e) => e.key === "Enter" && confirmPrompt()}
+              disabled={promptConfirming}
+              style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15 }}
+            />
+            <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
+              <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>
+                Cancel
+              </button>
+              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}>
+                {promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       <PrintManager active={!!receiptPopup} onClose={() => setReceiptPopup(null)} type="receipt">
