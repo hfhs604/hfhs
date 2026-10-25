@@ -171,6 +171,9 @@ export async function listBillsForMonth(session, month) {
   } catch (err) { throw new Error("Index required."); }
 }
 
+// ---------------------------------------------------------------------------
+// Payment Collection (FIXED DISCOUNT MATH)
+// ---------------------------------------------------------------------------
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
   const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
@@ -188,8 +191,10 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    const netAmount = amt + late - disc; 
-    const newPaid = (bill.totalPaid || 0) + netAmount;
+    // The total credit applied to the bill is the cash received + the discount given.
+    // This ensures the bill balance goes down by the correct total amount.
+    const totalCredit = amt + disc;
+    const newPaid = (bill.totalPaid || 0) + totalCredit;
     const newCarry = (bill.totalDue || 0) - newPaid;
 
     const txnRef = doc(collection(db, COL.transactions));
@@ -197,7 +202,8 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
-      discount: disc, lateFee: late, netAmount, paymentDate: Timestamp.fromDate(new Date(paymentDate)),
+      discount: disc, lateFee: late, netAmount: totalCredit, // netAmount tracks the total bill reduction
+      paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
       createdAt: serverTimestamp(), voided: false,
@@ -205,7 +211,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 
     tx.update(billRef, { totalPaid: newPaid, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL", lastPaymentAt: serverTimestamp() });
     tx.set(idemRef, { receiptId: receiptRef.id, createdAt: serverTimestamp() });
-    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid, netAmount };
+    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid, totalCredit };
   });
 
   if (result.alreadyProcessed) {
@@ -225,12 +231,15 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
   };
   
   await setDoc(doc(db, COL.receipts, result.receiptRef.id), receiptData);
-  await updateDoc(result.txnRef, { receiptNumber }); // Save receipt# for reports
+  await updateDoc(result.txnRef, { receiptNumber }); 
 
   await writeAuditLog({ action: "PAYMENT_COLLECTED", studentId, newValue: { amountReceived, receiptNumber }, transactionRef: result.txnRef.id });
   return { receiptId: result.receiptRef.id, receipt: receiptData, duplicateBlocked: false };
 }
 
+// ---------------------------------------------------------------------------
+// Add-on fees
+// ---------------------------------------------------------------------------
 export async function addLineItem({ studentId, session, month, amount, field, componentType, feeType, remarks, paymentMethod = "Cash", paymentDate, idempotencyKey }) {
   const user = currentUser();
   const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
@@ -352,11 +361,14 @@ export async function getDashboardStats(session, month) {
       const t = d.data(); const method = t.paymentMethod || "Other"; const amt = Number(t.netAmount || 0);
       paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
       
-      // Use createdAt for TODAY'S totals
+      let paidAt = t.paymentDate?.toDate?.() || new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
+      if (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs) {
+        todayCollection += amt;
+      }
+
       let enteredAt = t.createdAt?.toDate?.() || new Date(0);
       if (enteredAt && !isNaN(enteredAt.getTime()) && enteredAt.getTime() >= startOfDayMs) {
         todayEntered += amt;
-        todayCollection += amt;
       }
     });
   } catch (err) {}
