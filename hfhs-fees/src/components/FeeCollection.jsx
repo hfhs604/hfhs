@@ -97,15 +97,25 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- MATH FOR THE UI ---
-  const baseBill = bill ? (bill.totalDue || 0) : 0;
-  const alreadyPaid = bill ? (bill.totalPaid || 0) : 0;
+  // --- FIXED EXACT MATH ---
+  const previousDue = bill ? (bill.previousDue || 0) : 0;
+  const tuition = bill ? (bill.tuitionBilled || 0) : 0;
+  const transport = bill ? (bill.transportBilled || 0) : 0;
+  const devFee = bill ? (bill.devFeeBilled || 0) : 0;
+  
+  const totalBilled = previousDue + tuition + transport + devFee;
+  const dbCarryForward = bill ? (bill.carriedForward || 0) : 0;
+  
+  // This accurately calculates what has already been paid in the database
+  const effectivePaid = Math.max(totalBilled - dbCarryForward, 0);
+
   const enteredDiscount = Number(form.discount || 0);
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
-  
-  const displayTotal = baseBill - enteredDiscount + enteredLateFee;
-  const displayBalance = Math.max(displayTotal - alreadyPaid - amountAdd, 0);
+
+  const netBill = totalBilled - enteredDiscount + enteredLateFee;
+  const finalBalance = Math.max(netBill - effectivePaid - amountAdd, 0);
+  const liveSessionPaid = sessionPaid + amountAdd;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -114,12 +124,11 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setSubmitting(true);
     setError(null);
     
-    // Capture the exact fee breakdown BEFORE submitting, so we can print it correctly
     const actualParticulars = [];
-    if (bill?.previousDue > 0) actualParticulars.push({ label: "Previous Due", amount: bill.previousDue });
-    if (bill?.tuitionBilled > 0) actualParticulars.push({ label: "Tuition Fee", amount: bill.tuitionBilled });
-    if (bill?.transportBilled > 0) actualParticulars.push({ label: "Transport Fee", amount: bill.transportBilled });
-    if (bill?.devFeeBilled > 0) actualParticulars.push({ label: "Development Fee", amount: bill.devFeeBilled });
+    if (previousDue > 0) actualParticulars.push({ label: "Previous Due", amount: previousDue });
+    if (tuition > 0) actualParticulars.push({ label: "Tuition Fee", amount: tuition });
+    if (transport > 0) actualParticulars.push({ label: "Transport Fee", amount: transport });
+    if (devFee > 0) actualParticulars.push({ label: "Development Fee", amount: devFee });
 
     try {
       const { receipt, duplicateBlocked } = await collectPayment({
@@ -131,19 +140,22 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         amountReceived: amountAdd,
       });
 
+      // Hard refresh the data from the database to lock in the new totals
       await refreshAll(selectedStudent.id);
       
       const enrichedReceipt = {
         ...receipt,
-        particulars: actualParticulars, // Pass the true bill items to the receipt
-        totalDue: displayTotal,
-        remainingDue: displayBalance,
+        particulars: actualParticulars,
+        totalDue: netBill,
+        remainingDue: finalBalance,
       };
 
       onReceiptGenerated?.(enrichedReceipt, duplicateBlocked);
       showFlash("✅ Payment Successful");
       setReceiptPopup(enrichedReceipt);
       setIdempotencyKey(uuidv4());
+      
+      // Reset form for the next transaction, but DO NOT clear selectedStudent
       setForm(f => ({ ...f, amountReceived: "", referenceNumber: "", discount: 0, lateFee: 0, remarks: "" }));
     } catch (err) {
       setError(err.message || "Payment could not be recorded.");
@@ -199,30 +211,31 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
 
           {bill && (
             <div className="fm-bill-two-col fm-bill-two-col-compact" style={{ background: "#f8fafc", padding: 16, borderRadius: 8, marginTop: 16 }}>
+              
               <div className="fm-bill-left" style={{ flex: 1 }}>
                 <h4 style={{ color: "#475569", textTransform: "uppercase", fontSize: 12, marginBottom: 12 }}>Current Bill Breakdown</h4>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <tbody>
-                    {bill.previousDue > 0 && (
+                    {previousDue > 0 && (
                       <tr style={{ color: "#dc2626" }}>
                         <td style={{ padding: "4px 0" }}>Previous Due</td>
-                        <td align="right">₹{bill.previousDue}</td>
+                        <td align="right">₹{previousDue}</td>
                       </tr>
                     )}
                     <tr>
                       <td style={{ padding: "4px 0" }}>Tuition Fee</td>
-                      <td align="right">₹{bill.tuitionBilled || 0}</td>
+                      <td align="right">₹{tuition}</td>
                     </tr>
-                    {bill.transportBilled > 0 && (
+                    {transport > 0 && (
                       <tr>
                         <td style={{ padding: "4px 0" }}>Transport Fee</td>
-                        <td align="right">₹{bill.transportBilled}</td>
+                        <td align="right">₹{transport}</td>
                       </tr>
                     )}
-                    {bill.devFeeBilled > 0 && (
+                    {devFee > 0 && (
                       <tr>
                         <td style={{ padding: "4px 0" }}>Development Fee</td>
-                        <td align="right">₹{bill.devFeeBilled}</td>
+                        <td align="right">₹{devFee}</td>
                       </tr>
                     )}
                   </tbody>
@@ -230,28 +243,34 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
               </div>
 
               <div className="fm-bill-right" style={{ flex: 1, paddingLeft: 20, borderLeft: "1px solid #e2e8f0" }}>
+                
                 <div style={{ display: "flex", justifyContent: "space-between", fontSize: 12, color: "#64748b", marginBottom: 16 }}>
                   <span>Session Paid (Till Date)</span>
-                  <strong style={{ color: "#16a34a" }}>₹{sessionPaid}</strong>
+                  <strong style={{ color: "#16a34a" }}>₹{liveSessionPaid}</strong>
                 </div>
 
                 <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+                  
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Total Billed</span>
-                    <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>₹{displayTotal}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, marginTop: 4 }}>₹{totalBilled}</div>
                   </div>
+
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Paid (This Month)</span>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{alreadyPaid}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{effectivePaid}</div>
                   </div>
+
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Amount Entered</span>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#2563eb", marginTop: 4 }}>₹{amountAdd}</div>
                   </div>
+
                   <div style={{ background: "#fef2f2", padding: 12, borderRadius: 6, border: "1px solid #fecaca" }}>
                     <span style={{ fontSize: 10, color: "#991b1b", fontWeight: 600, textTransform: "uppercase" }}>Current Balance</span>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626", marginTop: 4 }}>₹{displayBalance}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#dc2626", marginTop: 4 }}>₹{finalBalance}</div>
                   </div>
+                  
                 </div>
               </div>
             </div>
