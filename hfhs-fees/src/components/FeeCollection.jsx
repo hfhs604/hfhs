@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import {
-  searchStudents, collectPayment, getMonthlyBill, addBooksFee,
-  addPreviousYearBalance, addKitFee, getStudentPaymentSummary, getStudentFeeProfile,
-  refundAdvance
+  searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
@@ -82,7 +80,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- THE FIXED DISCOUNT MATH ---
+  // --- DYNAMIC REAL-TIME MATH ---
   const baseBill = bill ? (bill.totalDue || 0) : 0;
   const alreadyPaid = bill ? (bill.totalPaid || 0) : 0;
   
@@ -90,10 +88,13 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
   
-  // 1. Base Bill minus Discount plus Late Fee = Total Billed Today
-  const displayTotal = baseBill - enteredDiscount + enteredLateFee;
+  // 1. The Gross Bill: (Previous Due + Tuition + Transport)
+  const grossBill = bill ? ((bill.previousDue || 0) + (bill.tuitionBilled || 0) + (bill.transportBilled || 0)) : 0;
   
-  // 2. Total Billed minus Already Paid minus Amount Entered Now = Current Balance
+  // 2. Total Billed after discount
+  const displayTotal = grossBill - enteredDiscount + enteredLateFee;
+  
+  // 3. The Current Balance (Total - Already Paid - New Amount)
   const displayBalance = Math.max(displayTotal - alreadyPaid - amountAdd, 0);
 
   async function handleSubmit(e) {
@@ -112,6 +113,7 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         amountReceived: amountAdd,
       });
 
+      // We fetch fresh bill so the "Session Paid" card updates
       const freshBill = await refreshAll(selectedStudent.id);
       
       const enrichedReceipt = {
