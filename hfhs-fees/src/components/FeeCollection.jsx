@@ -50,7 +50,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
       const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
       const billRef = doc(db, "monthlyBills", `${session}_${month}_${safeId}`);
       
-      // Force a hard fetch from the server (bypass cache)
       const [billSnap, summary] = await Promise.all([
         getDoc(billRef),
         getStudentPaymentSummary(studentId, session, month),
@@ -98,18 +97,14 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // --- REAL-TIME MATH FOR THE UI ---
+  // --- MATH FOR THE UI ---
   const baseBill = bill ? (bill.totalDue || 0) : 0;
   const alreadyPaid = bill ? (bill.totalPaid || 0) : 0;
-  
   const enteredDiscount = Number(form.discount || 0);
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
   
-  // Total Billed today = Base Bill - Discount + Late Fee
   const displayTotal = baseBill - enteredDiscount + enteredLateFee;
-  
-  // Balance = Total Billed - Already Paid - Amount Entered Now
   const displayBalance = Math.max(displayTotal - alreadyPaid - amountAdd, 0);
 
   async function handleSubmit(e) {
@@ -118,6 +113,14 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
 
     setSubmitting(true);
     setError(null);
+    
+    // Capture the exact fee breakdown BEFORE submitting, so we can print it correctly
+    const actualParticulars = [];
+    if (bill?.previousDue > 0) actualParticulars.push({ label: "Previous Due", amount: bill.previousDue });
+    if (bill?.tuitionBilled > 0) actualParticulars.push({ label: "Tuition Fee", amount: bill.tuitionBilled });
+    if (bill?.transportBilled > 0) actualParticulars.push({ label: "Transport Fee", amount: bill.transportBilled });
+    if (bill?.devFeeBilled > 0) actualParticulars.push({ label: "Development Fee", amount: bill.devFeeBilled });
+
     try {
       const { receipt, duplicateBlocked } = await collectPayment({
         studentId: selectedStudent.id,
@@ -128,11 +131,11 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
         amountReceived: amountAdd,
       });
 
-      // Hard refresh from server to get the exact new numbers
       await refreshAll(selectedStudent.id);
       
       const enrichedReceipt = {
         ...receipt,
+        particulars: actualParticulars, // Pass the true bill items to the receipt
         totalDue: displayTotal,
         remainingDue: displayBalance,
       };
@@ -191,7 +194,6 @@ export default function FeeCollection({ session, month, role, initialStudentId, 
           {!loadingBill && !bill && (
             <div style={{ padding: 16, background: "#fef2f2", border: "1px solid #fecaca", borderRadius: 6, marginTop: 16 }}>
               <p style={{ margin: 0, color: "#991b1b", fontWeight: 600 }}>No bill generated for {month}.</p>
-              <p style={{ margin: "4px 0 0", color: "#991b1b", fontSize: 13 }}>Please go to Settings → Start New Month to generate the bill.</p>
             </div>
           )}
 
