@@ -5,27 +5,53 @@ export default function ReceiptCard({ receipt, school }) {
     receiptNumber, paymentDate, session, studentName, admissionNumber,
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, previousDue, remainingDue, paymentMethod, referenceNumber,
-    componentType, totalDue, particulars: passedParticulars,
-    amountReceivedThisTransaction,
+    componentType,
   } = receipt;
 
   const disc = Number(discount || 0);
   const late = Number(lateFee || 0);
   const prevDue = Number(previousDue || 0);
-  const thisAmount = Number(amountReceivedThisTransaction ?? amountReceived ?? 0);
+  const thisAmount = Number(amountReceived || 0);
   
-  const totalBill = Number(totalDue || 0);
-  const balance = Number(remainingDue || 0);
+  // 1. Calculate the base bill from the components
+  // (We don't trust the database 'totalDue' because the backend corrupts it by adding payments)
+  let baseTuition = 0;
+  let baseTransport = 0;
+  let baseDev = 0;
 
-  let rows = Array.isArray(passedParticulars) && passedParticulars.length > 0 ? passedParticulars.map((p) => ({ ...p })) : [];
-  if (rows.length === 0) {
-    if (componentType === "books") rows.push({ label: "Books Fee", amount: thisAmount });
-    else if (componentType === "previousYear") rows.push({ label: "Previous Year Balance", amount: thisAmount });
-    else if (componentType === "kit") rows.push({ label: "Admission / Kit Fee", amount: thisAmount });
-    else if (componentType === "transport") rows.push({ label: "Transport Fee", amount: thisAmount });
-    else if (thisAmount > 0) rows.push({ label: feeType || "Tuition Fee", amount: thisAmount });
+  // If the UI passed particulars, we extract the true tuition from there
+  if (receipt.particulars && receipt.particulars.length > 0) {
+    receipt.particulars.forEach(p => {
+      if (p.label.includes("Tuition")) baseTuition += Number(p.amount || 0);
+      else if (p.label.includes("Transport")) baseTransport += Number(p.amount || 0);
+      else if (p.label.includes("Development")) baseDev += Number(p.amount || 0);
+    });
+  } else {
+    // Fallback if particulars are missing
+    baseTuition = thisAmount; 
   }
+
+  // Total Bill before any payments
+  const grossBill = prevDue + baseTuition + baseTransport + baseDev + late;
+  
+  // Final Bill after subtracting discount
+  const netBill = grossBill - disc;
+
+  // Balance Due = Final Bill - Cash Received Today - (Assuming they already had some credit)
+  // To make the receipt match the screen perfectly, we use the screen's remainingDue.
+  const finalBalance = Number(remainingDue || 0);
+
+  // Build rows for the table
+  const rows = [];
+  if (prevDue > 0) rows.push({ label: "Previous Due", amount: prevDue });
+  if (baseTuition > 0) rows.push({ label: "Tuition Fee", amount: baseTuition });
+  if (baseTransport > 0) rows.push({ label: "Transport Fee", amount: baseTransport });
+  if (baseDev > 0) rows.push({ label: "Development Fee", amount: baseDev });
   if (late > 0) rows.push({ label: "Late Fee", amount: late });
+  
+  if (rows.length === 0 && thisAmount > 0) {
+    rows.push({ label: feeType || "Fee Payment", amount: thisAmount });
+  }
 
   return (
     <div className="receipt-card">
@@ -59,45 +85,59 @@ export default function ReceiptCard({ receipt, school }) {
         <span><strong>Guardian:</strong> {guardianName}</span>
       </div>
 
+      {/* BILL TABLE */}
       <table className="receipt-table">
         <thead>
-          <tr><th>Particulars</th><th style={{ textAlign: "right" }}>Amount (₹)</th></tr>
+          <tr>
+            <th>Particulars</th>
+            <th style={{ textAlign: "right" }}>Amount (₹)</th>
+          </tr>
         </thead>
         <tbody>
-          {prevDue > 0 && (
-            <tr><td>Previous Due</td><td align="right">{prevDue.toFixed(2)}</td></tr>
-          )}
           {rows.map((p, i) => (
-            <tr key={i}><td>{p.label}</td><td align="right">{Number(p.amount).toFixed(2)}</td></tr>
+            <tr key={i}>
+              <td>{p.label}</td>
+              <td align="right">{Number(p.amount).toFixed(2)}</td>
+            </tr>
           ))}
         </tbody>
       </table>
 
+      {/* SUMMARY BLOCK */}
       <div className="receipt-summary-block">
         <div className="receipt-summary-line">
-          <span>Total Amount</span>
-          <span>₹{totalBill.toFixed(0)}</span>
+          <span>Gross Total</span>
+          <span>₹{grossBill.toFixed(0)}</span>
         </div>
 
         {disc > 0 && (
-          <div className="receipt-summary-line" style={{ color: "#059669", fontSize: "8px", marginTop: -2 }}>
-            <span> (Includes Discount of ₹{disc.toFixed(0)})</span><span></span>
+          <div className="receipt-summary-line" style={{ color: "#059669", fontWeight: 600 }}>
+            <span>Discount Applied</span>
+            <span>- ₹{disc.toFixed(0)}</span>
           </div>
         )}
-        
-        <div className="receipt-summary-line" style={{ marginTop: 6 }}>
+
+        <div className="receipt-summary-line" style={{ fontWeight: 700, fontSize: "11px", marginTop: 4 }}>
+          <span>Net Bill</span>
+          <span>₹{netBill.toFixed(0)}</span>
+        </div>
+
+        <div className="receipt-summary-line" style={{ marginTop: 8, borderTop: "1px dashed #cbd5e1", paddingTop: 8 }}>
           <span>Amount Received</span>
           <span>₹{thisAmount.toFixed(0)}</span>
         </div>
 
         <div className="receipt-summary-line receipt-summary-balance">
           <span>Balance Due</span>
-          <span>₹{balance.toFixed(0)}</span>
+          <span>₹{finalBalance.toFixed(0)}</span>
         </div>
       </div>
 
       <div className="receipt-payment-row">
-        <span>Paid via <strong>{paymentMethod}</strong>{referenceNumber ? ` · Ref: ${referenceNumber}` : ""}</span>
+        <span>
+          Paid via <strong>{paymentMethod}</strong>
+          {referenceNumber ? ` · Ref: ${referenceNumber}` : ""}
+        </span>
       </div>
 
       <footer className="receipt-footer">
