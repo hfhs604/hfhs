@@ -122,4 +122,4 @@ export default function ReceiptCard({ receipt, school }) {
       </footer>
     </div>
   );
-}ssssss
+}
