@@ -1,3 +1,9 @@
+/**
+ * feeService.js
+ * Fee Management data layer for Holy Faith High School.
+ * Optimized for minimal Firestore reads.
+ */
+
 import { db, auth } from "../firebase/config";
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, setDoc,
@@ -341,13 +347,17 @@ export async function getDashboardStats(session, month) {
   try {
     const txnSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
     const startOfDayMs = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+    
     txnSnap.docs.forEach((d) => {
       const t = d.data(); const method = t.paymentMethod || "Other"; const amt = Number(t.netAmount || 0);
       paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
-      let paidAt = t.paymentDate?.toDate?.() || new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
-      if (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs) todayCollection += amt;
+      
+      // Use createdAt for TODAY'S totals
       let enteredAt = t.createdAt?.toDate?.() || new Date(0);
-      if (enteredAt && !isNaN(enteredAt.getTime()) && enteredAt.getTime() >= startOfDayMs) todayEntered += amt;
+      if (enteredAt && !isNaN(enteredAt.getTime()) && enteredAt.getTime() >= startOfDayMs) {
+        todayEntered += amt;
+        todayCollection += amt;
+      }
     });
   } catch (err) {}
 
