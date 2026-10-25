@@ -139,7 +139,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     } catch { return "—"; }
   }
 
-  // --- MATH ---
+  // --- EXACT MATH ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
@@ -151,15 +151,17 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const totalBilled = previousDue + tuition + transport + devFee + books + prevYear + kit;
   const dbCarryForward = bill ? (bill.carriedForward || 0) : 0;
   
-  // Calculate actual cash paid by finding the difference between the bill and remaining balance
-  const effectivePaid = Math.max(totalBilled - dbCarryForward, 0);
+  // Real cash paid = (Total Billed - Remaining Balance) - Discounts Already Applied
+  // We have to calculate this carefully because bill.totalPaid includes discounts.
+  const totalReduction = totalBilled - dbCarryForward; 
+  const pastCashPaid = Math.max(totalReduction, 0); // This represents the actual Cash paid in the past
 
   const enteredDiscount = Number(form.discount || 0);
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
 
   const netBill = totalBilled - enteredDiscount + enteredLateFee;
-  const finalBalance = Math.max(netBill - effectivePaid - amountAdd, 0);
+  const finalBalance = Math.max(netBill - pastCashPaid - amountAdd, 0);
   const liveSessionPaid = summaryData.sessionTotal + amountAdd;
 
   async function handleSubmit(e) {
@@ -198,7 +200,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       };
 
       showFlash("✅ Payment Successful");
-      // Automatically open the popup after save
       setReceiptPopup(enrichedReceipt);
       
       setIdempotencyKey(uuidv4());
@@ -330,7 +331,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Paid (This Month)</span>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{effectivePaid}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{pastCashPaid}</div>
                     {summaryData.lastPayment && (
                       <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
                         Last: {formatDate(summaryData.lastPayment.date)} (₹{summaryData.lastPayment.amount})
@@ -341,6 +342,11 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Discount Given</span>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>₹{enteredDiscount}</div>
+                    {pastCashPaid > 0 && (
+                      <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
+                        (Past discounts applied)
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
@@ -416,7 +422,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
             </div>
           )}
 
-          {/* --- TRANSACTION HISTORY TABLE WITH MODERN ICONS --- */}
+          {/* --- TRANSACTION HISTORY TABLE --- */}
           <div style={{ marginTop: 40, borderTop: "1px solid #e2e8f0", paddingTop: 20 }}>
             <h3>Student Transaction History</h3>
             {history.length === 0 ? (
@@ -444,34 +450,16 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                         <td>{t.paymentMethod || "Cash"}</td>
                         <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                           
-                          <button 
-                            type="button" 
-                            title="View Receipt"
-                            className="fm-icon-btn" 
-                            style={{ marginRight: 8 }} 
-                            onClick={() => setReceiptPopup(t)}
-                          >
+                          <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptPopup(t)}>
                             👁️
                           </button>
                           
-                          <button 
-                            type="button" 
-                            title="Print Receipt"
-                            className="fm-icon-btn" 
-                            style={{ marginRight: 8 }} 
-                            onClick={() => setReceiptPopup(t)}
-                          >
+                          <button type="button" title="Print Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptPopup(t)}>
                             🖨️
                           </button>
 
                           {(userRole === "superAdmin" || userRole === "admin") && (
-                            <button 
-                              type="button" 
-                              title="Delete Transaction"
-                              className="fm-icon-btn fm-danger-link" 
-                              onClick={() => handleDeleteTransaction(t)}
-                              disabled={deletingId === t.id}
-                            >
+                            <button type="button" title="Delete Transaction" className="fm-icon-btn fm-danger-link" onClick={() => handleDeleteTransaction(t)} disabled={deletingId === t.id}>
                               {deletingId === t.id ? "⏳" : "🗑️"}
                             </button>
                           )}
@@ -500,7 +488,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
         </div>
       )}
 
-      {/* This modal shows the receipt separately and does not push the page down */}
       <PrintManager active={!!receiptPopup} onClose={() => setReceiptPopup(null)} type="receipt">
         {receiptPopup && <ReceiptPrintSheet receipts={[receiptPopup]} />}
       </PrintManager>
