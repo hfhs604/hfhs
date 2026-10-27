@@ -933,3 +933,6 @@ body {
   .fm-app, .fm-main-wrapper, .fm-main { overflow: visible !important; height: auto !important; padding: 0 !important; margin: 0 !important; }
   .fm-content-inner { max-width: 100% !important; }
 }
+.fm-stat-card.fm-discount .fm-stat-value {
+  color: #059669;
+}
