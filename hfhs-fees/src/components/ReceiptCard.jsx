@@ -6,8 +6,8 @@ export default function ReceiptCard({ receipt, school }) {
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, paymentMethod, referenceNumber,
     particulars: passedParticulars,
-    totalDue,
-    remainingDue,
+    totalDue,       // This is passed exactly from the screen
+    remainingDue,   // This is passed exactly from the screen
   } = receipt;
 
   const disc = Number(discount || 0);
