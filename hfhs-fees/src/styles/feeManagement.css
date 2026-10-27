@@ -3,9 +3,6 @@
    Complete stylesheet for the Fee Management app (Vyapar Layout).
    =========================================================================== */
 
-/* ---------------------------------------------------------------------------
-   Global & Layout
-   --------------------------------------------------------------------------- */
 * {
   box-sizing: border-box;
 }
@@ -24,7 +21,7 @@ body {
   overflow-x: hidden;
 }
 
-/* Sidebar (Vyapar Style) */
+/* Sidebar */
 .fm-sidebar {
   width: 260px;
   background: #1e293b;
@@ -157,9 +154,7 @@ body {
   width: 100%;
 }
 
-/* ---------------------------------------------------------------------------
-   Cards & Containers
-   --------------------------------------------------------------------------- */
+/* Cards & Containers */
 .fm-card {
   background: #fff;
   border-radius: 8px;
@@ -171,24 +166,48 @@ body {
 .fm-card h2, .fm-card h3 {
   margin-top: 0;
   color: #0f172a;
+  font-size: 16px;
+  margin-bottom: 12px;
 }
 
 /* ---------------------------------------------------------------------------
-   Dashboard Layout (EXACTLY 4 CARDS PER ROW)
+   DASHBOARD EXACT LAYOUT (From Drawing)
    --------------------------------------------------------------------------- */
-.fm-dashboard-grid {
-  display: grid;
-  grid-template-columns: repeat(4, 1fr); 
+.fm-dashboard-layout {
+  display: flex;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.fm-charts-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
   gap: 16px;
-  margin-bottom: 24px;
+}
+
+.fm-kpi-col {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.fm-kpi-row {
+  display: flex;
+  gap: 12px;
 }
 
 .fm-stat-card {
   background: #fff;
   border-radius: 8px;
-  padding: 16px;
+  padding: 14px;
   box-shadow: 0 1px 3px rgba(0,0,0,0.05);
   border: 1px solid #e2e8f0;
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
 .fm-stat-label {
@@ -196,7 +215,7 @@ body {
   color: #64748b;
   text-transform: uppercase;
   font-weight: 700;
-  margin: 0 0 8px 0;
+  margin: 0 0 4px 0;
   letter-spacing: 0.5px;
 }
 
@@ -214,38 +233,14 @@ body {
   font-weight: 500;
 }
 
-.fm-stat-card.fm-due .fm-stat-value { color: #dc2626; }
-.fm-stat-card.fm-advance .fm-stat-value { color: #059669; }
-.fm-stat-card.fm-discount .fm-stat-value { color: #059669; }
+.fm-due { color: #dc2626 !important; }
+.fm-advance { color: #059669 !important; }
+.fm-discount { color: #059669 !important; }
 
-/* ---------------------------------------------------------------------------
-   Charts (EXACTLY 3 CHARTS PER ROW - FIXED HEIGHT)
-   --------------------------------------------------------------------------- */
-.fm-chart-grid {
-  display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 16px;
-}
-
-/* THIS IS THE MAGIC FIX: Stops the infinite stretching */
-.chart-container {
-  height: 280px; 
-  width: 100%;
-  position: relative;
-  overflow: hidden;
-}
-
-/* Responsive fallbacks */
-@media (max-width: 1200px) {
-  .fm-dashboard-grid { grid-template-columns: repeat(3, 1fr); }
-  .fm-chart-grid { grid-template-columns: repeat(2, 1fr); }
-}
-@media (max-width: 900px) {
-  .fm-dashboard-grid { grid-template-columns: repeat(2, 1fr); }
-  .fm-chart-grid { grid-template-columns: 1fr; }
-}
-@media (max-width: 600px) {
-  .fm-dashboard-grid { grid-template-columns: 1fr; }
+@media (max-width: 1024px) {
+  .fm-dashboard-layout { flex-direction: column; }
+  .fm-kpi-col { width: 100%; }
+  .fm-charts-col { width: 100%; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -338,9 +333,7 @@ body {
 .fm-full-width { grid-column: 1 / -1; }
 .fm-inline-label { display: flex; flex-direction: column; gap: 6px; font-size: 13px; }
 
-/* ---------------------------------------------------------------------------
-   Tables
-   --------------------------------------------------------------------------- */
+/* Tables */
 .fm-table-scroll {
   overflow-x: auto;
   border: 1px solid #e2e8f0;
@@ -369,9 +362,7 @@ body {
 .fm-table tr:last-child td { border-bottom: none; }
 .fm-table tr:hover td { background: #f8fafc; }
 
-/* ---------------------------------------------------------------------------
-   Bill Breakdown Layout (Collect Fee)
-   --------------------------------------------------------------------------- */
+/* Bill Breakdown Layout (Collect Fee) */
 .fm-bill-two-col {
   display: grid;
   grid-template-columns: 1fr 1fr;
@@ -380,15 +371,11 @@ body {
 @media (max-width: 768px) {
   .fm-bill-two-col { grid-template-columns: 1fr; }
 }
-.fm-student-header {
-  margin-bottom: 16px;
-}
+.fm-student-header { margin-bottom: 16px; }
 .fm-student-header h3 { margin: 0 0 4px 0; font-size: 18px; }
 .fm-student-header p { margin: 0; color: #64748b; font-size: 14px; }
 
-/* ---------------------------------------------------------------------------
-   Modals & Overlays
-   --------------------------------------------------------------------------- */
+/* Modals & Overlays */
 .fm-modal-overlay {
   position: fixed;
   inset: 0;
@@ -409,9 +396,7 @@ body {
 }
 .fm-modal h3 { margin-top: 0; }
 
-/* ---------------------------------------------------------------------------
-   Alerts & States
-   --------------------------------------------------------------------------- */
+/* Alerts & States */
 .fm-error { color: #dc2626; font-size: 14px; margin-top: 8px; font-weight: 500; }
 .fm-success { color: #059669; font-size: 14px; margin-top: 8px; font-weight: 500; }
 .fm-hint { color: #64748b; font-size: 13px; margin-bottom: 16px; }
@@ -446,9 +431,7 @@ body {
   to { top: 20px; opacity: 1; }
 }
 
-/* ---------------------------------------------------------------------------
-   Add-ons
-   --------------------------------------------------------------------------- */
+/* Add-ons */
 .fm-addon-btn {
   background: #f8fafc;
   border: 1px solid #cbd5e1;
