@@ -57,9 +57,6 @@ export default function FeeDashboard({ session }) {
   const today = new Date();
   const formattedDate = today.toLocaleDateString("en-GB", { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-');
   
-  const cashInHand = stats.enteredToday || 0; 
-  const bankAmount = 0; 
-
   return (
     <>
       {loadError && (
@@ -82,7 +79,11 @@ export default function FeeDashboard({ session }) {
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">Entered Today</p>
               <span className="kpi-pill kpi-green">₹{(stats.enteredToday || 0).toLocaleString()}</span>
-              <p style={{ fontSize: "10px", color: "#94a3b8", marginTop: "6px" }}>Cash: ₹{cashInHand.toLocaleString()} | Bank: ₹{bankAmount.toLocaleString()}</p>
+              
+              {/* Cash vs Bank split is now calculated natively */}
+              <p style={{ fontSize: "10px", color: "#94a3b8", marginTop: "6px" }}>
+                Cash: ₹{(stats.todayCash || 0).toLocaleString()} | Bank: ₹{(stats.todayBank || 0).toLocaleString()}
+              </p>
             </div>
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">This Month's Coll.</p>
