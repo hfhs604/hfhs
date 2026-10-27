@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from "uuid";
 import { doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/config";
 import {
-  searchStudents, collectPayment, getStudentPaymentSummary, getStudentFeeProfile,
+  searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
   addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
@@ -18,7 +18,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const [results, setResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [bill, setBill] = useState(null);
-  const [summaryData, setSummaryData] = useState({ sessionTotal: 0, lastPayment: null });
+  const [summaryData, setSummaryData] = useState({ sessionTotal: 0, lastPayment: null, totalDiscount: 0 });
   const [history, setHistory] = useState([]);
   
   const [loadingBill, setLoadingBill] = useState(false);
@@ -151,17 +151,14 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const totalBilled = previousDue + tuition + transport + devFee + books + prevYear + kit;
   const dbCarryForward = bill ? (bill.carriedForward || 0) : 0;
   
-  // Real cash paid = (Total Billed - Remaining Balance) - Discounts Already Applied
-  // We have to calculate this carefully because bill.totalPaid includes discounts.
-  const totalReduction = totalBilled - dbCarryForward; 
-  const pastCashPaid = Math.max(totalReduction, 0); // This represents the actual Cash paid in the past
+  const effectivePaid = Math.max(totalBilled - dbCarryForward, 0);
 
   const enteredDiscount = Number(form.discount || 0);
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
 
   const netBill = totalBilled - enteredDiscount + enteredLateFee;
-  const finalBalance = Math.max(netBill - pastCashPaid - amountAdd, 0);
+  const finalBalance = Math.max(netBill - effectivePaid - amountAdd, 0);
   const liveSessionPaid = summaryData.sessionTotal + amountAdd;
 
   async function handleSubmit(e) {
@@ -331,7 +328,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Paid (This Month)</span>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{pastCashPaid}</div>
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{effectivePaid}</div>
                     {summaryData.lastPayment && (
                       <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
                         Last: {formatDate(summaryData.lastPayment.date)} (₹{summaryData.lastPayment.amount})
@@ -342,7 +339,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Discount Given</span>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>₹{enteredDiscount}</div>
-                    {pastCashPaid > 0 && (
+                    {summaryData.totalDiscount > 0 && (
                       <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
                         (Past discounts applied)
                       </div>
@@ -436,6 +433,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                       <th>Receipt#</th>
                       <th>Fee Type</th>
                       <th>Amount</th>
+                      <th>Discount</th>
                       <th>Method</th>
                       <th style={{ textAlign: "center" }}>Actions</th>
                     </tr>
@@ -447,6 +445,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                         <td>{t.receiptNumber || "—"}</td>
                         <td>{t.feeType || "Tuition Fee"}</td>
                         <td style={{ fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
+                        <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
                         <td>{t.paymentMethod || "Cash"}</td>
                         <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                           
