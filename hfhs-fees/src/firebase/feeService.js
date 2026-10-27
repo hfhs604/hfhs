@@ -171,7 +171,7 @@ export async function listBillsForMonth(session, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Payment Collection (TRUE CASH TRACKING)
+// Payment Collection
 // ---------------------------------------------------------------------------
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
@@ -205,7 +205,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
       discount: disc, lateFee: late, 
-      netAmount: amt, // Store strictly CASH here for dashboard
+      netAmount: amt, // Store strictly CASH here
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
@@ -329,6 +329,9 @@ export async function getStudentsWithDue({ session, month, className } = {}) {
   if (!className) return bills; return bills.filter((b) => b.className === className);
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard Stats (FIXED MATH)
+// ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
   let studentCount = 0, bills = [], actualMonth = targetMonth;
@@ -346,7 +349,6 @@ export async function getDashboardStats(session, month) {
     } catch (err) {}
   }
 
-  // Collection = actual cash received (totalPaid in bills only tracks cash now)
   let totalCollection = 0, monthCollection = 0, totalOutstandingDue = 0, totalAdvance = 0, studentsWithDue = 0, studentsFullyPaid = 0;
   bills.forEach((b) => {
     const paid = b.totalPaid || 0; const carry = b.carriedForward || 0;
@@ -362,9 +364,10 @@ export async function getDashboardStats(session, month) {
     const startOfDayMs = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
     
     txnSnap.docs.forEach((d) => {
-      const t = d.data(); const method = t.paymentMethod || "Other"; 
-      const amt = Number(t.netAmount || 0); // This is strictly cash
-      const disc = Number(t.discount || 0); // Track discount separately
+      const t = d.data(); 
+      const method = t.paymentMethod || "Other"; 
+      const amt = Number(t.netAmount || 0); // This is the CASH
+      const disc = Number(t.discount || 0); // This is the DISCOUNT
       
       paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
       totalDiscount += disc; // Add to total discount
@@ -381,11 +384,24 @@ export async function getDashboardStats(session, month) {
     });
   } catch (err) {}
 
+  // Important: We override totalCollection to strictly use the sum of the transactions
+  // This ensures it's only cash, not cash + discount.
+  let trueTotalCollection = 0;
+  try {
+    const allTxns = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
+    allTxns.docs.forEach(d => {
+       const t = d.data();
+       // only count cash (netAmount), not discount
+       if (t.componentType === "refund") trueTotalCollection -= Number(t.netAmount || 0);
+       else trueTotalCollection += Number(t.netAmount || 0);
+    });
+  } catch(e) {}
+
   return { 
     paymentDateToday: todayCollection, 
     enteredToday: todayEntered, 
-    monthCollection, 
-    totalCollection, 
+    monthCollection: totalCollection, // We still use bill.totalPaid here because it correctly tracks cash per month
+    totalCollection: trueTotalCollection, // Strict cash total
     totalOutstandingDue, 
     totalAdvance, 
     totalDiscount, 
