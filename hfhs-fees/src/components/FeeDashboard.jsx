@@ -77,47 +77,47 @@ export default function FeeDashboard({ session }) {
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">Payments Today</p>
               <p style={{ fontSize: "10px", color: "#64748b", margin: "-4px 0 4px 0" }}>({formattedDate})</p>
-              <p className="fm-stat-value">₹{(stats.paymentDateToday || 0).toLocaleString()}</p>
+              <span className="kpi-pill kpi-blue">₹{(stats.paymentDateToday || 0).toLocaleString()}</span>
             </div>
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">Entered Today</p>
-              <p className="fm-stat-value">₹{(stats.enteredToday || 0).toLocaleString()}</p>
-              <p style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px" }}>Cash: ₹{cashInHand.toLocaleString()} | Bank: ₹{bankAmount.toLocaleString()}</p>
+              <span className="kpi-pill kpi-green">₹{(stats.enteredToday || 0).toLocaleString()}</span>
+              <p style={{ fontSize: "10px", color: "#94a3b8", marginTop: "6px" }}>Cash: ₹{cashInHand.toLocaleString()} | Bank: ₹{bankAmount.toLocaleString()}</p>
             </div>
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">This Month's Coll.</p>
-              <p className="fm-stat-value">₹{(stats.monthCollection || 0).toLocaleString()}</p>
+              <span className="kpi-pill kpi-blue">₹{(stats.monthCollection || 0).toLocaleString()}</span>
             </div>
           </div>
           <div style={{ display: "flex", gap: "12px" }}>
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">Students Fully Paid</p>
-              <p className="fm-stat-value">{stats.studentsFullyPaid || 0}</p>
+              <span className="kpi-pill kpi-green">{stats.studentsFullyPaid || 0}</span>
             </div>
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">Students with Due</p>
-              <p className="fm-stat-value">{stats.studentsWithDue || 0}</p>
+              <span className="kpi-pill kpi-red">{stats.studentsWithDue || 0}</span>
             </div>
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">Total Advance</p>
-              <p className="fm-stat-value fm-advance">₹{(stats.totalAdvance || 0).toLocaleString()}</p>
+              <span className="kpi-pill kpi-green">₹{(stats.totalAdvance || 0).toLocaleString()}</span>
             </div>
           </div>
         </div>
 
         {/* Top Right: 3 Wide Cards */}
         <div style={{ flex: "1 1 35%", display: "flex", flexDirection: "column", gap: "12px" }}>
-          <div className="fm-stat-card" style={{ padding: "12px 16px" }}>
-            <p className="fm-stat-label">Total Collection</p>
-            <p className="fm-stat-value">₹{(stats.totalCollection || 0).toLocaleString()}</p>
+          <div className="fm-stat-card" style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <p className="fm-stat-label" style={{ margin: 0 }}>Total Collection</p>
+            <span className="kpi-pill kpi-blue">₹{(stats.totalCollection || 0).toLocaleString()}</span>
           </div>
-          <div className="fm-stat-card" style={{ padding: "12px 16px" }}>
-            <p className="fm-stat-label">Total Discount</p>
-            <p className="fm-stat-value fm-discount">₹{(stats.totalDiscount || 0).toLocaleString()}</p>
+          <div className="fm-stat-card" style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <p className="fm-stat-label" style={{ margin: 0 }}>Total Discount</p>
+            <span className="kpi-pill kpi-green">₹{(stats.totalDiscount || 0).toLocaleString()}</span>
           </div>
-          <div className="fm-stat-card" style={{ padding: "12px 16px" }}>
-            <p className="fm-stat-label">Total Outstanding</p>
-            <p className="fm-stat-value fm-due">₹{(stats.totalOutstandingDue || 0).toLocaleString()}</p>
+          <div className="fm-stat-card" style={{ padding: "12px 16px", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <p className="fm-stat-label" style={{ margin: 0 }}>Total Outstanding</p>
+            <span className="kpi-pill kpi-red">₹{(stats.totalOutstandingDue || 0).toLocaleString()}</span>
           </div>
         </div>
       </div>
@@ -126,19 +126,19 @@ export default function FeeDashboard({ session }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
         <div className="fm-card" style={{ padding: "16px", display: "flex", flexDirection: "column", margin: 0 }}>
           <h3 style={{ margin: "0 0 12px 0", fontSize: "13px", textTransform: "uppercase", color: "#64748b" }}>Monthly Fee Collection</h3>
-          <div style={{ flex: 1, minHeight: "220px", width: "100%" }}>
+          <div style={{ flex: 1, minHeight: "180px", width: "100%" }}>
             <MonthlyCollectionChart data={monthlyTrend} />
           </div>
         </div>
         <div className="fm-card" style={{ padding: "16px", display: "flex", flexDirection: "column", margin: 0 }}>
           <h3 style={{ margin: "0 0 12px 0", fontSize: "13px", textTransform: "uppercase", color: "#64748b" }}>Class-wise Paid vs Due</h3>
-          <div style={{ flex: 1, minHeight: "220px", width: "100%" }}>
+          <div style={{ flex: 1, minHeight: "180px", width: "100%" }}>
             <ClassWiseChart rows={classWise} />
           </div>
         </div>
         <div className="fm-card" style={{ padding: "16px", display: "flex", flexDirection: "column", margin: 0 }}>
           <h3 style={{ margin: "0 0 12px 0", fontSize: "13px", textTransform: "uppercase", color: "#64748b" }}>Payment Methods</h3>
-          <div style={{ flex: 1, minHeight: "220px", width: "100%" }}>
+          <div style={{ flex: 1, minHeight: "180px", width: "100%" }}>
             <PaymentMethodChart data={stats.paymentMethodBreakdown} />
           </div>
         </div>
