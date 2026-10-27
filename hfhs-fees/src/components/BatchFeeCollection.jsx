@@ -1,5 +1,7 @@
 import React, { useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
+import { doc, getDoc } from "firebase/firestore";
+import { db } from "../firebase/config";
 import { collectPayment, getMonthlyBill, getPaymentHistory } from "../firebase/feeService";
 import { getAllStudents } from "../firebase/reportsService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
@@ -25,6 +27,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState(null);
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
+  const [loadingReceipt, setLoadingReceipt] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -242,6 +245,41 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     if (errors.length === 0 && onDone) onDone(receipts);
   }
 
+  async function handleViewReceipt(txn) {
+    if (!txn.receiptRef) {
+      alert("No receipt found for this transaction.");
+      return;
+    }
+    
+    setLoadingReceipt(true);
+    try {
+      const snap = await getDoc(doc(db, "receipts", txn.receiptRef));
+      if (snap.exists()) {
+        const receiptData = { ...snap.data(), id: snap.id };
+        
+        const particulars = [];
+        if (receiptData.previousDue > 0) particulars.push({ label: "Previous Due", amount: receiptData.previousDue });
+        if (receiptData.feeType) particulars.push({ label: receiptData.feeType, amount: receiptData.amountReceived || 0 });
+
+        const totalAmt = Number(receiptData.amountReceived || 0) + Number(receiptData.discount || 0) + Number(receiptData.previousDue || 0) + Number(receiptData.lateFee || 0);
+
+        setReceiptsToPrint([{
+          ...receiptData,
+          particulars: particulars,
+          totalDue: totalAmt,
+          remainingDue: receiptData.remainingDue || 0,
+        }]);
+      } else {
+        alert("Receipt document not found in the database.");
+      }
+    } catch (err) {
+      console.error("Failed to load receipt:", err);
+      alert(`Failed to load receipt: ${err.message}`);
+    } finally {
+      setLoadingReceipt(false);
+    }
+  }
+
   const allTransactions = selectedList.flatMap(s => {
     const hist = histories[s.id] || [];
     return hist.map(t => ({ ...t, studentName: s.name }));
@@ -424,10 +462,10 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                     <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
                     <td>{t.paymentMethod || "Cash"}</td>
                     <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                      <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptsToPrint([t])}>
+                      <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
                         👁️
                       </button>
-                      <button type="button" title="Print Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptsToPrint([t])}>
+                      <button type="button" title="Print Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
                         🖨️
                       </button>
                     </td>
