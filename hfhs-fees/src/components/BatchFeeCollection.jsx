@@ -8,14 +8,6 @@ import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
-// Hardcoded base fees for calculation if the DB bill is missing/corrupt
-const BASE_FEES = {
-  "Pre-LKG": 800, "LKG": 800, "NUR": 800, "UKG": 900, "I": 900,
-  "II": 1000, "III": 1000, "IV": 1100, "V": 1100, "VI": 1200, "VII": 1200,
-  "VIII": 1300, "IX": 1400, "X": 1500,
-};
-const DEV_FEE = 3150;
-
 export default function BatchFeeCollection({ session, month, preselectedIds = [], onDone }) {
   const [allStudents, setAllStudents] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set(preselectedIds));
@@ -121,14 +113,15 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   // Helper to calculate the outstanding from the history
   const calculateOutstandingFromHistory = (student) => {
-    const baseFee = BASE_FEES[student.className] || 0;
+    // Hardcoded base fee + transport + dev fee (if applicable)
+    const baseFee = s.className === "IV" ? 1100 : s.className === "VI" ? 1200 : 0;
     const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
     const monthlyTotal = baseFee + transport;
 
     const currentMonth = new Date().getMonth() + 1;
     const monthsBilled = currentMonth >= 4 ? (currentMonth - 4 + 1) : 0; 
 
-    const totalExpectedBill = (monthlyTotal * monthsBilled) + DEV_FEE;
+    const totalExpectedBill = (monthlyTotal * monthsBilled) + 3150;
     
     const hist = histories[student.id] || [];
     let totalCash = 0;
@@ -146,7 +139,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       }
     });
 
-    // We also need to account for the base transport fee if it's in the monthly bill
     return totalExpectedBill + addOns - totalCash - totalDiscount;
   };
 
@@ -194,6 +186,8 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
     for (const s of selectedList) {
       const r = rows[s.id] || {};
+      const currentOutstanding = calculateOutstandingFromHistory(s);
+      
       try {
         const res = await collectPayment({
           studentId: s.id,
@@ -210,7 +204,23 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           remarks: sharedRemarks,
         });
 
-        receipts.push({ ...res.receipt, studentName: s.name, className: s.className });
+        // Build the exact particulars for the receipt
+        const baseFee = s.className === "IV" ? 1100 : s.className === "VI" ? 1200 : 0;
+        const transport = s.transportOpted ? (s.transportAmount || 0) : 0;
+        const particulars = [];
+        if (baseFee > 0) particulars.push({ label: "Tuition Fee", amount: baseFee });
+        if (transport > 0) particulars.push({ label: "Transport Fee", amount: transport });
+
+        const newBalance = currentOutstanding - (parseFloat(r.amount) || 0) - (parseFloat(r.discount) || 0);
+
+        receipts.push({ 
+          ...res.receipt, 
+          studentName: s.name, 
+          className: s.className,
+          particulars: particulars,
+          totalDue: currentOutstanding,
+          remainingDue: Math.max(newBalance, 0),
+        });
       } catch (err) {
         errors.push({ student: s.name, message: err.message });
       }
@@ -252,7 +262,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         <span className="fm-subtle">Month: <strong>{month}</strong> · Session: <strong>{session}</strong></span>
       </div>
 
-      {/* Summary KPI Cards */}
       {selectedList.length > 0 && (
         <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
           <div style={{ flex: 1, background: "#eff6ff", padding: 16, borderRadius: 8, border: "1px solid #bfdbfe" }}>
@@ -402,6 +411,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                   <th>Amount</th>
                   <th>Discount</th>
                   <th>Method</th>
+                  <th style={{ textAlign: "center" }}>Actions</th>
                 </tr>
               </thead>
               <tbody>
@@ -417,10 +427,18 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                     <td style={{ fontWeight: 600 }}>₹{(t.amountReceived || t.netAmount || 0).toLocaleString()}</td>
                     <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
                     <td>{t.paymentMethod || "Cash"}</td>
+                    <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                      <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptsToPrint([t])}>
+                        👁️
+                      </button>
+                      <button type="button" title="Print Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptsToPrint([t])}>
+                        🖨️
+                      </button>
+                    </td>
                   </tr>
                 ))}
                 {allTransactions.length === 0 && (
-                  <tr><td colSpan="6" style={{ textAlign: "center", padding: 20 }}>No past transactions found for these students.</td></tr>
+                  <tr><td colSpan="7" style={{ textAlign: "center", padding: 20 }}>No past transactions found for these students.</td></tr>
                 )}
               </tbody>
             </table>
