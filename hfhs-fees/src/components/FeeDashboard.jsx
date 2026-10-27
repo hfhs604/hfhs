@@ -75,94 +75,92 @@ export default function FeeDashboard({ session }) {
         </div>
       )}
 
-      <div style={{ marginBottom: "16px" }}>
-        <h2 style={{ margin: 0, fontSize: "1.3rem", color: "#1e293b" }}>
-          {greeting}, <span style={{ color: "#3b82f6" }}>Admin</span>
+      <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: "16px" }}>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#0f172a" }}>Dashboard</h2>
+        <h2 style={{ margin: 0, fontSize: "1.2rem", color: "#0f172a" }}>
+          {greeting}, <span style={{ color: "#2563eb" }}>Admin</span>
         </h2>
       </div>
 
-      <div className="fm-dashboard-layout">
+      {/* TOP SECTION: KPIs */}
+      <div style={{ display: "flex", gap: "16px", marginBottom: "16px", flexWrap: "wrap" }}>
         
-        {/* LEFT COLUMN: Charts */}
-        <div className="fm-charts-col">
-          <div className="fm-card compact-card">
-            <h3>Monthly Fee Collection</h3>
-            <div style={{ height: "130px", width: "100%" }}>
-              <MonthlyCollectionChart data={monthlyTrend} />
-            </div>
-          </div>
-          <div className="fm-card compact-card">
-            <h3>Class-wise Paid vs Due</h3>
-            <div style={{ height: "130px", width: "100%" }}>
-              <ClassWiseChart rows={classWise} />
-            </div>
-          </div>
-          <div className="fm-card compact-card">
-            <h3>Payment Methods</h3>
-            <div style={{ height: "130px", width: "100%" }}>
-              <PaymentMethodChart data={stats.paymentMethodBreakdown} />
-            </div>
-          </div>
-        </div>
-
-        {/* RIGHT COLUMN: KPI Cards */}
-        <div className="fm-kpi-col">
-          
-          <div className="fm-kpi-row">
-            <div className="fm-stat-card compact-stat">
-              <p className="fm-stat-label">Payments on Sys Date</p>
-              <p className="fm-stat-sub" style={{ marginTop: -4, marginBottom: 4 }}>({formattedDate})</p>
+        {/* Top Left: 6 Small Cards */}
+        <div style={{ flex: "1 1 60%", display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div style={{ display: "flex", gap: "12px" }}>
+            <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
+              <p className="fm-stat-label">Payments Today</p>
+              <p style={{ fontSize: "10px", color: "#64748b", margin: "-4px 0 4px 0" }}>({formattedDate})</p>
               <p className="fm-stat-value">₹{(stats.paymentDateToday || 0).toLocaleString()}</p>
             </div>
-            <div className="fm-stat-card compact-stat">
-              <p className="fm-stat-label">Today's Income</p>
+            <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
+              <p className="fm-stat-label">Entered Today</p>
               <p className="fm-stat-value">₹{(stats.enteredToday || 0).toLocaleString()}</p>
-              <p className="fm-stat-sub">Cash: ₹{cashInHand.toLocaleString()} | Bank: ₹{bankAmount.toLocaleString()}</p>
+              <p style={{ fontSize: "10px", color: "#94a3b8", marginTop: "4px" }}>Cash: ₹{cashInHand.toLocaleString()} | Bank: ₹{bankAmount.toLocaleString()}</p>
             </div>
-          </div>
-
-          <div className="fm-kpi-row">
-            <div className="fm-stat-card compact-stat">
-              <p className="fm-stat-label">This Month's Collection</p>
+            <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
+              <p className="fm-stat-label">This Month's Coll.</p>
               <p className="fm-stat-value">₹{(stats.monthCollection || 0).toLocaleString()}</p>
             </div>
-            <div className="fm-stat-card compact-stat">
-              <p className="fm-stat-label">Students with Due</p>
-              <p className="fm-stat-value">{stats.studentsWithDue || 0}</p>
-            </div>
           </div>
-
-          <div className="fm-kpi-row">
-            <div className="fm-stat-card compact-stat">
-              <p className="fm-stat-label">Total Advance</p>
-              <p className="fm-stat-value fm-advance">₹{(stats.totalAdvance || 0).toLocaleString()}</p>
-            </div>
-            <div className="fm-stat-card compact-stat">
+          <div style={{ display: "flex", gap: "12px" }}>
+            <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">Students Fully Paid</p>
               <p className="fm-stat-value">{stats.studentsFullyPaid || 0}</p>
             </div>
+            <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
+              <p className="fm-stat-label">Students with Due</p>
+              <p className="fm-stat-value">{stats.studentsWithDue || 0}</p>
+            </div>
+            <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
+              <p className="fm-stat-label">Total Advance</p>
+              <p className="fm-stat-value fm-advance">₹{(stats.totalAdvance || 0).toLocaleString()}</p>
+            </div>
           </div>
+        </div>
 
-          <div className="fm-kpi-row">
-            <div className="fm-stat-card compact-stat">
-              <p className="fm-stat-label">Total Collection</p>
-              <p className="fm-stat-value">₹{(stats.totalCollection || 0).toLocaleString()}</p>
-            </div>
-            <div className="fm-stat-card compact-stat">
-              <p className="fm-stat-label">Discount</p>
-              <p className="fm-stat-value fm-discount">₹{(stats.totalDiscount || 0).toLocaleString()}</p>
-            </div>
+        {/* Top Right: 3 Wide Cards */}
+        <div style={{ flex: "1 1 35%", display: "flex", flexDirection: "column", gap: "12px" }}>
+          <div className="fm-stat-card" style={{ padding: "12px 16px" }}>
+            <p className="fm-stat-label">Total Collection</p>
+            <p className="fm-stat-value">₹{(stats.totalCollection || 0).toLocaleString()}</p>
           </div>
-          
-          <div className="fm-kpi-row">
-            <div className="fm-stat-card compact-stat" style={{ width: "100%" }}>
-              <p className="fm-stat-label">Total Outstanding Due</p>
-              <p className="fm-stat-value fm-due">₹{(stats.totalOutstandingDue || 0).toLocaleString()}</p>
-            </div>
+          <div className="fm-stat-card" style={{ padding: "12px 16px" }}>
+            <p className="fm-stat-label">Total Discount</p>
+            <p className="fm-stat-value fm-discount">₹{(stats.totalDiscount || 0).toLocaleString()}</p>
           </div>
-
+          <div className="fm-stat-card" style={{ padding: "12px 16px" }}>
+            <p className="fm-stat-label">Total Outstanding</p>
+            <p className="fm-stat-value fm-due">₹{(stats.totalOutstandingDue || 0).toLocaleString()}</p>
+          </div>
         </div>
       </div>
+
+      {/* BOTTOM SECTION: 3 Charts */}
+      <div style={{ display: "flex", gap: "16px", flexWrap: "wrap", flex: 1 }}>
+        <div className="fm-card" style={{ flex: 1, padding: "16px", display: "flex", flexDirection: "column" }}>
+          <h3 style={{ margin: "0 0 12px 0", fontSize: "13px", textTransform: "uppercase", color: "#64748b" }}>Monthly Fee Collection</h3>
+          <div style={{ flex: 1, minHeight: "200px", width: "100%" }}>
+            <MonthlyCollectionChart data={monthlyTrend} />
+          </div>
+        </div>
+        <div className="fm-card" style={{ flex: 1, padding: "16px", display: "flex", flexDirection: "column" }}>
+          <h3 style={{ margin: "0 0 12px 0", fontSize: "13px", textTransform: "uppercase", color: "#64748b" }}>Class-wise Paid vs Due</h3>
+          <div style={{ flex: 1, minHeight: "200px", width: "100%" }}>
+            <ClassWiseChart rows={classWise} />
+          </div>
+        </div>
+        <div className="fm-card" style={{ flex: 1, padding: "16px", display: "flex", flexDirection: "column" }}>
+          <h3 style={{ margin: "0 0 12px 0", fontSize: "13px", textTransform: "uppercase", color: "#64748b" }}>Payment Methods</h3>
+          <div style={{ flex: 1, minHeight: "200px", width: "100%" }}>
+            <PaymentMethodChart data={stats.paymentMethodBreakdown} />
+          </div>
+        </div>
+      </div>
+
+      <footer className="fm-footer" style={{ marginTop: "20px" }}>
+        All rights reserved © Holy Faith
+      </footer>
     </>
   );
 }
