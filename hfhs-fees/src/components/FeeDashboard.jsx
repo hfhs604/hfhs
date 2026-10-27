@@ -52,28 +52,56 @@ export default function FeeDashboard({ session }) {
   }, [session]);
 
   if (loading) return <div className="fm-card fm-empty-state">Loading dashboard…</div>;
-
-  if (!stats && loadError) {
-    return (
-      <div className="fm-card fm-empty-state" style={{ padding: 24, textAlign: "left" }}>
-        <p style={{ fontWeight: 600, color: "#c62828" }}>Could not load dashboard data.</p>
-        <p style={{ fontSize: 13, marginTop: 8, color: "#4b5563" }}>{loadError}</p>
-      </div>
-    );
-  }
-
   if (!stats) return <div className="fm-card fm-empty-state">No data for this session yet.</div>;
 
+  const currentMonthName = new Date().toLocaleString('default', { month: 'long' });
+
+  // You can dynamically calculate Cash vs Bank here if you have the data
+  // For now, we will just display the total from the stats.
+  const cashInHand = stats.enteredToday || 0; 
+  const bankAmount = 0; 
+
   const cards = [
-    ["Payment Date: Today", `₹${(stats.paymentDateToday || 0).toLocaleString()}`],
-    ["Entered Today", `₹${(stats.enteredToday || 0).toLocaleString()}`],
-    ["This Month's Collection", `₹${(stats.monthCollection || 0).toLocaleString()}`],
-    ["Total Collection (Cash)", `₹${(stats.totalCollection || 0).toLocaleString()}`],
-    ["Total Discounts Given", `₹${(stats.totalDiscount || 0).toLocaleString()}`, "fm-discount"],
-    ["Total Outstanding Due", `₹${(stats.totalOutstandingDue || 0).toLocaleString()}`, "fm-due"],
-    ["Total Advance", `₹${(stats.totalAdvance || 0).toLocaleString()}`, "fm-advance"],
-    ["Students With Due", stats.studentsWithDue || 0],
-    ["Students Fully Paid", stats.studentsFullyPaid || 0],
+    { 
+      label: "Payments on Sys Date", 
+      value: `₹${(stats.paymentDateToday || 0).toLocaleString()}` 
+    },
+    { 
+      label: "Today's Income", 
+      value: `₹${(stats.enteredToday || 0).toLocaleString()}`,
+      sub: `Cash: ₹${cashInHand.toLocaleString()} | Bank: ₹${bankAmount.toLocaleString()}`
+    },
+    { 
+      label: `${currentMonthName}'s Collection`, 
+      value: `₹${(stats.monthCollection || 0).toLocaleString()}` 
+    },
+    { 
+      label: "Total Collection (Cash)", 
+      value: `₹${(stats.totalCollection || 0).toLocaleString()}` 
+    },
+    { 
+      label: "Discount", 
+      value: `₹${(stats.totalDiscount || 0).toLocaleString()}`, 
+      cls: "fm-discount" 
+    },
+    { 
+      label: "Outstanding Due", 
+      value: `₹${(stats.totalOutstandingDue || 0).toLocaleString()}`, 
+      cls: "fm-due" 
+    },
+    { 
+      label: "Advance", 
+      value: `₹${(stats.totalAdvance || 0).toLocaleString()}`, 
+      cls: "fm-advance" 
+    },
+    { 
+      label: "Students with Due", 
+      value: stats.studentsWithDue || 0 
+    },
+    { 
+      label: "Students Fully Paid", 
+      value: stats.studentsFullyPaid || 0 
+    },
   ];
 
   return (
@@ -85,10 +113,11 @@ export default function FeeDashboard({ session }) {
       )}
 
       <div className="fm-dashboard-grid">
-        {cards.map(([label, value, cls]) => (
-          <div className={`fm-stat-card ${cls || ""}`} key={label}>
-            <p className="fm-stat-label">{label}</p>
-            <p className="fm-stat-value">{value}</p>
+        {cards.map((card, idx) => (
+          <div className={`fm-stat-card ${card.cls || ""}`} key={idx}>
+            <p className="fm-stat-label">{card.label}</p>
+            <p className="fm-stat-value">{card.value}</p>
+            {card.sub && <p className="fm-stat-sub">{card.sub}</p>}
           </div>
         ))}
       </div>
@@ -96,15 +125,21 @@ export default function FeeDashboard({ session }) {
       <div className="fm-chart-grid">
         <div className="fm-card">
           <h3>Monthly Fee Collection</h3>
-          <MonthlyCollectionChart data={monthlyTrend} />
+          <div className="chart-container">
+            <MonthlyCollectionChart data={monthlyTrend} />
+          </div>
         </div>
         <div className="fm-card">
           <h3>Class-wise Paid vs Due</h3>
-          <ClassWiseChart rows={classWise} />
+          <div className="chart-container">
+            <ClassWiseChart rows={classWise} />
+          </div>
         </div>
         <div className="fm-card">
           <h3>Payment Methods</h3>
-          <PaymentMethodChart data={stats.paymentMethodBreakdown} />
+          <div className="chart-container">
+            <PaymentMethodChart data={stats.paymentMethodBreakdown} />
+          </div>
         </div>
       </div>
     </>
