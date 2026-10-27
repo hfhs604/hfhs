@@ -6,15 +6,14 @@ export default function ReceiptCard({ receipt, school }) {
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, paymentMethod, referenceNumber,
     particulars: passedParticulars,
-    totalDue,       // The exact Gross Total saved in DB
-    remainingDue,   // The exact Balance saved in DB
+    totalDue,
+    remainingDue,
   } = receipt;
 
   const disc = Number(discount || 0);
   const late = Number(lateFee || 0);
   const thisAmount = Number(amountReceived || 0);
 
-  // Format the paymentDate
   let formattedDate = "—";
   if (paymentDate) {
     let dateObj = null;
@@ -42,7 +41,6 @@ export default function ReceiptCard({ receipt, school }) {
     rows.push({ label: "Late Fee", amount: late });
   }
 
-  // STRICTLY TRUST THE DATABASE VALUES
   const grossTotal = Number(totalDue || 0);
   const netBill = grossTotal - disc;
   const finalBalance = Number(remainingDue || 0);
