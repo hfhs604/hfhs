@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { collectPayment, getMonthlyBill } from "../firebase/feeService";
+import { collectPayment, getMonthlyBill, getPaymentHistory, getStudentPaymentSummary } from "../firebase/feeService";
 import { getAllStudents } from "../firebase/reportsService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
@@ -15,18 +15,17 @@ export default function BatchFeeCollection({
   onDone,
 }) {
   const [allStudents, setAllStudents] = useState([]);
-  const [selectedIds, setSelectedIds] = useState(
-    () => new Set(preselectedIds)
-  );
+  const [selectedIds, setSelectedIds] = useState(() => new Set(preselectedIds));
   const [search, setSearch] = useState("");
   const [loadingStudents, setLoadingStudents] = useState(true);
   const [searchError, setSearchError] = useState(null);
 
+  // Per-student row state
   const [rows, setRows] = useState({});
+  const [histories, setHistories] = useState({});
+  const [summary, setSummary] = useState({ totalPaid: 0, totalDiscount: 0, totalOutstanding: 0 });
 
-  const [paymentDate, setPaymentDate] = useState(
-    new Date().toISOString().slice(0, 10)
-  );
+  const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const [sharedMethod, setSharedMethod] = useState("Cash");
   const [sharedRemarks, setSharedRemarks] = useState("");
 
@@ -34,10 +33,10 @@ export default function BatchFeeCollection({
   const [results, setResults] = useState(null);
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
 
+  // -------- Load all students --------
   useEffect(() => {
     let active = true;
     setLoadingStudents(true);
-    setSearchError(null);
     getAllStudents({ session })
       .then((list) => {
         if (!active) return;
@@ -50,71 +49,77 @@ export default function BatchFeeCollection({
       .finally(() => {
         if (active) setLoadingStudents(false);
       });
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
   }, [session]);
 
+  // -------- Fetch fresh bill & history when selection changes --------
   useEffect(() => {
     let active = true;
 
     (async () => {
+      let newRows = { ...rows };
+      let newHistories = { ...histories };
+      let calculatedPaid = 0;
+      let calculatedDiscount = 0;
+      let calculatedOutstanding = 0;
+
       for (const id of selectedIds) {
         const existing = rows[id];
-        if (existing && !existing.loadingBill && existing.bill !== undefined) {
-          continue;
-        }
-
-        setRows((prev) => ({
-          ...prev,
-          [id]: {
-            amount: prev[id]?.amount ?? "",
-            discount: prev[id]?.discount ?? 0,
-            method: prev[id]?.method ?? sharedMethod,
-            ref: prev[id]?.ref ?? "",
+        // Only fetch if we don't have the bill yet or if we are forcing a refresh
+        if (!existing || existing.bill === undefined) {
+          newRows[id] = {
+            ...existing,
+            amount: existing?.amount ?? "",
+            discount: existing?.discount ?? 0,
+            method: existing?.method ?? sharedMethod,
+            ref: existing?.ref ?? "",
             bill: undefined,
             loadingBill: true,
-            billError: null,
-          },
-        }));
+          };
 
-        try {
-          const bill = await getMonthlyBill(session, month, id);
-          if (!active) return;
-          setRows((prev) => ({
-            ...prev,
-            [id]: {
-              ...prev[id],
+          try {
+            const [bill, hist, sum] = await Promise.all([
+              getMonthlyBill(session, month, id),
+              getPaymentHistory(id),
+              getStudentPaymentSummary(id, session, month)
+            ]);
+            if (!active) return;
+
+            newRows[id] = {
+              ...newRows[id],
               bill,
               loadingBill: false,
-              amount:
-                prev[id]?.amount && prev[id].amount !== ""
-                  ? prev[id].amount
-                  : bill?.carriedForward
-                  ? String(bill.carriedForward)
-                  : "",
-            },
-          }));
-        } catch (err) {
-          if (!active) return;
-          setRows((prev) => ({
-            ...prev,
-            [id]: {
-              ...prev[id],
-              bill: null,
-              loadingBill: false,
-              billError: err.message || String(err),
-            },
-          }));
+              amount: newRows[id].amount !== "" ? newRows[id].amount : (bill?.carriedForward ? String(bill.carriedForward) : ""),
+            };
+            newHistories[id] = hist || [];
+            
+            // Calculate totals for the summary KPI
+            calculatedPaid += sum.sessionTotal || 0;
+            calculatedOutstanding += bill?.carriedForward || 0;
+          } catch (err) {
+            if (!active) return;
+            newRows[id] = { ...newRows[id], bill: null, loadingBill: false };
+          }
         }
+      }
+
+      // Also calculate from existing rows if we aren't re-fetching
+      selectedIds.forEach(id => {
+        if (newRows[id]?.bill) {
+          calculatedOutstanding += newRows[id].bill.carriedForward || 0;
+        }
+      });
+
+      if (active) {
+        setRows(newRows);
+        setHistories(newHistories);
+        setSummary(prev => ({ ...prev, totalOutstanding: calculatedOutstanding }));
       }
     })();
 
-    return () => {
-      active = false;
-    };
+    return () => { active = false; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedIds, session, month, sharedMethod]);
+  }, [selectedIds, session, month]);
 
   function toggleStudent(id) {
     setSelectedIds((prev) => {
@@ -143,10 +148,9 @@ export default function BatchFeeCollection({
 
   const selectedList = allStudents.filter((s) => selectedIds.has(s.id));
 
-  const grandTotal = selectedList.reduce(
-    (sum, s) => sum + Number(rows[s.id]?.amount || 0),
-    0
-  );
+  // Live calculations for the form
+  const currentTotalPaid = selectedList.reduce((sum, s) => sum + Number(rows[s.id]?.amount || 0), 0);
+  const currentTotalDiscount = selectedList.reduce((sum, s) => sum + Number(rows[s.id]?.discount || 0), 0);
 
   async function handleSubmit() {
     if (submitting || selectedList.length === 0) return;
@@ -160,12 +164,7 @@ export default function BatchFeeCollection({
     }
 
     const confirmed = window.confirm(
-      `Record ${selectedList.length} payment${
-        selectedList.length !== 1 ? "s" : ""
-      }?\n\n` +
-        `Total Cash: ₹${grandTotal.toLocaleString()}\n` +
-        `Month: ${month}\n\n` +
-        `Each student will receive their own receipt.`
+      `Record ${selectedList.length} payment(s)?\n\nCash: ₹${currentTotalPaid.toLocaleString()}\nDiscount: ₹${currentTotalDiscount.toLocaleString()}`
     );
     if (!confirmed) return;
 
@@ -193,20 +192,9 @@ export default function BatchFeeCollection({
           remarks: sharedRemarks,
         });
 
-        const enriched = {
-          ...res.receipt,
-          studentName: res.receipt.studentName || s.name,
-          admissionNumber: res.receipt.admissionNumber || s.admissionNumber,
-          className: res.receipt.className || s.className,
-          guardianName:
-            res.receipt.guardianName || s.guardianName || s.fatherName,
-        };
-        receipts.push(enriched);
+        receipts.push({ ...res.receipt, studentName: s.name, className: s.className });
       } catch (err) {
-        errors.push({
-          student: s.name,
-          message: err.message || String(err),
-        });
+        errors.push({ student: s.name, message: err.message });
       }
     }
 
@@ -215,25 +203,51 @@ export default function BatchFeeCollection({
 
     if (receipts.length > 0) {
       setReceiptsToPrint(receipts);
+      // CLEAR the form inputs for the next transaction
+      const clearedRows = { ...rows };
+      selectedList.forEach(s => {
+        if (clearedRows[s.id]) {
+          clearedRows[s.id].amount = "";
+          clearedRows[s.id].discount = 0;
+          clearedRows[s.id].bill = undefined; // Force re-fetch of new balance
+        }
+      });
+      setRows(clearedRows);
+      // Force the useEffect to re-run by slightly changing the state
+      setSelectedIds(new Set(selectedIds)); 
     }
 
-    if (errors.length === 0 && onDone) {
-      onDone(receipts);
-    }
+    if (errors.length === 0 && onDone) onDone(receipts);
   }
 
   return (
     <div className="fm-card">
       <div className="fm-row-header">
         <h2>Batch Fee Collection</h2>
-        <span className="fm-subtle">
-          Billing month: <strong>{month}</strong> · Session: <strong>{session}</strong>
-        </span>
+        <span className="fm-subtle">Month: <strong>{month}</strong> · Session: <strong>{session}</strong></span>
       </div>
+
+      {/* Summary KPI Cards */}
+      {selectedList.length > 0 && (
+        <div style={{ display: "flex", gap: 16, marginBottom: 24 }}>
+          <div style={{ flex: 1, background: "#eff6ff", padding: 16, borderRadius: 8, border: "1px solid #bfdbfe" }}>
+            <p style={{ margin: "0 0 4px 0", fontSize: 12, color: "#1d4ed8", fontWeight: 600, textTransform: "uppercase" }}>Session Paid (Total)</p>
+            <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#1d4ed8" }}>₹{summary.totalPaid.toLocaleString()}</p>
+          </div>
+          <div style={{ flex: 1, background: "#f0fdf4", padding: 16, borderRadius: 8, border: "1px solid #bbf7d0" }}>
+            <p style={{ margin: "0 0 4px 0", fontSize: 12, color: "#15803d", fontWeight: 600, textTransform: "uppercase" }}>Discount Given</p>
+            <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#15803d" }}>₹{summary.totalDiscount.toLocaleString()}</p>
+          </div>
+          <div style={{ flex: 1, background: "#fef2f2", padding: 16, borderRadius: 8, border: "1px solid #fecaca" }}>
+            <p style={{ margin: "0 0 4px 0", fontSize: 12, color: "#b91c1c", fontWeight: 600, textTransform: "uppercase" }}>Outstanding Due</p>
+            <p style={{ margin: 0, fontSize: 20, fontWeight: 800, color: "#b91c1c" }}>₹{summary.totalOutstanding.toLocaleString()}</p>
+          </div>
+        </div>
+      )}
 
       {searchError && <p className="fm-error">{searchError}</p>}
 
-      {/* ---------------- Student picker ---------------- */}
+      {/* Search Bar */}
       <div className="fm-search-row">
         <input
           type="text"
@@ -241,24 +255,16 @@ export default function BatchFeeCollection({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <button
-          type="button"
-          className="fm-secondary-btn"
-          onClick={() => setSearch("")}
-        >
-          Clear
-        </button>
+        <button type="button" className="fm-secondary-btn" onClick={() => setSearch("")}>Clear</button>
       </div>
 
+      {/* Student List */}
       {loadingStudents ? (
         <p className="fm-empty-state">Loading students…</p>
       ) : filteredStudents.length === 0 ? (
         <p className="fm-empty-state">No students match this search.</p>
       ) : (
-        <div
-          className="fm-table-scroll"
-          style={{ maxHeight: 300, overflowY: "auto" }}
-        >
+        <div className="fm-table-scroll" style={{ maxHeight: 300, overflowY: "auto" }}>
           <table className="fm-table">
             <thead>
               <tr>
@@ -274,25 +280,13 @@ export default function BatchFeeCollection({
             </thead>
             <tbody>
               {filteredStudents.map((s) => (
-                <tr
-                  key={s.id}
-                  onClick={() => toggleStudent(s.id)}
-                  style={{ cursor: "pointer" }}
-                >
+                <tr key={s.id} onClick={() => toggleStudent(s.id)} style={{ cursor: "pointer" }}>
                   <td>
-                    <input
-                      type="checkbox"
-                      checked={selectedIds.has(s.id)}
-                      onChange={() => toggleStudent(s.id)}
-                      onClick={(e) => e.stopPropagation()}
-                    />
+                    <input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => toggleStudent(s.id)} onClick={(e) => e.stopPropagation()} />
                   </td>
                   <td style={{ fontWeight: 500 }}>{s.name}</td>
                   <td>{s.admissionNumber}</td>
-                  <td>
-                    {s.className}
-                    {s.section ? `-${s.section}` : ""}
-                  </td>
+                  <td>{s.className}{s.section ? `-${s.section}` : ""}</td>
                   <td>{s.fatherName || "—"}</td>
                   <td>{s.motherName || "—"}</td>
                   <td>{s.mobileNumber || s.fatherMobile || "—"}</td>
@@ -308,51 +302,16 @@ export default function BatchFeeCollection({
         </div>
       )}
 
-      {/* ---------------- Shared settings ---------------- */}
-      <div
-        style={{
-          marginTop: 24,
-          display: "flex",
-          gap: 16,
-          flexWrap: "wrap",
-        }}
-      >
-        <label className="fm-inline-label">
-          Payment Date
-          <input
-            type="date"
-            value={paymentDate}
-            onChange={(e) => setPaymentDate(e.target.value)}
-          />
-        </label>
-        <label className="fm-inline-label">
-          Default Method
-          <select
-            value={sharedMethod}
-            onChange={(e) => setSharedMethod(e.target.value)}
-          >
-            {PAYMENT_METHODS.map((m) => (
-              <option key={m}>{m}</option>
-            ))}
-          </select>
-        </label>
-        <label className="fm-inline-label" style={{ flex: 1, minWidth: 250 }}>
-          Shared Remarks (optional)
-          <input
-            type="text"
-            value={sharedRemarks}
-            onChange={(e) => setSharedRemarks(e.target.value)}
-            placeholder="e.g. Sibling discount applied"
-          />
-        </label>
-      </div>
-
-      {/* ---------------- Selected students ---------------- */}
+      {/* Payment Form */}
       {selectedList.length > 0 && (
         <>
-          <h3 style={{ marginTop: 32, marginBottom: 16 }}>
-            Selected students ({selectedList.length})
-          </h3>
+          <h3 style={{ marginTop: 32, marginBottom: 16 }}>Selected students ({selectedList.length})</h3>
+          
+          <div style={{ display: "flex", gap: 16, marginBottom: 16 }}>
+            <label className="fm-inline-label">Payment Date <input type="date" value={paymentDate} onChange={(e) => setPaymentDate(e.target.value)} /></label>
+            <label className="fm-inline-label">Default Method <select value={sharedMethod} onChange={(e) => setSharedMethod(e.target.value)}>{PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></label>
+            <label className="fm-inline-label" style={{ flex: 1 }}>Shared Remarks <input type="text" value={sharedRemarks} onChange={(e) => setSharedRemarks(e.target.value)} placeholder="e.g. Sibling discount applied" /></label>
+          </div>
 
           <div className="fm-table-scroll">
             <table className="fm-table">
@@ -374,75 +333,13 @@ export default function BatchFeeCollection({
                   return (
                     <tr key={s.id}>
                       <td style={{ fontWeight: 500 }}>{s.name}</td>
-                      <td>
-                        {r.loadingBill ? (
-                          <span className="fm-subtle">Loading…</span>
-                        ) : r.bill === null ? (
-                          <span className="fm-due-cell">No bill</span>
-                        ) : (
-                          `₹${outstanding.toLocaleString()}`
-                        )}
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          value={r.amount ?? ""}
-                          onChange={(e) =>
-                            updateRow(s.id, "amount", e.target.value)
-                          }
-                          style={{ width: 100, padding: "6px 8px" }}
-                        />
-                      </td>
-                      <td>
-                        <input
-                          type="number"
-                          min="0"
-                          value={r.discount ?? 0}
-                          onChange={(e) =>
-                            updateRow(s.id, "discount", e.target.value)
-                          }
-                          style={{ width: 100, padding: "6px 8px" }}
-                        />
-                      </td>
-                      <td>
-                        <select
-                          value={r.method || sharedMethod}
-                          onChange={(e) =>
-                            updateRow(s.id, "method", e.target.value)
-                          }
-                          style={{ padding: "6px 8px" }}
-                        >
-                          {PAYMENT_METHODS.map((m) => (
-                            <option key={m}>{m}</option>
-                          ))}
-                        </select>
-                      </td>
-                      <td>
-                        <input
-                          type="text"
-                          value={r.ref || ""}
-                          onChange={(e) =>
-                            updateRow(s.id, "ref", e.target.value)
-                          }
-                          style={{ width: 120, padding: "6px 8px" }}
-                        />
-                      </td>
+                      <td>{r.loadingBill ? "Loading…" : r.bill === null ? <span className="fm-due-cell">No bill</span> : `₹${outstanding.toLocaleString()}`}</td>
+                      <td><input type="number" min="0" value={r.amount ?? ""} onChange={(e) => updateRow(s.id, "amount", e.target.value)} style={{ width: 100, padding: "6px 8px" }} /></td>
+                      <td><input type="number" min="0" value={r.discount ?? 0} onChange={(e) => updateRow(s.id, "discount", e.target.value)} style={{ width: 100, padding: "6px 8px" }} /></td>
+                      <td><select value={r.method || sharedMethod} onChange={(e) => updateRow(s.id, "method", e.target.value)} style={{ padding: "6px 8px" }}>{PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></td>
+                      <td><input type="text" value={r.ref || ""} onChange={(e) => updateRow(s.id, "ref", e.target.value)} style={{ width: 120, padding: "6px 8px" }} /></td>
                       <td style={{ textAlign: "center" }}>
-                        <button
-                          type="button"
-                          title="Remove Student"
-                          className="fm-icon-btn fm-danger-link"
-                          onClick={() => toggleStudent(s.id)}
-                          style={{ 
-                            fontSize: 16, 
-                            padding: "6px 8px", 
-                            border: "1px solid #fecaca", 
-                            borderRadius: 6 
-                          }}
-                        >
-                          🗑️
-                        </button>
+                        <button type="button" className="fm-icon-btn fm-danger-link" onClick={() => toggleStudent(s.id)} style={{ fontSize: 16, padding: "6px 8px", border: "1px solid #fecaca", borderRadius: 6 }}>🗑️</button>
                       </td>
                     </tr>
                   );
@@ -451,90 +348,70 @@ export default function BatchFeeCollection({
             </table>
           </div>
 
-          <div
-            style={{
-              marginTop: 16,
-              display: "flex",
-              justifyContent: "space-between",
-              alignItems: "center",
-              flexWrap: "wrap",
-              gap: 12,
-            }}
-          >
-            <strong style={{ fontSize: "1.1em" }}>
-              Grand total: ₹{grandTotal.toLocaleString()}
-            </strong>
+          <div style={{ marginTop: 16, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+            <div style={{ fontSize: "1.1em" }}>
+              <span style={{ color: "#64748b" }}>Total Cash: </span>
+              <strong style={{ color: "#2563eb" }}>₹{currentTotalPaid.toLocaleString()}</strong>
+              <span style={{ color: "#64748b", marginLeft: 16 }}>Total Discount: </span>
+              <strong style={{ color: "#059669" }}>₹{currentTotalDiscount.toLocaleString()}</strong>
+            </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button
-                type="button"
-                className="fm-secondary-btn"
-                onClick={() => {
-                  setSelectedIds(new Set());
-                  setRows({});
-                }}
-                disabled={submitting}
-              >
-                Reset
-              </button>
-              <button
-                type="button"
-                className="fm-primary-btn"
-                onClick={handleSubmit}
-                disabled={submitting || selectedList.length === 0}
-              >
-                {submitting
-                  ? "Recording…"
-                  : `Record ${selectedList.length} payment${
-                      selectedList.length !== 1 ? "s" : ""
-                    }`}
+              <button type="button" className="fm-secondary-btn" onClick={() => { setSelectedIds(new Set()); setRows({}); }} disabled={submitting}>Reset</button>
+              <button type="button" className="fm-primary-btn" onClick={handleSubmit} disabled={submitting || selectedList.length === 0}>
+                {submitting ? "Recording…" : `Record ${selectedList.length} payment(s)`}
               </button>
             </div>
           </div>
         </>
       )}
 
-      {/* ---------------- Result summary ---------------- */}
-      {results && (
-        <div style={{ marginTop: 20 }}>
-          {results.receipts.length > 0 && (
-            <p className="fm-success">
-              ✅ Recorded {results.receipts.length} payment
-              {results.receipts.length !== 1 ? "s" : ""}.
-            </p>
-          )}
-          {results.errors.length > 0 && (
-            <div className="fm-error">
-              <strong>Some payments failed:</strong>
-              <ul style={{ margin: "6px 0 0 20px" }}>
-                {results.errors.map((e, i) => (
-                  <li key={i}>
-                    {e.student}: {e.message}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-          {results.receipts.length > 0 && (
-            <button
-              type="button"
-              className="fm-primary-btn"
-              style={{ marginTop: 10 }}
-              onClick={() => setReceiptsToPrint(results.receipts)}
-            >
-              🖨 Reprint all receipts
-            </button>
-          )}
+      {/* Transaction History */}
+      {selectedList.length > 0 && (
+        <div style={{ marginTop: 40, borderTop: "1px solid #e2e8f0", paddingTop: 20 }}>
+          <h3>Transaction History (Selected Students)</h3>
+          <div className="fm-table-scroll">
+            <table className="fm-table">
+              <thead>
+                <tr>
+                  <th>Date</th>
+                  <th>Student</th>
+                  <th>Receipt#</th>
+                  <th>Amount</th>
+                  <th>Method</th>
+                </tr>
+              </thead>
+              <tbody>
+                {selectedList.flatMap(s => {
+                  const hist = histories[s.id] || [];
+                  return hist.map(t => (
+                    <tr key={t.id}>
+                      <td>{t.createdAt?.toDate?.().toLocaleDateString("en-GB") || "—"}</td>
+                      <td>{s.name}</td>
+                      <td>{t.receiptNumber || "—"}</td>
+                      <td style={{ fontWeight: 600 }}>₹{(t.amountReceived || t.netAmount || 0).toLocaleString()}</td>
+                      <td>{t.paymentMethod || "Cash"}</td>
+                    </tr>
+                  ));
+                })}
+                {Object.keys(histories).length === 0 && (
+                  <tr><td colSpan="5" style={{ textAlign: "center", padding: 20 }}>No past transactions found for these students.</td></tr>
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       )}
 
-      <PrintManager
-        active={!!receiptsToPrint}
-        onClose={() => setReceiptsToPrint(null)}
-        type="receipt"
-      >
-        {receiptsToPrint && (
-          <ReceiptPrintSheet receipts={receiptsToPrint} />
-        )}
+      {results && (
+        <div style={{ marginTop: 20 }}>
+          {results.receipts.length > 0 && <p className="fm-success">✅ Recorded {results.receipts.length} payment(s).</p>}
+          {results.errors.length > 0 && <div className="fm-error"><strong>Some payments failed:</strong><ul>{results.errors.map((e, i) => <li key={i}>{e.student}: {e.message}</li>)}</ul></div>}
+          {results.receipts.length > 0 && <button type="button" className="fm-primary-btn" style={{ marginTop: 10 }} onClick={() => setReceiptsToPrint(results.receipts)}>🖨 Reprint all receipts</button>}
+        </div>
+      )}
+
+      <PrintManager active={!!receiptsToPrint} onClose={() => setReceiptsToPrint(null)} type="receipt">
+        {receiptsToPrint && <ReceiptPrintSheet receipts={receiptsToPrint} />}
       </PrintManager>
     </div>
   );
