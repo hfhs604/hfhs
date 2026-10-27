@@ -79,11 +79,7 @@ export default function FeeDashboard({ session }) {
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">Entered Today</p>
               <span className="kpi-pill kpi-green">₹{(stats.enteredToday || 0).toLocaleString()}</span>
-              
-              {/* Cash vs Bank split is now calculated natively */}
-              <p style={{ fontSize: "10px", color: "#94a3b8", marginTop: "6px" }}>
-                Cash: ₹{(stats.todayCash || 0).toLocaleString()} | Bank: ₹{(stats.todayBank || 0).toLocaleString()}
-              </p>
+              <p style={{ fontSize: "10px", color: "#94a3b8", marginTop: "6px" }}>Cash: ₹{(stats.todayCash || 0).toLocaleString()} | Bank: ₹{(stats.todayBank || 0).toLocaleString()}</p>
             </div>
             <div className="fm-stat-card" style={{ flex: 1, padding: "12px" }}>
               <p className="fm-stat-label">This Month's Coll.</p>
@@ -123,7 +119,7 @@ export default function FeeDashboard({ session }) {
         </div>
       </div>
 
-      {/* BOTTOM SECTION: 3 Charts Symmetrical */}
+      {/* BOTTOM SECTION: 3 Charts */}
       <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: "16px" }}>
         <div className="fm-card" style={{ padding: "16px", display: "flex", flexDirection: "column", margin: 0 }}>
           <h3 style={{ margin: "0 0 12px 0", fontSize: "13px", textTransform: "uppercase", color: "#64748b" }}>Monthly Fee Collection</h3>
