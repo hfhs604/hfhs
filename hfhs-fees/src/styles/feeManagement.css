@@ -152,7 +152,7 @@ body {
   flex: 1;
 }
 .fm-content-inner {
-  max-width: 100%; /* Removed the restriction so it fills the page */
+  max-width: 100%;
   margin: 0 auto;
   width: 100%;
 }
@@ -178,7 +178,7 @@ body {
    --------------------------------------------------------------------------- */
 .fm-dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr); /* Forces 4 cards per row */
+  grid-template-columns: repeat(4, 1fr); 
   gap: 16px;
   margin-bottom: 24px;
 }
@@ -207,20 +207,35 @@ body {
   color: #1e293b;
 }
 
+.fm-stat-sub {
+  font-size: 11px;
+  color: #94a3b8;
+  margin: 4px 0 0 0;
+  font-weight: 500;
+}
+
 .fm-stat-card.fm-due .fm-stat-value { color: #dc2626; }
 .fm-stat-card.fm-advance .fm-stat-value { color: #059669; }
 .fm-stat-card.fm-discount .fm-stat-value { color: #059669; }
 
 /* ---------------------------------------------------------------------------
-   Charts (EXACTLY 3 CHARTS PER ROW)
+   Charts (EXACTLY 3 CHARTS PER ROW - FIXED HEIGHT)
    --------------------------------------------------------------------------- */
 .fm-chart-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr); /* Forces all 3 charts in one line */
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
 }
 
-/* Responsive fallbacks for small screens */
+/* THIS IS THE MAGIC FIX: Stops the infinite stretching */
+.chart-container {
+  height: 280px; 
+  width: 100%;
+  position: relative;
+  overflow: hidden;
+}
+
+/* Responsive fallbacks */
 @media (max-width: 1200px) {
   .fm-dashboard-grid { grid-template-columns: repeat(3, 1fr); }
   .fm-chart-grid { grid-template-columns: repeat(2, 1fr); }
