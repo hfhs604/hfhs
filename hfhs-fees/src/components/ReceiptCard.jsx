@@ -6,14 +6,34 @@ export default function ReceiptCard({ receipt, school }) {
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, remainingDue, paymentMethod, referenceNumber,
     particulars: passedParticulars,
+    totalDue,
   } = receipt;
 
   const disc = Number(discount || 0);
   const late = Number(lateFee || 0);
   const thisAmount = Number(amountReceived || 0);
 
+  // Format the paymentDate to include both Date and Time
+  let formattedDate = "—";
+  if (paymentDate) {
+    let dateObj = null;
+    if (typeof paymentDate === "object" && paymentDate.seconds) {
+      dateObj = new Date(paymentDate.seconds * 1000);
+    } else if (paymentDate.toDate) {
+      dateObj = paymentDate.toDate();
+    } else {
+      dateObj = new Date(paymentDate);
+    }
+
+    if (dateObj && !isNaN(dateObj.getTime())) {
+      formattedDate = dateObj.toLocaleString("en-GB", {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: true
+      });
+    }
+  }
+
   let rows = Array.isArray(passedParticulars) ? [...passedParticulars] : [];
-  
   if (rows.length === 0 && thisAmount > 0) {
     rows.push({ label: feeType || "Fee Payment", amount: thisAmount });
   }
@@ -21,7 +41,8 @@ export default function ReceiptCard({ receipt, school }) {
     rows.push({ label: "Late Fee", amount: late });
   }
 
-  const grossTotal = rows.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  // If the receipt has a saved grossTotal, use it. Otherwise, fallback to summing the rows.
+  const grossTotal = Number(totalDue || 0) || rows.reduce((sum, item) => sum + Number(item.amount || 0), 0);
   const netBill = grossTotal - disc;
   const finalBalance = Number(remainingDue || 0);
 
@@ -46,7 +67,7 @@ export default function ReceiptCard({ receipt, school }) {
 
       <div className="receipt-meta-row">
         <span><strong>Receipt#</strong> {receiptNumber}</span>
-        <span><strong>Date</strong> {paymentDate}</span>
+        <span><strong>Date & Time</strong> {formattedDate}</span>
         <span><strong>Session</strong> {session}</span>
       </div>
 
