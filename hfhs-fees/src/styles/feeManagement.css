@@ -6,12 +6,22 @@
 /* ---------------------------------------------------------------------------
    Global & Layout
    --------------------------------------------------------------------------- */
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+}
+
 .fm-app {
   min-height: 100vh;
   background: #f1f5f9;
   color: #1e293b;
   font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
   display: flex;
+  overflow-x: hidden;
 }
 
 /* Sidebar (Vyapar Style) */
@@ -142,7 +152,7 @@
   flex: 1;
 }
 .fm-content-inner {
-  max-width: 1400px;
+  max-width: 1200px; /* CONSTRAINED WIDTH TO PREVENT ABNORMAL STRETCHING */
   margin: 0 auto;
   width: 100%;
 }
@@ -168,9 +178,20 @@
    --------------------------------------------------------------------------- */
 .fm-dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  grid-template-columns: repeat(3, 1fr); /* Forces exactly 3 columns */
   gap: 16px;
   margin-bottom: 24px;
+}
+
+@media (max-width: 900px) {
+  .fm-dashboard-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+}
+@media (max-width: 600px) {
+  .fm-dashboard-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 .fm-stat-card {
@@ -203,8 +224,13 @@
 
 .fm-chart-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
-  gap: 16px;
+  grid-template-columns: 1fr 1fr;
+  gap: 20px;
+}
+@media (max-width: 900px) {
+  .fm-chart-grid {
+    grid-template-columns: 1fr;
+  }
 }
 
 /* ---------------------------------------------------------------------------
