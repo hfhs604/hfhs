@@ -170,9 +170,6 @@ export async function listBillsForMonth(session, month) {
   } catch (err) { throw new Error("Index required."); }
 }
 
-// ---------------------------------------------------------------------------
-// Payment Collection
-// ---------------------------------------------------------------------------
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
   const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
@@ -190,9 +187,8 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    const totalCredit = amt + disc;
     const newPaid = (bill.totalPaid || 0) + amt;
-    const newCarry = (bill.totalDue || 0) - newPaid;
+    const newCarry = (bill.totalDue || 0) - newPaid - disc;
 
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
@@ -209,7 +205,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 
     tx.update(billRef, { totalPaid: newPaid, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL", lastPaymentAt: serverTimestamp() });
     tx.set(idemRef, { receiptId: receiptRef.id, createdAt: serverTimestamp() });
-    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid, totalCredit };
+    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid };
   });
 
   if (result.alreadyProcessed) {
@@ -235,9 +231,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
   return { receiptId: result.receiptRef.id, receipt: receiptData, duplicateBlocked: false };
 }
 
-// ---------------------------------------------------------------------------
-// Add-on fees (Fixed to not count as cash)
-// ---------------------------------------------------------------------------
+// FIXED: Add-ons DO NOT count as cash
 export async function addLineItem({ studentId, session, month, amount, field, componentType, feeType, remarks, paymentMethod = "Cash", paymentDate, idempotencyKey }) {
   const user = currentUser();
   const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
@@ -327,9 +321,6 @@ export async function getStudentsWithDue({ session, month, className } = {}) {
   if (!className) return bills; return bills.filter((b) => b.className === className);
 }
 
-// ---------------------------------------------------------------------------
-// Dashboard Stats
-// ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
   let studentCount = 0, bills = [], actualMonth = targetMonth;
