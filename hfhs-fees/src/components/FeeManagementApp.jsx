@@ -29,10 +29,15 @@ import "../styles/feeManagement.css";
 const NAV_SECTIONS = [
   { key: "dashboard", label: "Dashboard", roles: ["superAdmin", "admin", "accountant"] },
   { key: "students", label: "Students", roles: ["superAdmin", "admin", "accountant"] },
+  { key: "family", label: "Family Lookup", roles: ["superAdmin", "admin", "accountant"] },
+  { key: "structure", label: "Fee Structure", roles: ["superAdmin", "admin"] },
   { key: "collect", label: "Fee Collection", roles: ["superAdmin", "admin", "accountant"] },
-  { key: "dues", label: "Dues & Advances", roles: ["superAdmin", "admin", "accountant"] },
+  { key: "batch", label: "Batch Collect", roles: ["superAdmin", "admin", "accountant"] },
+  { key: "transactions", label: "Transactions", roles: ["superAdmin", "admin", "accountant"] },
+  { key: "due", label: "Dues & Advances", roles: ["superAdmin", "admin", "accountant"] },
   { key: "attendance", label: "Attendance", roles: ["superAdmin", "admin", "staff", "accountant"] },
   { key: "exams", label: "Exams & Marks", roles: ["superAdmin", "admin", "staff"] },
+  { key: "discounts", label: "Discounts", roles: ["superAdmin", "admin"] },
   { key: "reports", label: "Reports", roles: ["superAdmin", "admin", "accountant"] },
   { key: "settings", label: "Settings", roles: ["superAdmin"] },
 ];
@@ -42,9 +47,7 @@ async function withFirestoreRetry(fn, retries = 3, delayMs = 700) {
     try {
       return await fn();
     } catch (err) {
-      const isOffline =
-        err?.code === "unavailable" ||
-        err?.message?.includes("client is offline");
+      const isOffline = err?.code === "unavailable" || err?.message?.includes("client is offline");
       if (!isOffline || attempt === retries - 1) throw err;
       await new Promise((r) => setTimeout(r, delayMs * (attempt + 1)));
     }
@@ -55,6 +58,14 @@ function defaultSessionLabel() {
   const now = new Date();
   const startYear = now.getMonth() < 3 ? now.getFullYear() - 1 : now.getFullYear();
   return `${startYear}-${String((startYear + 1) % 100).padStart(2, "0")}`;
+}
+
+function getGreeting() {
+  const hour = new Date().getHours();
+  if (hour < 12) return "Good Morning";
+  if (hour < 17) return "Good Afternoon";
+  if (hour < 21) return "Good Evening";
+  return "Good Night";
 }
 
 export default function FeeManagementApp({ onLogout }) {
@@ -231,7 +242,13 @@ export default function FeeManagementApp({ onLogout }) {
             ☰
           </button>
           <h2 style={{ margin: 0, fontSize: "1.1em", color: "#1e293b", fontWeight: 600 }}>
-            {visibleTabs.find(t => t.key === activeTab)?.label || "Dashboard"}
+            {activeTab === "dashboard" ? (
+              <>
+                {getGreeting()}, <span style={{ color: "#2563eb" }}>Admin</span>
+              </>
+            ) : (
+              visibleTabs.find(t => t.key === activeTab)?.label || "Dashboard"
+            )}
           </h2>
         </header>
 
@@ -248,6 +265,20 @@ export default function FeeManagementApp({ onLogout }) {
                   setSelectedStudentId(id);
                   setCollectTab("single");
                   setActiveTab("collect");
+                }}
+              />
+            )}
+
+            {activeTab === "family" && (
+              <RelatedStudentsLookup
+                session={session}
+                onSelectStudent={(id) => {
+                  setSelectedStudentId(id);
+                  setActiveTab("transactions");
+                }}
+                onBatchCollect={(ids) => {
+                  setBatchPreselected(ids);
+                  setActiveTab("batch");
                 }}
               />
             )}
