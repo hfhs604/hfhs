@@ -29,15 +29,10 @@ import "../styles/feeManagement.css";
 const NAV_SECTIONS = [
   { key: "dashboard", label: "Dashboard", roles: ["superAdmin", "admin", "accountant"] },
   { key: "students", label: "Students", roles: ["superAdmin", "admin", "accountant"] },
-  { key: "family", label: "Family Lookup", roles: ["superAdmin", "admin", "accountant"] },
-  { key: "structure", label: "Fee Structure", roles: ["superAdmin", "admin"] },
   { key: "collect", label: "Fee Collection", roles: ["superAdmin", "admin", "accountant"] },
-  { key: "batch", label: "Batch Collect", roles: ["superAdmin", "admin", "accountant"] },
-  { key: "transactions", label: "Transactions", roles: ["superAdmin", "admin", "accountant"] },
-  { key: "due", label: "Dues & Advances", roles: ["superAdmin", "admin", "accountant"] },
+  { key: "dues", label: "Dues & Advances", roles: ["superAdmin", "admin", "accountant"] },
   { key: "attendance", label: "Attendance", roles: ["superAdmin", "admin", "staff", "accountant"] },
   { key: "exams", label: "Exams & Marks", roles: ["superAdmin", "admin", "staff"] },
-  { key: "discounts", label: "Discounts", roles: ["superAdmin", "admin"] },
   { key: "reports", label: "Reports", roles: ["superAdmin", "admin", "accountant"] },
   { key: "settings", label: "Settings", roles: ["superAdmin"] },
 ];
@@ -265,20 +260,6 @@ export default function FeeManagementApp({ onLogout }) {
                   setSelectedStudentId(id);
                   setCollectTab("single");
                   setActiveTab("collect");
-                }}
-              />
-            )}
-
-            {activeTab === "family" && (
-              <RelatedStudentsLookup
-                session={session}
-                onSelectStudent={(id) => {
-                  setSelectedStudentId(id);
-                  setActiveTab("transactions");
-                }}
-                onBatchCollect={(ids) => {
-                  setBatchPreselected(ids);
-                  setActiveTab("batch");
                 }}
               />
             )}
