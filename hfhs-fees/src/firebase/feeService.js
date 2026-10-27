@@ -171,7 +171,7 @@ export async function listBillsForMonth(session, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Payment Collection (FIXED MATH)
+// Payment Collection (FIXED MATH & DATES)
 // ---------------------------------------------------------------------------
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
@@ -197,12 +197,10 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
 
-    // SAVE THE REMAINING DUE SNAPSHOT TO THE TRANSACTION
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
-      discount: disc, lateFee: late, 
-      netAmount: amt,
-      remainingDue: Math.max(newCarry, 0), // Save exact balance after this txn
+      discount: disc, lateFee: late, netAmount: amt, // Store strictly CASH here
+      remainingDue: Math.max(newCarry, 0),
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
@@ -238,7 +236,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 }
 
 // ---------------------------------------------------------------------------
-// Add-on fees (FIXED MATH)
+// Add-on fees
 // ---------------------------------------------------------------------------
 export async function addLineItem({ studentId, session, month, amount, field, componentType, feeType, remarks, paymentMethod = "Cash", paymentDate, idempotencyKey }) {
   const user = currentUser();
@@ -260,7 +258,7 @@ export async function addLineItem({ studentId, session, month, amount, field, co
 
     tx.set(txnRef, {
       studentId, session, month, componentType, amountReceived: 0, netAmount: 0, addOnAmount: amt,
-      remainingDue: Math.max(newDue - (bill.totalPaid || 0), 0), // Save snapshot
+      remainingDue: Math.max(newDue - (bill.totalPaid || 0), 0),
       paymentDate: Timestamp.fromDate(new Date(paymentDate)), paymentMethod, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
       createdAt: serverTimestamp(), voided: false,
@@ -327,6 +325,9 @@ export async function getStudentsWithDue({ session, month, className } = {}) {
   if (!className) return bills; return bills.filter((b) => b.className === className);
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard Stats (FIXED MATH)
+// ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
   let studentCount = 0, bills = [], actualMonth = targetMonth;
@@ -344,17 +345,18 @@ export async function getDashboardStats(session, month) {
     } catch (err) {}
   }
 
-  let totalCollection = 0, monthCollection = 0, totalOutstandingDue = 0, totalAdvance = 0, studentsWithDue = 0, studentsFullyPaid = 0;
+  let totalOutstandingDue = 0, totalAdvance = 0, studentsWithDue = 0, studentsFullyPaid = 0;
   bills.forEach((b) => {
-    const paid = b.totalPaid || 0; const carry = b.carriedForward || 0;
-    totalCollection += paid; monthCollection += paid;
+    const carry = b.carriedForward || 0;
     if (carry > 0) { totalOutstandingDue += carry; studentsWithDue++; }
     else if (carry < 0) { totalAdvance += -carry; studentsFullyPaid++; }
     else { studentsFullyPaid++; }
   });
 
+  // Strict Math from Transactions
   let paymentMethodBreakdown = {}, todayCollection = 0, todayEntered = 0, totalDiscount = 0;
   let todayCash = 0, todayBank = 0;
+  let trueTotalCollection = 0, monthCollection = 0;
 
   try {
     const txnSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
@@ -368,6 +370,15 @@ export async function getDashboardStats(session, month) {
       
       paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
       totalDiscount += disc;
+      
+      // Total Collection (all time)
+      if (t.componentType === "refund") trueTotalCollection -= amt;
+      else trueTotalCollection += amt;
+
+      // This Month's Collection
+      if (t.month === targetMonth) {
+        monthCollection += amt;
+      }
 
       let paidAt = t.paymentDate?.toDate?.() || new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
       let isToday = (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs);
@@ -388,18 +399,8 @@ export async function getDashboardStats(session, month) {
     });
   } catch (err) {}
 
-  let trueTotalCollection = 0;
-  try {
-    const allTxns = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
-    allTxns.docs.forEach(d => {
-       const t = d.data();
-       if (t.componentType === "refund") trueTotalCollection -= Number(t.netAmount || 0);
-       else trueTotalCollection += Number(t.netAmount || 0);
-    });
-  } catch(e) {}
-
   return { 
-    paymentDateToday: todayCollection, enteredToday: todayEntered, todayCash, todayBank, monthCollection: totalCollection, totalCollection: trueTotalCollection, totalOutstandingDue, totalAdvance, totalDiscount, studentsWithDue, studentsFullyPaid, paymentMethodBreakdown, studentCount, month: actualMonth 
+    paymentDateToday: todayCollection, enteredToday: todayEntered, todayCash, todayBank, monthCollection: monthCollection, totalCollection: trueTotalCollection, totalOutstandingDue, totalAdvance, totalDiscount, studentsWithDue, studentsFullyPaid, paymentMethodBreakdown, studentCount, month: actualMonth 
   };
 }
 
