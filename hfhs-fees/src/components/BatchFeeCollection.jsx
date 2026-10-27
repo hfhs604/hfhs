@@ -52,37 +52,25 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       let newHistories = { ...histories };
 
       for (const id of selectedIds) {
-        const existing = rows[id];
-        
-        if (!existing || existing.bill === undefined) {
+        if (!histories[id]) {
           newRows[id] = {
-            ...existing,
-            amount: existing?.amount ?? "",
-            discount: existing?.discount ?? 0,
-            method: existing?.method ?? sharedMethod,
-            ref: existing?.ref ?? "",
-            bill: undefined,
+            ...newRows[id],
+            amount: newRows[id]?.amount ?? "",
+            discount: newRows[id]?.discount ?? 0,
+            method: newRows[id]?.method ?? sharedMethod,
+            ref: newRows[id]?.ref ?? "",
             loadingBill: true,
           };
 
           try {
-            const [bill, hist] = await Promise.all([
-              getMonthlyBill(session, month, id),
-              getPaymentHistory(id)
-            ]);
+            const hist = await getPaymentHistory(id);
             if (!active) return;
-
-            newRows[id] = {
-              ...newRows[id],
-              bill,
-              loadingBill: false,
-              amount: newRows[id].amount !== "" ? newRows[id].amount : (bill?.carriedForward ? String(bill.carriedForward) : ""),
-            };
-            newHistories[id] = hist || [];
             
+            newHistories[id] = hist || [];
+            newRows[id].loadingBill = false;
           } catch (err) {
             if (!active) return;
-            newRows[id] = { ...newRows[id], bill: null, loadingBill: false };
+            newRows[id].loadingBill = false;
           }
         }
       }
@@ -123,18 +111,40 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   const selectedList = allStudents.filter((s) => selectedIds.has(s.id));
 
-  // --- LIVE MATH FOR KPI CARDS (100% FROM DATABASE) ---
+  const calculateOutstandingFromHistory = (student) => {
+    const baseFee = student.className === "IV" ? 1100 : student.className === "VI" ? 1200 : 0;
+    const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
+    const monthlyTotal = baseFee + transport;
+
+    const currentMonth = new Date().getMonth() + 1;
+    const monthsBilled = currentMonth >= 4 ? (currentMonth - 4 + 1) : 0; 
+
+    const totalExpectedBill = (monthlyTotal * monthsBilled) + 3150;
+    
+    const hist = histories[student.id] || [];
+    let totalCash = 0;
+    let totalDiscount = 0;
+    let addOns = 0;
+
+    hist.forEach(t => {
+      if (t.session === session && t.voided !== true) {
+        if (t.componentType === "monthly" || !t.componentType) {
+          totalCash += Number(t.amountReceived || t.netAmount || 0);
+          totalDiscount += Number(t.discount || 0);
+        } else if (["books", "kit", "previousYear", "transport"].includes(t.componentType)) {
+          addOns += Number(t.addOnAmount || 0);
+        }
+      }
+    });
+
+    return totalExpectedBill + addOns - totalCash - totalDiscount;
+  };
+
   let calculatedPaid = 0;
   let calculatedDiscount = 0;
   let calculatedOutstanding = 0;
 
   selectedList.forEach((s) => {
-    const r = rows[s.id] || {};
-    
-    // Outstanding comes strictly from the database bill
-    if (r.bill) calculatedOutstanding += r.bill.carriedForward || 0;
-
-    // Paid and Discount come from history
     const hist = histories[s.id] || [];
     hist.forEach(t => {
       if (t.session === session && t.voided !== true && (!t.componentType || t.componentType === "monthly")) {
@@ -142,6 +152,8 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         calculatedDiscount += Number(t.discount || 0);
       }
     });
+
+    calculatedOutstanding += calculateOutstandingFromHistory(s);
   });
 
   const currentTotalPaid = selectedList.reduce((sum, s) => sum + (parseFloat(rows[s.id]?.amount) || 0), 0);
@@ -171,6 +183,8 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
     for (const s of selectedList) {
       const r = rows[s.id] || {};
+      const currentOutstanding = calculateOutstandingFromHistory(s);
+      
       try {
         const res = await collectPayment({
           studentId: s.id,
@@ -187,7 +201,22 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           remarks: sharedRemarks,
         });
 
-        receipts.push({ ...res.receipt, studentName: s.name, className: s.className });
+        const baseFee = s.className === "IV" ? 1100 : s.className === "VI" ? 1200 : 0;
+        const transport = s.transportOpted ? (s.transportAmount || 0) : 0;
+        const particulars = [];
+        if (baseFee > 0) particulars.push({ label: "Tuition Fee", amount: baseFee });
+        if (transport > 0) particulars.push({ label: "Transport Fee", amount: transport });
+
+        const newBalance = currentOutstanding - (parseFloat(r.amount) || 0) - (parseFloat(r.discount) || 0);
+
+        receipts.push({ 
+          ...res.receipt, 
+          studentName: s.name, 
+          className: s.className,
+          particulars: particulars,
+          totalDue: currentOutstanding,
+          remainingDue: Math.max(newBalance, 0),
+        });
       } catch (err) {
         errors.push({ student: s.name, message: err.message });
       }
@@ -203,7 +232,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         if (clearedRows[s.id]) {
           clearedRows[s.id].amount = "";
           clearedRows[s.id].discount = 0;
-          clearedRows[s.id].bill = undefined; 
         }
       });
       setRows(clearedRows);
@@ -328,7 +356,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
               <tbody>
                 {selectedList.map((s) => {
                   const r = rows[s.id] || {};
-                  const outstanding = r.bill?.carriedForward || 0;
+                  const outstanding = calculateOutstandingFromHistory(s);
                   return (
                     <tr key={s.id}>
                       <td style={{ fontWeight: 500 }}>{s.name}</td>
