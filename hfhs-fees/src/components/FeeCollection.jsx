@@ -80,9 +80,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       } else {
         setBill(null);
       }
-      
-      // Ensure the history array is an exact snapshot, sorting oldest first for ledger calculation
-      setHistory((hist || []).reverse());
+      setHistory((hist || []).reverse()); // Oldest first for running calculation
     } catch (e) {
       setError(e.message);
     } finally {
@@ -130,30 +128,17 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // Correctly prioritize `paymentDate` for the table
   function formatDate(t) {
-    let dateObj = t.paymentDate;
-    
-    // If paymentDate is missing, fall back to createdAt
-    if (!dateObj) dateObj = t.createdAt;
-
+    let dateObj = t.paymentDate || t.createdAt;
     if (!dateObj) return "—";
-
     try {
-      let d = null;
-      if (typeof dateObj === "object" && dateObj.seconds) {
-        d = new Date(dateObj.seconds * 1000);
-      } else if (dateObj.toDate) {
-        d = dateObj.toDate();
-      } else {
-        d = new Date(dateObj);
-      }
+      let d = dateObj.seconds ? new Date(dateObj.seconds * 1000) : (dateObj.toDate ? dateObj.toDate() : new Date(dateObj));
       if (isNaN(d.getTime())) return "—";
       return d.toLocaleDateString("en-GB", { day: '2-digit', month: 'short', year: 'numeric' });
     } catch { return "—"; }
   }
 
-  // --- EXACT MATH ---
+  // --- MATH ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
@@ -180,21 +165,24 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
 
-  // --- RUNNING LEDGER CALCULATION ---
+  // --- RUNNING LEDGER MATH ---
   let runningBalance = totalBilled;
   const calculatedHistory = history.map((t) => {
     const amt = Number(t.amountReceived || t.netAmount || 0);
     const disc = Number(t.discount || 0);
     
+    const snapshotTotalDue = t.totalDue || (runningBalance + amt + disc);
+
     if (!t.componentType || t.componentType === "monthly") {
       runningBalance -= (amt + disc);
     }
 
     return {
       ...t,
+      snapshotTotalDue: snapshotTotalDue,
       runningBalance: Math.max(runningBalance, 0),
     };
-  }).reverse(); // Back to newest first
+  }).reverse();
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -261,35 +249,15 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   }
 
   async function handleViewReceipt(txn) {
-    if (!txn.receiptRef) {
-      alert("No receipt found for this transaction.");
-      return;
-    }
-    
-    try {
-      const snap = await getDoc(doc(db, "receipts", txn.receiptRef));
-      if (snap.exists()) {
-        const receiptData = { ...snap.data(), id: snap.id };
-        
-        const particulars = [];
-        if (receiptData.previousDue > 0) particulars.push({ label: "Previous Due", amount: receiptData.previousDue });
-        if (receiptData.feeType) particulars.push({ label: receiptData.feeType, amount: receiptData.amountReceived || 0 });
-
-        const totalAmt = Number(receiptData.amountReceived || 0) + Number(receiptData.discount || 0) + Number(receiptData.previousDue || 0) + Number(receiptData.lateFee || 0);
-
-        setReceiptPopup({
-          ...receiptData,
-          particulars: particulars,
-          totalDue: totalAmt,
-          remainingDue: receiptData.remainingDue || 0,
-        });
-      } else {
-        alert("Receipt document not found in the database.");
-      }
-    } catch (err) {
-      console.error("Failed to load receipt:", err);
-      alert(`Failed to load receipt: ${err.message}`);
-    }
+    setReceiptPopup({
+      ...txn,
+      studentName: selectedStudent?.name,
+      admissionNumber: selectedStudent?.admissionNumber,
+      className: selectedStudent?.className,
+      guardianName: selectedStudent?.guardianName || selectedStudent?.fatherName,
+      totalDue: txn.snapshotTotalDue,
+      remainingDue: txn.runningBalance,
+    });
   }
 
   function promptForAmount(slot) { setPromptSlot(slot); setPromptValue(""); setPromptConfirming(false); }
@@ -492,10 +460,10 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                     <tr>
                       <th>Date</th>
                       <th>Receipt#</th>
-                      <th>Fee Type</th>
-                      <th>Amount Received</th>
+                      <th>Total Bill</th>
+                      <th>Amount Paid</th>
                       <th>Discount</th>
-                      <th>Outstanding Due</th>
+                      <th>Balance Due</th>
                       <th>Method</th>
                       <th style={{ textAlign: "center" }}>Actions</th>
                     </tr>
@@ -505,8 +473,8 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                       <tr key={t.id || idx}>
                         <td>{formatDate(t)}</td>
                         <td>{t.receiptNumber || "—"}</td>
-                        <td>{t.feeType || "Tuition Fee"}</td>
-                        <td style={{ fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
+                        <td style={{ fontWeight: 600 }}>₹{t.snapshotTotalDue || 0}</td>
+                        <td style={{ color: "#16a34a", fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
                         <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
                         <td className={t.runningBalance > 0 ? "fm-due-cell" : ""} style={{ fontWeight: 600 }}>
                           ₹{t.runningBalance}
