@@ -171,7 +171,7 @@ export async function listBillsForMonth(session, month) {
 }
 
 // ---------------------------------------------------------------------------
-// Payment Collection
+// Payment Collection (FIXED MATH)
 // ---------------------------------------------------------------------------
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
@@ -190,8 +190,8 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    const totalCredit = amt + disc;
-    const newPaid = (bill.totalPaid || 0) + amt;
+    const totalCredit = amt + disc; // Reduces the balance
+    const newPaid = (bill.totalPaid || 0) + amt; // Only tracks cash
     const newCarry = (bill.totalDue || 0) - totalCredit;
 
     const txnRef = doc(collection(db, COL.transactions));
@@ -200,7 +200,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
       discount: disc, lateFee: late, 
-      netAmount: amt,
+      netAmount: amt, // Store strictly CASH here
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
@@ -236,7 +236,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 }
 
 // ---------------------------------------------------------------------------
-// Add-on fees
+// Add-on fees (FIXED MATH)
 // ---------------------------------------------------------------------------
 export async function addLineItem({ studentId, session, month, amount, field, componentType, feeType, remarks, paymentMethod = "Cash", paymentDate, idempotencyKey }) {
   const user = currentUser();
@@ -324,9 +324,6 @@ export async function getStudentsWithDue({ session, month, className } = {}) {
   if (!className) return bills; return bills.filter((b) => b.className === className);
 }
 
-// ---------------------------------------------------------------------------
-// Dashboard Stats
-// ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
   let studentCount = 0, bills = [], actualMonth = targetMonth;
