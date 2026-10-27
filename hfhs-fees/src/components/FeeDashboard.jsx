@@ -54,7 +54,6 @@ export default function FeeDashboard({ session }) {
   if (loading) return <div className="fm-card fm-empty-state">Loading dashboard…</div>;
   if (!stats) return <div className="fm-card fm-empty-state">No data for this session yet.</div>;
 
-  // --- Dynamic Greeting ---
   const hour = new Date().getHours();
   let greeting = "Good Evening";
   if (hour < 12) greeting = "Good Morning";
@@ -62,7 +61,6 @@ export default function FeeDashboard({ session }) {
   else if (hour < 21) greeting = "Good Evening";
   else greeting = "Good Night";
 
-  // --- Date formatting ---
   const today = new Date();
   const formattedDate = today.toLocaleDateString("en-GB", { day: '2-digit', month: 'short', year: 'numeric' }).replace(/ /g, '-');
   
@@ -77,8 +75,8 @@ export default function FeeDashboard({ session }) {
         </div>
       )}
 
-      <div style={{ marginBottom: "20px" }}>
-        <h2 style={{ margin: 0, fontSize: "1.5rem", color: "#1e293b" }}>
+      <div style={{ marginBottom: "16px" }}>
+        <h2 style={{ margin: 0, fontSize: "1.3rem", color: "#1e293b" }}>
           {greeting}, <span style={{ color: "#3b82f6" }}>Admin</span>
         </h2>
       </div>
@@ -87,21 +85,21 @@ export default function FeeDashboard({ session }) {
         
         {/* LEFT COLUMN: Charts */}
         <div className="fm-charts-col">
-          <div className="fm-card" style={{ padding: "16px" }}>
+          <div className="fm-card compact-card">
             <h3>Monthly Fee Collection</h3>
-            <div style={{ height: "200px", width: "100%" }}>
+            <div style={{ height: "130px", width: "100%" }}>
               <MonthlyCollectionChart data={monthlyTrend} />
             </div>
           </div>
-          <div className="fm-card" style={{ padding: "16px" }}>
+          <div className="fm-card compact-card">
             <h3>Class-wise Paid vs Due</h3>
-            <div style={{ height: "200px", width: "100%" }}>
+            <div style={{ height: "130px", width: "100%" }}>
               <ClassWiseChart rows={classWise} />
             </div>
           </div>
-          <div className="fm-card" style={{ padding: "16px" }}>
+          <div className="fm-card compact-card">
             <h3>Payment Methods</h3>
-            <div style={{ height: "200px", width: "100%" }}>
+            <div style={{ height: "130px", width: "100%" }}>
               <PaymentMethodChart data={stats.paymentMethodBreakdown} />
             </div>
           </div>
@@ -111,12 +109,12 @@ export default function FeeDashboard({ session }) {
         <div className="fm-kpi-col">
           
           <div className="fm-kpi-row">
-            <div className="fm-stat-card">
-              <p className="fm-stat-label">Payments on System Date</p>
-              <p className="fm-stat-sub" style={{ marginTop: -4, marginBottom: 4 }}>(Payments on {formattedDate})</p>
+            <div className="fm-stat-card compact-stat">
+              <p className="fm-stat-label">Payments on Sys Date</p>
+              <p className="fm-stat-sub" style={{ marginTop: -4, marginBottom: 4 }}>({formattedDate})</p>
               <p className="fm-stat-value">₹{(stats.paymentDateToday || 0).toLocaleString()}</p>
             </div>
-            <div className="fm-stat-card">
+            <div className="fm-stat-card compact-stat">
               <p className="fm-stat-label">Today's Income</p>
               <p className="fm-stat-value">₹{(stats.enteredToday || 0).toLocaleString()}</p>
               <p className="fm-stat-sub">Cash: ₹{cashInHand.toLocaleString()} | Bank: ₹{bankAmount.toLocaleString()}</p>
@@ -124,40 +122,40 @@ export default function FeeDashboard({ session }) {
           </div>
 
           <div className="fm-kpi-row">
-            <div className="fm-stat-card">
+            <div className="fm-stat-card compact-stat">
               <p className="fm-stat-label">This Month's Collection</p>
               <p className="fm-stat-value">₹{(stats.monthCollection || 0).toLocaleString()}</p>
             </div>
-            <div className="fm-stat-card">
+            <div className="fm-stat-card compact-stat">
               <p className="fm-stat-label">Students with Due</p>
               <p className="fm-stat-value">{stats.studentsWithDue || 0}</p>
             </div>
           </div>
 
           <div className="fm-kpi-row">
-            <div className="fm-stat-card">
+            <div className="fm-stat-card compact-stat">
               <p className="fm-stat-label">Total Advance</p>
               <p className="fm-stat-value fm-advance">₹{(stats.totalAdvance || 0).toLocaleString()}</p>
             </div>
-            <div className="fm-stat-card">
+            <div className="fm-stat-card compact-stat">
               <p className="fm-stat-label">Students Fully Paid</p>
               <p className="fm-stat-value">{stats.studentsFullyPaid || 0}</p>
             </div>
           </div>
 
           <div className="fm-kpi-row">
-            <div className="fm-stat-card">
+            <div className="fm-stat-card compact-stat">
               <p className="fm-stat-label">Total Collection</p>
               <p className="fm-stat-value">₹{(stats.totalCollection || 0).toLocaleString()}</p>
             </div>
-            <div className="fm-stat-card">
+            <div className="fm-stat-card compact-stat">
               <p className="fm-stat-label">Discount</p>
               <p className="fm-stat-value fm-discount">₹{(stats.totalDiscount || 0).toLocaleString()}</p>
             </div>
           </div>
           
           <div className="fm-kpi-row">
-            <div className="fm-stat-card" style={{ width: "100%" }}>
+            <div className="fm-stat-card compact-stat" style={{ width: "100%" }}>
               <p className="fm-stat-label">Total Outstanding Due</p>
               <p className="fm-stat-value fm-due">₹{(stats.totalOutstandingDue || 0).toLocaleString()}</p>
             </div>
