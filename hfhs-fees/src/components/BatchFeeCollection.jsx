@@ -8,12 +8,7 @@ import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
-export default function BatchFeeCollection({
-  session,
-  month,
-  preselectedIds = [],
-  onDone,
-}) {
+export default function BatchFeeCollection({ session, month, preselectedIds = [], onDone }) {
   const [allStudents, setAllStudents] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set(preselectedIds));
   const [search, setSearch] = useState("");
@@ -31,7 +26,6 @@ export default function BatchFeeCollection({
   const [results, setResults] = useState(null);
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
 
-  // -------- Load all students --------
   useEffect(() => {
     let active = true;
     setLoadingStudents(true);
@@ -50,7 +44,6 @@ export default function BatchFeeCollection({
     return () => { active = false; };
   }, [session]);
 
-  // -------- Fetch fresh bill & history --------
   useEffect(() => {
     let active = true;
 
@@ -101,7 +94,6 @@ export default function BatchFeeCollection({
     })();
 
     return () => { active = false; };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedIds, session, month]);
 
   function toggleStudent(id) {
@@ -138,14 +130,10 @@ export default function BatchFeeCollection({
 
   selectedList.forEach((s) => {
     const r = rows[s.id] || {};
-    
-    // Add to outstanding from the current bill
     if (r.bill) calculatedOutstanding += r.bill.carriedForward || 0;
 
-    // Add to paid and discount from the actual history
     const hist = histories[s.id] || [];
     hist.forEach(t => {
-      // Only count history for the current session
       if (t.session === session && t.voided !== true && (!t.componentType || t.componentType === "monthly")) {
         calculatedPaid += Number(t.amountReceived || t.netAmount || 0);
         calculatedDiscount += Number(t.discount || 0);
@@ -153,7 +141,6 @@ export default function BatchFeeCollection({
     });
   });
 
-  // Form totals (what is being entered right now)
   const currentTotalPaid = selectedList.reduce((sum, s) => sum + Number(rows[s.id]?.amount || 0), 0);
   const currentTotalDiscount = selectedList.reduce((sum, s) => sum + Number(rows[s.id]?.discount || 0), 0);
 
@@ -208,7 +195,6 @@ export default function BatchFeeCollection({
 
     if (receipts.length > 0) {
       setReceiptsToPrint(receipts);
-      // Clear inputs and force a hard refresh of the bills and history
       const clearedRows = { ...rows };
       selectedList.forEach(s => {
         if (clearedRows[s.id]) {
@@ -224,12 +210,10 @@ export default function BatchFeeCollection({
     if (errors.length === 0 && onDone) onDone(receipts);
   }
 
-  // Format the combined history table
   const allTransactions = selectedList.flatMap(s => {
     const hist = histories[s.id] || [];
     return hist.map(t => ({ ...t, studentName: s.name }));
   }).sort((a, b) => {
-    // Sort by date (newest first)
     const dateA = a.paymentDate?.toDate?.() || new Date(a.createdAt?.toDate?.() || 0);
     const dateB = b.paymentDate?.toDate?.() || new Date(b.createdAt?.toDate?.() || 0);
     return dateB - dateA;
