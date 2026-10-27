@@ -190,9 +190,14 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    const totalCredit = amt + disc; // The total reduction to the bill
-    const newPaid = (bill.totalPaid || 0) + totalCredit; // We track the total credit here for the bill math
-    const newCarry = (bill.totalDue || 0) - newPaid;
+    // The total credit applied to the bill is the cash received + the discount given.
+    const totalCredit = amt + disc;
+    
+    // We strictly track CASH in the totalPaid field so UI shows real cash
+    const newPaid = (bill.totalPaid || 0) + amt;
+    
+    // Remaining balance is the original bill minus the total credit
+    const newCarry = (bill.totalDue || 0) - totalCredit;
 
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
@@ -200,7 +205,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
       discount: disc, lateFee: late, 
-      netAmount: amt, // We strictly store CASH here so Dashboard & UI show real cash
+      netAmount: amt, // Store strictly CASH here for dashboard
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
@@ -341,6 +346,7 @@ export async function getDashboardStats(session, month) {
     } catch (err) {}
   }
 
+  // Collection = actual cash received (totalPaid in bills only tracks cash now)
   let totalCollection = 0, monthCollection = 0, totalOutstandingDue = 0, totalAdvance = 0, studentsWithDue = 0, studentsFullyPaid = 0;
   bills.forEach((b) => {
     const paid = b.totalPaid || 0; const carry = b.carriedForward || 0;
@@ -350,15 +356,19 @@ export async function getDashboardStats(session, month) {
     else { studentsFullyPaid++; }
   });
 
-  let paymentMethodBreakdown = {}, todayCollection = 0, todayEntered = 0;
+  let paymentMethodBreakdown = {}, todayCollection = 0, todayEntered = 0, totalDiscount = 0;
   try {
     const txnSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
     const startOfDayMs = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
     
     txnSnap.docs.forEach((d) => {
-      const t = d.data(); const method = t.paymentMethod || "Other"; const amt = Number(t.netAmount || 0);
-      paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
+      const t = d.data(); const method = t.paymentMethod || "Other"; 
+      const amt = Number(t.netAmount || 0); // This is strictly cash
+      const disc = Number(t.discount || 0); // Track discount separately
       
+      paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
+      totalDiscount += disc; // Add to total discount
+
       let paidAt = t.paymentDate?.toDate?.() || new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
       if (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs) {
         todayCollection += amt;
@@ -371,7 +381,20 @@ export async function getDashboardStats(session, month) {
     });
   } catch (err) {}
 
-  return { paymentDateToday: todayCollection, enteredToday: todayEntered, monthCollection, totalCollection, totalOutstandingDue, totalAdvance, studentsWithDue, studentsFullyPaid, paymentMethodBreakdown, studentCount, month: actualMonth };
+  return { 
+    paymentDateToday: todayCollection, 
+    enteredToday: todayEntered, 
+    monthCollection, 
+    totalCollection, 
+    totalOutstandingDue, 
+    totalAdvance, 
+    totalDiscount, 
+    studentsWithDue, 
+    studentsFullyPaid, 
+    paymentMethodBreakdown, 
+    studentCount, 
+    month: actualMonth 
+  };
 }
 
 export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
@@ -397,21 +420,27 @@ export async function getPaymentHistory(studentId) {
 export async function getStudentPaymentSummary(studentId, session, month) {
   try {
     const snap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
-    let sessionTotal = 0, lastPayment = null, monthTotal = 0;
+    let sessionTotal = 0, lastPayment = null, monthTotal = 0, totalDiscount = 0;
     snap.docs.forEach((d) => {
       const t = d.data();
       if (session && t.session !== session) return;
       if (t.voided === true) return;
       if (t.componentType && t.componentType !== "monthly" && t.componentType !== "refund") return; 
+      
       const amt = Number(t.netAmount || 0);
+      const disc = Number(t.discount || 0);
+      
       sessionTotal += amt;
+      totalDiscount += disc;
+      
       if (month && t.month === month) monthTotal += amt;
+      
       const paidAt = t.paymentDate?.toDate?.() || new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
       const ts = paidAt.getTime();
       if (!lastPayment || ts > lastPayment.ts) lastPayment = { ts, amount: amt, date: paidAt };
     });
-    return { sessionTotal, monthTotal, lastPayment: lastPayment ? { amount: lastPayment.amount, date: lastPayment.date } : null };
-  } catch (err) { return { sessionTotal: 0, monthTotal: 0, lastPayment: null }; }
+    return { sessionTotal, monthTotal, totalDiscount, lastPayment: lastPayment ? { amount: lastPayment.amount, date: lastPayment.date } : null };
+  } catch (err) { return { sessionTotal: 0, monthTotal: 0, totalDiscount: 0, lastPayment: null }; }
 }
 
 export async function getSessionPaidTotal(studentId, session) { return (await getStudentPaymentSummary(studentId, session)).sessionTotal; }
@@ -536,8 +565,11 @@ export async function deleteTransaction(transactionId, reason = "") {
     const billSnap = await getDoc(billRef);
     if (billSnap.exists()) {
       const bill = billSnap.data(); const amt = Number(txn.netAmount || 0);
+      const disc = Number(txn.discount || 0);
+      
       if (!txn.componentType || txn.componentType === "monthly" || txn.componentType === "refund") {
-        const newPaid = Math.max((bill.totalPaid || 0) - amt, 0); const newCarry = (bill.totalDue || 0) - newPaid;
+        const newPaid = Math.max((bill.totalPaid || 0) - amt, 0); 
+        const newCarry = (bill.totalDue || 0) - newPaid + disc; // Re-add discount to carry
         await updateDoc(billRef, { totalPaid: newPaid, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL" });
       } else {
         const field = { books: "booksBilled", kit: "kitFeeBilled", previousYear: "previousYearBilled", transport: "transportBilled" }[txn.componentType];
