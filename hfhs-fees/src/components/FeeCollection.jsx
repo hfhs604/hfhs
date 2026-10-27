@@ -80,7 +80,9 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       } else {
         setBill(null);
       }
-      setHistory(hist || []);
+      
+      // Ensure the history array is an exact snapshot, sorting oldest first for ledger calculation
+      setHistory((hist || []).reverse());
     } catch (e) {
       setError(e.message);
     } finally {
@@ -128,9 +130,15 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     setTimeout(() => setFlash(""), 1500);
   }
 
-  // FIXED DATE FORMATTING TO PREVENT ERRORS
-  function formatDate(dateObj) {
+  // Correctly prioritize `paymentDate` for the table
+  function formatDate(t) {
+    let dateObj = t.paymentDate;
+    
+    // If paymentDate is missing, fall back to createdAt
+    if (!dateObj) dateObj = t.createdAt;
+
     if (!dateObj) return "—";
+
     try {
       let d = null;
       if (typeof dateObj === "object" && dateObj.seconds) {
@@ -145,6 +153,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     } catch { return "—"; }
   }
 
+  // --- EXACT MATH ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
@@ -170,6 +179,22 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
+
+  // --- RUNNING LEDGER CALCULATION ---
+  let runningBalance = totalBilled;
+  const calculatedHistory = history.map((t) => {
+    const amt = Number(t.amountReceived || t.netAmount || 0);
+    const disc = Number(t.discount || 0);
+    
+    if (!t.componentType || t.componentType === "monthly") {
+      runningBalance -= (amt + disc);
+    }
+
+    return {
+      ...t,
+      runningBalance: Math.max(runningBalance, 0),
+    };
+  }).reverse(); // Back to newest first
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -219,7 +244,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   }
 
   async function handleDeleteTransaction(txn) {
-    const ok = window.confirm(`Are you sure you want to DELETE this transaction?\n\nAmount: ₹${txn.amountReceived || txn.netAmount || 0}\nDate: ${formatDate(txn.createdAt)}\n\nThis cannot be undone.`);
+    const ok = window.confirm(`Are you sure you want to DELETE this transaction?\n\nAmount: ₹${txn.amountReceived || txn.netAmount || 0}\nDate: ${formatDate(txn)}\n\nThis cannot be undone.`);
     if (!ok) return;
 
     setDeletingId(txn.id);
@@ -235,7 +260,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     }
   }
 
-  // Strictly read historical DB receipt to match data exactly
   async function handleViewReceipt(txn) {
     if (!txn.receiptRef) {
       alert("No receipt found for this transaction.");
@@ -459,7 +483,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
           <div style={{ marginTop: 40, borderTop: "1px solid #e2e8f0", paddingTop: 20 }}>
             <h3>Student Transaction History</h3>
-            {history.length === 0 ? (
+            {calculatedHistory.length === 0 ? (
               <p className="fm-empty-state">No transactions recorded yet for this student.</p>
             ) : (
               <div className="fm-table-scroll">
@@ -477,15 +501,15 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                     </tr>
                   </thead>
                   <tbody>
-                    {history.map((t, idx) => (
+                    {calculatedHistory.map((t, idx) => (
                       <tr key={t.id || idx}>
-                        <td>{formatDate(t.createdAt || t.paymentDate)}</td>
+                        <td>{formatDate(t)}</td>
                         <td>{t.receiptNumber || "—"}</td>
                         <td>{t.feeType || "Tuition Fee"}</td>
                         <td style={{ fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
                         <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
-                        <td className={t.remainingDue > 0 ? "fm-due-cell" : ""}>
-                          ₹{t.remainingDue || 0}
+                        <td className={t.runningBalance > 0 ? "fm-due-cell" : ""} style={{ fontWeight: 600 }}>
+                          ₹{t.runningBalance}
                         </td>
                         <td>{t.paymentMethod || "Cash"}</td>
                         <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
