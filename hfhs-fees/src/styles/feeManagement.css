@@ -152,7 +152,7 @@ body {
   flex: 1;
 }
 .fm-content-inner {
-  max-width: 1200px; /* CONSTRAINED WIDTH TO PREVENT ABNORMAL STRETCHING */
+  max-width: 100%; /* Removed the restriction so it fills the page */
   margin: 0 auto;
   width: 100%;
 }
@@ -174,24 +174,13 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   Dashboard Layout (Fixed Grid)
+   Dashboard Layout (EXACTLY 4 CARDS PER ROW)
    --------------------------------------------------------------------------- */
 .fm-dashboard-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr); /* Forces exactly 3 columns */
+  grid-template-columns: repeat(4, 1fr); /* Forces 4 cards per row */
   gap: 16px;
   margin-bottom: 24px;
-}
-
-@media (max-width: 900px) {
-  .fm-dashboard-grid {
-    grid-template-columns: repeat(2, 1fr);
-  }
-}
-@media (max-width: 600px) {
-  .fm-dashboard-grid {
-    grid-template-columns: 1fr;
-  }
 }
 
 .fm-stat-card {
@@ -222,15 +211,26 @@ body {
 .fm-stat-card.fm-advance .fm-stat-value { color: #059669; }
 .fm-stat-card.fm-discount .fm-stat-value { color: #059669; }
 
+/* ---------------------------------------------------------------------------
+   Charts (EXACTLY 3 CHARTS PER ROW)
+   --------------------------------------------------------------------------- */
 .fm-chart-grid {
   display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 20px;
+  grid-template-columns: repeat(3, 1fr); /* Forces all 3 charts in one line */
+  gap: 16px;
+}
+
+/* Responsive fallbacks for small screens */
+@media (max-width: 1200px) {
+  .fm-dashboard-grid { grid-template-columns: repeat(3, 1fr); }
+  .fm-chart-grid { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 900px) {
-  .fm-chart-grid {
-    grid-template-columns: 1fr;
-  }
+  .fm-dashboard-grid { grid-template-columns: repeat(2, 1fr); }
+  .fm-chart-grid { grid-template-columns: 1fr; }
+}
+@media (max-width: 600px) {
+  .fm-dashboard-grid { grid-template-columns: 1fr; }
 }
 
 /* ---------------------------------------------------------------------------
