@@ -190,17 +190,19 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    const totalCredit = amt + disc; // Reduces the balance
-    const newPaid = (bill.totalPaid || 0) + amt; // Only tracks cash
+    const totalCredit = amt + disc;
+    const newPaid = (bill.totalPaid || 0) + amt;
     const newCarry = (bill.totalDue || 0) - totalCredit;
 
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
 
+    // SAVE THE REMAINING DUE SNAPSHOT TO THE TRANSACTION
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
       discount: disc, lateFee: late, 
-      netAmount: amt, // Store strictly CASH here
+      netAmount: amt,
+      remainingDue: Math.max(newCarry, 0), // Save exact balance after this txn
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
@@ -258,6 +260,7 @@ export async function addLineItem({ studentId, session, month, amount, field, co
 
     tx.set(txnRef, {
       studentId, session, month, componentType, amountReceived: 0, netAmount: 0, addOnAmount: amt,
+      remainingDue: Math.max(newDue - (bill.totalPaid || 0), 0), // Save snapshot
       paymentDate: Timestamp.fromDate(new Date(paymentDate)), paymentMethod, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
       createdAt: serverTimestamp(), voided: false,
