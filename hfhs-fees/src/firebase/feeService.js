@@ -200,7 +200,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
       discount: disc, lateFee: late, 
-      netAmount: amt, // Strictly cash
+      netAmount: amt,
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
@@ -325,7 +325,7 @@ export async function getStudentsWithDue({ session, month, className } = {}) {
 }
 
 // ---------------------------------------------------------------------------
-// Dashboard Stats (FIXED CASH VS BANK)
+// Dashboard Stats
 // ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
@@ -374,7 +374,6 @@ export async function getDashboardStats(session, month) {
       
       if (isToday) {
         todayCollection += amt;
-        // CASH vs BANK LOGIC
         if (method === "Cash") {
           todayCash += amt;
         } else {
@@ -400,20 +399,7 @@ export async function getDashboardStats(session, month) {
   } catch(e) {}
 
   return { 
-    paymentDateToday: todayCollection, 
-    enteredToday: todayEntered, 
-    todayCash,     // Pass the split cash value
-    todayBank,     // Pass the split bank value
-    monthCollection: totalCollection, 
-    totalCollection: trueTotalCollection, 
-    totalOutstandingDue, 
-    totalAdvance, 
-    totalDiscount, 
-    studentsWithDue, 
-    studentsFullyPaid, 
-    paymentMethodBreakdown, 
-    studentCount, 
-    month: actualMonth 
+    paymentDateToday: todayCollection, enteredToday: todayEntered, todayCash, todayBank, monthCollection: totalCollection, totalCollection: trueTotalCollection, totalOutstandingDue, totalAdvance, totalDiscount, studentsWithDue, studentsFullyPaid, paymentMethodBreakdown, studentCount, month: actualMonth 
   };
 }
 
