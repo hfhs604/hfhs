@@ -80,7 +80,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       } else {
         setBill(null);
       }
-      setHistory((hist || []).reverse()); // Oldest first for running calculation
+      setHistory((hist || []).reverse()); // Oldest first
     } catch (e) {
       setError(e.message);
     } finally {
