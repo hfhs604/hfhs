@@ -197,11 +197,12 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
 
+    // Save exact state snapshot
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
       discount: disc, lateFee: late, netAmount: amt,
-      previousDue: bill.previousDue || 0, // Save exact historical bill state
-      totalDue: bill.totalDue || 0,       // Save exact historical bill state
+      previousDue: bill.previousDue || 0, 
+      totalDue: bill.totalDue || 0,       
       remainingDue: Math.max(newCarry, 0),
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
