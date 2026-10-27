@@ -29,7 +29,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   
   const [userRole, setUserRole] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
-  const [loadingReceipt, setLoadingReceipt] = useState(false);
 
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonMsg, setAddonMsg] = useState("");
@@ -228,23 +227,24 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     }
   }
 
+  // Fetch the EXACT receipt from the DB to match historical data
   async function handleViewReceipt(txn) {
     if (!txn.receiptRef) {
       alert("No receipt found for this transaction.");
       return;
     }
     
-    setLoadingReceipt(true);
     try {
       const snap = await getDoc(doc(db, "receipts", txn.receiptRef));
       if (snap.exists()) {
         const receiptData = { ...snap.data(), id: snap.id };
         
-        // Build particulars safely from the saved receipt snapshot
+        // Build the rows strictly based on what was saved
         const particulars = [];
         if (receiptData.previousDue > 0) particulars.push({ label: "Previous Due", amount: receiptData.previousDue });
         if (receiptData.feeType) particulars.push({ label: receiptData.feeType, amount: receiptData.amountReceived || 0 });
 
+        // The total billed is exactly previous due + this payment + discount
         const totalAmt = Number(receiptData.amountReceived || 0) + Number(receiptData.discount || 0) + Number(receiptData.previousDue || 0) + Number(receiptData.lateFee || 0);
 
         setReceiptPopup({
@@ -259,8 +259,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     } catch (err) {
       console.error("Failed to load receipt:", err);
       alert(`Failed to load receipt: ${err.message}`);
-    } finally {
-      setLoadingReceipt(false);
     }
   }
 
