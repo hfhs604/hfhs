@@ -170,6 +170,9 @@ export async function listBillsForMonth(session, month) {
   } catch (err) { throw new Error("Index required."); }
 }
 
+// ---------------------------------------------------------------------------
+// Payment Collection
+// ---------------------------------------------------------------------------
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
   const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
@@ -187,8 +190,9 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
+    const totalCredit = amt + disc;
     const newPaid = (bill.totalPaid || 0) + amt;
-    const newCarry = (bill.totalDue || 0) - newPaid - disc;
+    const newCarry = (bill.totalDue || 0) - totalCredit;
 
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
@@ -205,7 +209,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 
     tx.update(billRef, { totalPaid: newPaid, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL", lastPaymentAt: serverTimestamp() });
     tx.set(idemRef, { receiptId: receiptRef.id, createdAt: serverTimestamp() });
-    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid };
+    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid, totalCredit };
   });
 
   if (result.alreadyProcessed) {
@@ -231,7 +235,9 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
   return { receiptId: result.receiptRef.id, receipt: receiptData, duplicateBlocked: false };
 }
 
-// FIXED: Add-ons DO NOT count as cash
+// ---------------------------------------------------------------------------
+// Add-on fees
+// ---------------------------------------------------------------------------
 export async function addLineItem({ studentId, session, month, amount, field, componentType, feeType, remarks, paymentMethod = "Cash", paymentDate, idempotencyKey }) {
   const user = currentUser();
   const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
@@ -251,9 +257,7 @@ export async function addLineItem({ studentId, session, month, amount, field, co
     const receiptRef = doc(collection(db, COL.receipts));
 
     tx.set(txnRef, {
-      studentId, session, month, componentType, 
-      amountReceived: 0, netAmount: 0, // ZERO CASH RECEIVED
-      addOnAmount: amt,
+      studentId, session, month, componentType, amountReceived: 0, netAmount: 0, addOnAmount: amt,
       paymentDate: Timestamp.fromDate(new Date(paymentDate)), paymentMethod, feeType, remarks,
       collectedBy: user.uid, collectedByEmail: user.email || null, receiptRef: receiptRef.id,
       createdAt: serverTimestamp(), voided: false,
@@ -272,8 +276,7 @@ export async function addLineItem({ studentId, session, month, amount, field, co
   const receiptData = {
     receiptNumber, studentId, studentName: student.name, admissionNumber: student.admissionNumber,
     className: student.className, guardianName: student.guardianName || student.fatherName,
-    session, month, feeType, amountReceived: 0, discount: 0,
-    addOnAmount: result.amt,
+    session, month, feeType, amountReceived: 0, discount: 0, addOnAmount: result.amt,
     remainingDue: Math.max((result.bill.totalDue + result.amt) - result.newPaid, 0),
     paymentMethod, paymentDate, createdAt: serverTimestamp(), componentType,
   };
@@ -321,6 +324,9 @@ export async function getStudentsWithDue({ session, month, className } = {}) {
   if (!className) return bills; return bills.filter((b) => b.className === className);
 }
 
+// ---------------------------------------------------------------------------
+// Dashboard Stats (FIXED CASH VS BANK)
+// ---------------------------------------------------------------------------
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
   let studentCount = 0, bills = [], actualMonth = targetMonth;
@@ -348,20 +354,38 @@ export async function getDashboardStats(session, month) {
   });
 
   let paymentMethodBreakdown = {}, todayCollection = 0, todayEntered = 0, totalDiscount = 0;
+  let todayCash = 0, todayBank = 0;
+
   try {
     const txnSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
     const startOfDayMs = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
     
     txnSnap.docs.forEach((d) => {
-      const t = d.data(); const method = t.paymentMethod || "Other"; const amt = Number(t.netAmount || 0); const disc = Number(t.discount || 0);
+      const t = d.data(); 
+      const method = t.paymentMethod || "Other"; 
+      const amt = Number(t.netAmount || 0); 
+      const disc = Number(t.discount || 0);
+      
       paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
       totalDiscount += disc;
 
       let paidAt = t.paymentDate?.toDate?.() || new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
-      if (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs) todayCollection += amt;
+      let isToday = (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs);
+      
+      if (isToday) {
+        todayCollection += amt;
+        // CASH vs BANK LOGIC
+        if (method === "Cash") {
+          todayCash += amt;
+        } else {
+          todayBank += amt;
+        }
+      }
 
       let enteredAt = t.createdAt?.toDate?.() || new Date(0);
-      if (enteredAt && !isNaN(enteredAt.getTime()) && enteredAt.getTime() >= startOfDayMs) todayEntered += amt;
+      if (enteredAt && !isNaN(enteredAt.getTime()) && enteredAt.getTime() >= startOfDayMs) {
+        todayEntered += amt;
+      }
     });
   } catch (err) {}
 
@@ -376,7 +400,20 @@ export async function getDashboardStats(session, month) {
   } catch(e) {}
 
   return { 
-    paymentDateToday: todayCollection, enteredToday: todayEntered, monthCollection: totalCollection, totalCollection: trueTotalCollection, totalOutstandingDue, totalAdvance, totalDiscount, studentsWithDue, studentsFullyPaid, paymentMethodBreakdown, studentCount, month: actualMonth 
+    paymentDateToday: todayCollection, 
+    enteredToday: todayEntered, 
+    todayCash,     // Pass the split cash value
+    todayBank,     // Pass the split bank value
+    monthCollection: totalCollection, 
+    totalCollection: trueTotalCollection, 
+    totalOutstandingDue, 
+    totalAdvance, 
+    totalDiscount, 
+    studentsWithDue, 
+    studentsFullyPaid, 
+    paymentMethodBreakdown, 
+    studentCount, 
+    month: actualMonth 
   };
 }
 
