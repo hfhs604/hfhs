@@ -4,16 +4,17 @@ export default function ReceiptCard({ receipt, school }) {
   const {
     receiptNumber, paymentDate, session, studentName, admissionNumber,
     className, section, guardianName, feeType, amountReceived, discount,
-    lateFee, remainingDue, paymentMethod, referenceNumber,
+    lateFee, paymentMethod, referenceNumber,
     particulars: passedParticulars,
-    totalDue,
+    totalDue,       // The exact Gross Total saved in DB
+    remainingDue,   // The exact Balance saved in DB
   } = receipt;
 
   const disc = Number(discount || 0);
   const late = Number(lateFee || 0);
   const thisAmount = Number(amountReceived || 0);
 
-  // Format the paymentDate to include both Date and Time
+  // Format the paymentDate
   let formattedDate = "—";
   if (paymentDate) {
     let dateObj = null;
@@ -41,8 +42,8 @@ export default function ReceiptCard({ receipt, school }) {
     rows.push({ label: "Late Fee", amount: late });
   }
 
-  // If the receipt has a saved grossTotal, use it. Otherwise, fallback to summing the rows.
-  const grossTotal = Number(totalDue || 0) || rows.reduce((sum, item) => sum + Number(item.amount || 0), 0);
+  // STRICTLY TRUST THE DATABASE VALUES
+  const grossTotal = Number(totalDue || 0);
   const netBill = grossTotal - disc;
   const finalBalance = Number(remainingDue || 0);
 
