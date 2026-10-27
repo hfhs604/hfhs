@@ -933,3 +933,36 @@ body {
   .fm-app, .fm-main-wrapper, .fm-main { overflow: visible !important; height: auto !important; padding: 0 !important; margin: 0 !important; }
   .fm-content-inner { max-width: 100% !important; }
 }
+/* ---------------------------------------------------------------------------
+   KPI Colored Pills
+   --------------------------------------------------------------------------- */
+.kpi-pill {
+  display: inline-block;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 18px;
+  font-weight: 800;
+  letter-spacing: 0.5px;
+  margin-top: 4px;
+}
+
+/* Blue for standard collections */
+.kpi-blue {
+  background-color: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+}
+
+/* Green for income/discounts/advances */
+.kpi-green {
+  background-color: #f0fdf4;
+  color: #15803d;
+  border: 1px solid #bbf7d0;
+}
+
+/* Red for outstanding dues */
+.kpi-red {
+  background-color: #fef2f2;
+  color: #b91c1c;
+  border: 1px solid #fecaca;
+}
