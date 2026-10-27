@@ -18,7 +18,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const [results, setResults] = useState([]);
   const [selectedStudent, setSelectedStudent] = useState(null);
   const [bill, setBill] = useState(null);
-  const [summaryData, setSummaryData] = useState({ sessionTotal: 0, lastPayment: null, totalDiscount: 0 });
   const [history, setHistory] = useState([]);
   
   const [loadingBill, setLoadingBill] = useState(false);
@@ -71,9 +70,8 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
       const billRef = doc(db, "monthlyBills", `${session}_${month}_${safeId}`);
       
-      const [billSnap, summary, hist] = await Promise.all([
+      const [billSnap, hist] = await Promise.all([
         getDoc(billRef),
-        getStudentPaymentSummary(studentId, session, month),
         getPaymentHistory(studentId),
       ]);
 
@@ -82,7 +80,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       } else {
         setBill(null);
       }
-      setSummaryData(summary);
       setHistory(hist || []);
     } catch (e) {
       setError(e.message);
@@ -139,7 +136,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     } catch { return "—"; }
   }
 
-  // --- EXACT MATH ---
+  // --- EXACT MATH FROM HISTORY ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
@@ -149,17 +146,22 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const kit = bill ? (bill.kitFeeBilled || 0) : 0;
 
   const totalBilled = previousDue + tuition + transport + devFee + books + prevYear + kit;
-  const dbCarryForward = bill ? (bill.carriedForward || 0) : 0;
   
-  const effectivePaid = Math.max(totalBilled - dbCarryForward, 0);
+  let totalCashPaid = 0;
+  let totalDiscountGiven = 0;
+  history.forEach(t => {
+    if (t.session === session && t.voided !== true && (!t.componentType || t.componentType === "monthly")) {
+      totalCashPaid += Number(t.amountReceived || t.netAmount || 0);
+      totalDiscountGiven += Number(t.discount || 0);
+    }
+  });
 
   const enteredDiscount = Number(form.discount || 0);
   const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
 
-  const netBill = totalBilled - enteredDiscount + enteredLateFee;
-  const finalBalance = Math.max(netBill - effectivePaid - amountAdd, 0);
-  const liveSessionPaid = summaryData.sessionTotal + amountAdd;
+  const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
+  const liveSessionPaid = totalCashPaid + amountAdd;
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -192,7 +194,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       const enrichedReceipt = {
         ...receipt,
         particulars: actualParticulars,
-        totalDue: netBill,
+        totalDue: totalBilled,
         remainingDue: finalBalance,
       };
 
@@ -328,20 +330,15 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Paid (This Month)</span>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{effectivePaid}</div>
-                    {summaryData.lastPayment && (
-                      <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
-                        Last: {formatDate(summaryData.lastPayment.date)} (₹{summaryData.lastPayment.amount})
-                      </div>
-                    )}
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{totalCashPaid}</div>
                   </div>
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Discount Given</span>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>₹{enteredDiscount}</div>
-                    {summaryData.totalDiscount > 0 && (
+                    {totalDiscountGiven > 0 && (
                       <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
-                        (Past discounts applied)
+                        (Past discounts: ₹{totalDiscountGiven})
                       </div>
                     )}
                   </div>
@@ -419,7 +416,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
             </div>
           )}
 
-          {/* --- TRANSACTION HISTORY TABLE --- */}
           <div style={{ marginTop: 40, borderTop: "1px solid #e2e8f0", paddingTop: 20 }}>
             <h3>Student Transaction History</h3>
             {history.length === 0 ? (
@@ -448,15 +444,12 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                         <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
                         <td>{t.paymentMethod || "Cash"}</td>
                         <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                          
                           <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptPopup(t)}>
                             👁️
                           </button>
-                          
                           <button type="button" title="Print Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptPopup(t)}>
                             🖨️
                           </button>
-
                           {(userRole === "superAdmin" || userRole === "admin") && (
                             <button type="button" title="Delete Transaction" className="fm-icon-btn fm-danger-link" onClick={() => handleDeleteTransaction(t)} disabled={deletingId === t.id}>
                               {deletingId === t.id ? "⏳" : "🗑️"}
