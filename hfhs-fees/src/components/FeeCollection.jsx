@@ -128,15 +128,23 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     setTimeout(() => setFlash(""), 1500);
   }
 
+  // FIXED DATE FORMATTING TO PREVENT ERRORS
   function formatDate(dateObj) {
     if (!dateObj) return "—";
     try {
-      const d = dateObj.toDate ? dateObj.toDate() : new Date(dateObj);
+      let d = null;
+      if (typeof dateObj === "object" && dateObj.seconds) {
+        d = new Date(dateObj.seconds * 1000);
+      } else if (dateObj.toDate) {
+        d = dateObj.toDate();
+      } else {
+        d = new Date(dateObj);
+      }
+      if (isNaN(d.getTime())) return "—";
       return d.toLocaleDateString("en-GB", { day: '2-digit', month: 'short', year: 'numeric' });
     } catch { return "—"; }
   }
 
-  // --- EXACT MATH FROM HISTORY ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
@@ -227,7 +235,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     }
   }
 
-  // Fetch the EXACT receipt from the DB to match historical data
+  // Strictly read historical DB receipt to match data exactly
   async function handleViewReceipt(txn) {
     if (!txn.receiptRef) {
       alert("No receipt found for this transaction.");
@@ -239,12 +247,10 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       if (snap.exists()) {
         const receiptData = { ...snap.data(), id: snap.id };
         
-        // Build the rows strictly based on what was saved
         const particulars = [];
         if (receiptData.previousDue > 0) particulars.push({ label: "Previous Due", amount: receiptData.previousDue });
         if (receiptData.feeType) particulars.push({ label: receiptData.feeType, amount: receiptData.amountReceived || 0 });
 
-        // The total billed is exactly previous due + this payment + discount
         const totalAmt = Number(receiptData.amountReceived || 0) + Number(receiptData.discount || 0) + Number(receiptData.previousDue || 0) + Number(receiptData.lateFee || 0);
 
         setReceiptPopup({
@@ -463,8 +469,9 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                       <th>Date</th>
                       <th>Receipt#</th>
                       <th>Fee Type</th>
-                      <th>Amount</th>
+                      <th>Amount Received</th>
                       <th>Discount</th>
+                      <th>Outstanding Due</th>
                       <th>Method</th>
                       <th style={{ textAlign: "center" }}>Actions</th>
                     </tr>
@@ -477,6 +484,9 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                         <td>{t.feeType || "Tuition Fee"}</td>
                         <td style={{ fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
                         <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
+                        <td className={t.remainingDue > 0 ? "fm-due-cell" : ""}>
+                          ₹{t.remainingDue || 0}
+                        </td>
                         <td>{t.paymentMethod || "Cash"}</td>
                         <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
                           <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
