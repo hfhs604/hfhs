@@ -29,6 +29,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   
   const [userRole, setUserRole] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [loadingReceipt, setLoadingReceipt] = useState(false);
 
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonMsg, setAddonMsg] = useState("");
@@ -224,6 +225,42 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       setError(`❌ Failed to delete: ${err.message}`);
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleViewReceipt(txn) {
+    if (!txn.receiptRef) {
+      alert("No receipt found for this transaction.");
+      return;
+    }
+    
+    setLoadingReceipt(true);
+    try {
+      const snap = await getDoc(doc(db, "receipts", txn.receiptRef));
+      if (snap.exists()) {
+        const receiptData = { ...snap.data(), id: snap.id };
+        
+        // Build particulars safely from the saved receipt snapshot
+        const particulars = [];
+        if (receiptData.previousDue > 0) particulars.push({ label: "Previous Due", amount: receiptData.previousDue });
+        if (receiptData.feeType) particulars.push({ label: receiptData.feeType, amount: receiptData.amountReceived || 0 });
+
+        const totalAmt = Number(receiptData.amountReceived || 0) + Number(receiptData.discount || 0) + Number(receiptData.previousDue || 0) + Number(receiptData.lateFee || 0);
+
+        setReceiptPopup({
+          ...receiptData,
+          particulars: particulars,
+          totalDue: totalAmt,
+          remainingDue: receiptData.remainingDue || 0,
+        });
+      } else {
+        alert("Receipt document not found in the database.");
+      }
+    } catch (err) {
+      console.error("Failed to load receipt:", err);
+      alert(`Failed to load receipt: ${err.message}`);
+    } finally {
+      setLoadingReceipt(false);
     }
   }
 
@@ -444,10 +481,10 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                         <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
                         <td>{t.paymentMethod || "Cash"}</td>
                         <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                          <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptPopup(t)}>
+                          <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
                             👁️
                           </button>
-                          <button type="button" title="Print Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setReceiptPopup(t)}>
+                          <button type="button" title="Print Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
                             🖨️
                           </button>
                           {(userRole === "superAdmin" || userRole === "admin") && (
