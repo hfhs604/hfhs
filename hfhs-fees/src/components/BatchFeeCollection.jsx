@@ -113,8 +113,8 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   // Helper to calculate the outstanding from the history
   const calculateOutstandingFromHistory = (student) => {
-    // Hardcoded base fee + transport + dev fee (if applicable)
-    const baseFee = s.className === "IV" ? 1100 : s.className === "VI" ? 1200 : 0;
+    // FIXED: Changed 's.className' to 'student.className'
+    const baseFee = student.className === "IV" ? 1100 : student.className === "VI" ? 1200 : 0;
     const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
     const monthlyTotal = baseFee + transport;
 
