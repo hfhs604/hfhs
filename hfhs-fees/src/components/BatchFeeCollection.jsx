@@ -1,12 +1,20 @@
 import React, { useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
-import { collectPayment, getMonthlyBill, getPaymentHistory } from "../firebase/feeService";
+import { collectPayment, getPaymentHistory } from "../firebase/feeService";
 import { getAllStudents } from "../firebase/reportsService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
+
+// Hardcoded base fees for calculation if the DB bill is missing/corrupt
+const BASE_FEES = {
+  "Pre-LKG": 800, "LKG": 800, "NUR": 800, "UKG": 900, "I": 900,
+  "II": 1000, "III": 1000, "IV": 1100, "V": 1100, "VI": 1200, "VII": 1200,
+  "VIII": 1300, "IX": 1400, "X": 1500,
+};
+const DEV_FEE = 3150;
 
 export default function BatchFeeCollection({ session, month, preselectedIds = [], onDone }) {
   const [allStudents, setAllStudents] = useState([]);
@@ -52,37 +60,25 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       let newHistories = { ...histories };
 
       for (const id of selectedIds) {
-        const existing = rows[id];
-        
-        if (!existing || existing.bill === undefined) {
+        if (!histories[id]) {
           newRows[id] = {
-            ...existing,
-            amount: existing?.amount ?? "",
-            discount: existing?.discount ?? 0,
-            method: existing?.method ?? sharedMethod,
-            ref: existing?.ref ?? "",
-            bill: undefined,
+            ...newRows[id],
+            amount: newRows[id]?.amount ?? "",
+            discount: newRows[id]?.discount ?? 0,
+            method: newRows[id]?.method ?? sharedMethod,
+            ref: newRows[id]?.ref ?? "",
             loadingBill: true,
           };
 
           try {
-            const [bill, hist] = await Promise.all([
-              getMonthlyBill(session, month, id),
-              getPaymentHistory(id)
-            ]);
+            const hist = await getPaymentHistory(id);
             if (!active) return;
-
-            newRows[id] = {
-              ...newRows[id],
-              bill,
-              loadingBill: false,
-              amount: newRows[id].amount !== "" ? newRows[id].amount : (bill?.carriedForward ? String(bill.carriedForward) : ""),
-            };
-            newHistories[id] = hist || [];
             
+            newHistories[id] = hist || [];
+            newRows[id].loadingBill = false;
           } catch (err) {
             if (!active) return;
-            newRows[id] = { ...newRows[id], bill: null, loadingBill: false };
+            newRows[id].loadingBill = false;
           }
         }
       }
@@ -106,7 +102,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
   }
 
   function updateRow(id, field, value) {
-    setRows((prev) => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+    setRows((prev) => ({ ...prev, [id]: { ...prev[id], [field]: String(value) } }));
   }
 
   const filteredStudents = allStudents.filter((s) => {
@@ -123,15 +119,43 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   const selectedList = allStudents.filter((s) => selectedIds.has(s.id));
 
+  // Helper to calculate the outstanding from the history
+  const calculateOutstandingFromHistory = (student) => {
+    const baseFee = BASE_FEES[student.className] || 0;
+    const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
+    const monthlyTotal = baseFee + transport;
+
+    const currentMonth = new Date().getMonth() + 1;
+    const monthsBilled = currentMonth >= 4 ? (currentMonth - 4 + 1) : 0; 
+
+    const totalExpectedBill = (monthlyTotal * monthsBilled) + DEV_FEE;
+    
+    const hist = histories[student.id] || [];
+    let totalCash = 0;
+    let totalDiscount = 0;
+    let addOns = 0;
+
+    hist.forEach(t => {
+      if (t.session === session && t.voided !== true) {
+        if (t.componentType === "monthly" || !t.componentType) {
+          totalCash += Number(t.amountReceived || t.netAmount || 0);
+          totalDiscount += Number(t.discount || 0);
+        } else if (["books", "kit", "previousYear", "transport"].includes(t.componentType)) {
+          addOns += Number(t.addOnAmount || 0);
+        }
+      }
+    });
+
+    // We also need to account for the base transport fee if it's in the monthly bill
+    return totalExpectedBill + addOns - totalCash - totalDiscount;
+  };
+
   // --- LIVE MATH FOR KPI CARDS ---
   let calculatedPaid = 0;
   let calculatedDiscount = 0;
   let calculatedOutstanding = 0;
 
   selectedList.forEach((s) => {
-    const r = rows[s.id] || {};
-    if (r.bill) calculatedOutstanding += r.bill.carriedForward || 0;
-
     const hist = histories[s.id] || [];
     hist.forEach(t => {
       if (t.session === session && t.voided !== true && (!t.componentType || t.componentType === "monthly")) {
@@ -139,16 +163,18 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         calculatedDiscount += Number(t.discount || 0);
       }
     });
+
+    calculatedOutstanding += calculateOutstandingFromHistory(s);
   });
 
-  const currentTotalPaid = selectedList.reduce((sum, s) => sum + Number(rows[s.id]?.amount || 0), 0);
-  const currentTotalDiscount = selectedList.reduce((sum, s) => sum + Number(rows[s.id]?.discount || 0), 0);
+  const currentTotalPaid = selectedList.reduce((sum, s) => sum + (parseFloat(rows[s.id]?.amount) || 0), 0);
+  const currentTotalDiscount = selectedList.reduce((sum, s) => sum + (parseFloat(rows[s.id]?.discount) || 0), 0);
 
   async function handleSubmit() {
     if (submitting || selectedList.length === 0) return;
 
     for (const s of selectedList) {
-      const amt = Number(rows[s.id]?.amount || 0);
+      const amt = parseFloat(rows[s.id]?.amount) || 0;
       if (amt <= 0) {
         alert(`Enter an amount greater than 0 for ${s.name}.`);
         return;
@@ -174,8 +200,8 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           session,
           month,
           idempotencyKey: uuidv4(),
-          amountReceived: Number(r.amount || 0),
-          discount: Number(r.discount || 0),
+          amountReceived: parseFloat(r.amount) || 0,
+          discount: parseFloat(r.discount) || 0,
           paymentDate,
           paymentMethod: r.method || sharedMethod,
           referenceNumber: r.ref || "",
@@ -200,10 +226,10 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         if (clearedRows[s.id]) {
           clearedRows[s.id].amount = "";
           clearedRows[s.id].discount = 0;
-          clearedRows[s.id].bill = undefined; 
         }
       });
       setRows(clearedRows);
+      setHistories({}); 
       setSelectedIds(new Set(selectedIds)); 
     }
 
@@ -246,7 +272,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
       {searchError && <p className="fm-error">{searchError}</p>}
 
-      {/* Search Bar */}
       <div className="fm-search-row">
         <input
           type="text"
@@ -257,7 +282,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         <button type="button" className="fm-secondary-btn" onClick={() => setSearch("")}>Clear</button>
       </div>
 
-      {/* Student List */}
       {loadingStudents ? (
         <p className="fm-empty-state">Loading students…</p>
       ) : filteredStudents.length === 0 ? (
@@ -301,7 +325,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         </div>
       )}
 
-      {/* Payment Form */}
       {selectedList.length > 0 && (
         <>
           <h3 style={{ marginTop: 32, marginBottom: 16 }}>Selected students ({selectedList.length})</h3>
@@ -328,11 +351,13 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
               <tbody>
                 {selectedList.map((s) => {
                   const r = rows[s.id] || {};
-                  const outstanding = r.bill?.carriedForward || 0;
+                  const outstanding = calculateOutstandingFromHistory(s);
                   return (
                     <tr key={s.id}>
                       <td style={{ fontWeight: 500 }}>{s.name}</td>
-                      <td>{r.loadingBill ? "Loading…" : r.bill === null ? <span className="fm-due-cell">No bill</span> : `₹${outstanding.toLocaleString()}`}</td>
+                      <td className={outstanding > 0 ? "fm-due-cell" : ""}>
+                        {r.loadingBill ? "Loading…" : `₹${outstanding.toLocaleString()}`}
+                      </td>
                       <td><input type="number" min="0" value={r.amount ?? ""} onChange={(e) => updateRow(s.id, "amount", e.target.value)} style={{ width: 100, padding: "6px 8px" }} /></td>
                       <td><input type="number" min="0" value={r.discount ?? 0} onChange={(e) => updateRow(s.id, "discount", e.target.value)} style={{ width: 100, padding: "6px 8px" }} /></td>
                       <td><select value={r.method || sharedMethod} onChange={(e) => updateRow(s.id, "method", e.target.value)} style={{ padding: "6px 8px" }}>{PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></td>
@@ -364,7 +389,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         </>
       )}
 
-      {/* Transaction History */}
       {selectedList.length > 0 && (
         <div style={{ marginTop: 40, borderTop: "1px solid #e2e8f0", paddingTop: 20 }}>
           <h3>Transaction History (Selected Students)</h3>
