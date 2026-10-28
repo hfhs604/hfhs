@@ -8,6 +8,7 @@ import {
   editTransaction
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
+import StudentPrintPage from "./StudentPrintPage"; // Added for printing profile
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
 
@@ -31,6 +32,10 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const [userRole, setUserRole] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [editingTxn, setEditingTxn] = useState(null);
+
+  // Print & Show All State
+  const [printingStudent, setPrintingStudent] = useState(null);
+  const [showAllTransactions, setShowAllTransactions] = useState(false);
 
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonMsg, setAddonMsg] = useState("");
@@ -95,9 +100,8 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     const term = searchTerm.trim();
     if (!term) return;
     
-    // Allow search if it's a number (Adm#) OR if it's 3+ characters (Name)
     if (!/^\d+$/.test(term) && term.length < 3) {
-      setError("Please enter at least 3 characters for a name search, or a valid Admission No.");
+      setError("Please enter at least 3 characters to search by name, or a valid Admission No.");
       return;
     }
     
@@ -119,6 +123,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     setSearchTerm("");
     setIdempotencyKey(uuidv4());
     setError(null);
+    setShowAllTransactions(false); // Reset view all on new search
     setForm(f => ({ ...f, amountReceived: "", discount: 0, lateFee: 0, remarks: "" }));
     await refreshAll(student.id);
   }
@@ -132,6 +137,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     setError(null);
     setAddonMsg("");
     setEditingTxn(null);
+    setShowAllTransactions(false);
   }
 
   function showFlash(msg) {
@@ -189,6 +195,9 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       runningBalance: Math.max(runningBalance, 0),
     };
   }).reverse();
+
+  // Restrict to last 5 unless "Show All" is clicked
+  const visibleHistory = showAllTransactions ? calculatedHistory : calculatedHistory.slice(0, 5);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -332,7 +341,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
       {!selectedStudent && (
         <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
-          <input type="text" placeholder="Search by name (min 3 chars) or Admission No." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          <input type="text" placeholder="Search by name, parent name, mobile, or Admission No." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
           <button type="submit">Search</button>
         </form>
       )}
@@ -354,7 +363,12 @@ export default function FeeCollection({ session, month, role, initialStudentId }
           <div className="fm-card" style={{ marginBottom: 16, padding: 16, background: "#f8fafc" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <h3 style={{ margin: 0, color: "#1e293b", fontSize: 18 }}>{selectedStudent.name}</h3>
-              <button type="button" className="fm-secondary-btn" onClick={handleBack}>← Back</button>
+              <div style={{ display: "flex", gap: 8 }}>
+                <button type="button" className="fm-secondary-btn" style={{ padding: "6px 12px", fontSize: 12 }} onClick={() => setPrintingStudent(selectedStudent)}>
+                  🖨 Print Profile
+                </button>
+                <button type="button" className="fm-secondary-btn" onClick={handleBack}>← Back</button>
+              </div>
             </div>
             
             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, fontSize: 13 }}>
@@ -502,52 +516,61 @@ export default function FeeCollection({ session, month, role, initialStudentId }
             {calculatedHistory.length === 0 ? (
               <p className="fm-empty-state">No transactions recorded yet for this student.</p>
             ) : (
-              <div className="fm-table-scroll">
-                <table className="fm-table">
-                  <thead>
-                    <tr>
-                      <th>Date</th>
-                      <th>Receipt#</th>
-                      <th>Total Bill</th>
-                      <th>Amount Paid</th>
-                      <th>Discount</th>
-                      <th>Balance Due</th>
-                      <th>Method</th>
-                      <th style={{ textAlign: "center" }}>Actions</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {calculatedHistory.map((t, idx) => (
-                      <tr key={t.id || idx}>
-                        <td>{formatDate(t)}</td>
-                        <td>{t.receiptNumber || "—"}</td>
-                        <td style={{ fontWeight: 600 }}>₹{t.snapshotTotalDue || 0}</td>
-                        <td style={{ color: "#16a34a", fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
-                        <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
-                        <td className={t.runningBalance > 0 ? "fm-due-cell" : ""} style={{ fontWeight: 600 }}>
-                          ₹{t.runningBalance}
-                        </td>
-                        <td>{t.paymentMethod || "Cash"}</td>
-                        <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                          <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
-                            👁️
-                          </button>
-                          {userRole === "superAdmin" && (
-                            <>
-                              <button type="button" title="Edit" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setEditingTxn({...t, paymentDate: new Date(t.paymentDate?.seconds ? t.paymentDate.seconds * 1000 : t.paymentDate).toISOString().slice(0, 10)})}>
-                                ✏️
-                              </button>
-                              <button type="button" title="Delete" className="fm-icon-btn fm-danger-link" onClick={() => handleDeleteTransaction(t)} disabled={deletingId === t.id}>
-                                {deletingId === t.id ? "⏳" : "🗑️"}
-                              </button>
-                            </>
-                          )}
-                        </td>
+              <>
+                <div className="fm-table-scroll">
+                  <table className="fm-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Receipt#</th>
+                        <th>Total Bill</th>
+                        <th>Amount Paid</th>
+                        <th>Discount</th>
+                        <th>Balance Due</th>
+                        <th>Method</th>
+                        <th style={{ textAlign: "center" }}>Actions</th>
                       </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
+                    </thead>
+                    <tbody>
+                      {visibleHistory.map((t, idx) => (
+                        <tr key={t.id || idx}>
+                          <td>{formatDate(t)}</td>
+                          <td>{t.receiptNumber || "—"}</td>
+                          <td style={{ fontWeight: 600 }}>₹{t.snapshotTotalDue || 0}</td>
+                          <td style={{ color: "#16a34a", fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
+                          <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
+                          <td className={t.runningBalance > 0 ? "fm-due-cell" : ""} style={{ fontWeight: 600 }}>
+                            ₹{t.runningBalance}
+                          </td>
+                          <td>{t.paymentMethod || "Cash"}</td>
+                          <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
+                            <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
+                              👁️
+                            </button>
+                            {userRole === "superAdmin" && (
+                              <>
+                                <button type="button" title="Edit" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setEditingTxn({...t, paymentDate: new Date(t.paymentDate?.seconds ? t.paymentDate.seconds * 1000 : t.paymentDate).toISOString().slice(0, 10)})}>
+                                  ✏️
+                                </button>
+                                <button type="button" title="Delete" className="fm-icon-btn fm-danger-link" onClick={() => handleDeleteTransaction(t)} disabled={deletingId === t.id}>
+                                  {deletingId === t.id ? "⏳" : "🗑️"}
+                                </button>
+                              </>
+                            )}
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                {calculatedHistory.length > 5 && (
+                  <div style={{ textAlign: "center", marginTop: 12 }}>
+                    <button type="button" className="fm-secondary-btn" onClick={() => setShowAllTransactions(!showAllTransactions)}>
+                      {showAllTransactions ? "Show Last 5 Transactions" : `View All (${calculatedHistory.length}) Transactions`}
+                    </button>
+                  </div>
+                )}
+              </>
             )}
           </div>
         </>
@@ -595,6 +618,10 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
       <PrintManager active={!!receiptPopup} onClose={() => setReceiptPopup(null)} type="receipt">
         {receiptPopup && <ReceiptPrintSheet receipts={[receiptPopup]} />}
+      </PrintManager>
+
+      <PrintManager active={!!printingStudent} onClose={() => setPrintingStudent(null)} type="student">
+        {printingStudent && <StudentPrintPage student={printingStudent} />}
       </PrintManager>
     </div>
   );
