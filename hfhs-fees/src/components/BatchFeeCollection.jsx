@@ -10,7 +10,6 @@ import "../styles/feeManagement.css";
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
 export default function BatchFeeCollection({ session, month, preselectedIds = [], onDone }) {
-  // We no longer load all students. We only store search results here.
   const [searchResults, setSearchResults] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set(preselectedIds));
   const [search, setSearch] = useState("");
@@ -19,8 +18,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   const [rows, setRows] = useState({});
   const [histories, setHistories] = useState({});
-  
-  // To store the actual student objects for those who are selected
   const [selectedStudentProfiles, setSelectedStudentProfiles] = useState({});
 
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
@@ -32,12 +29,10 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
 
-  // Handle manual search
   async function handleSearch(e) {
     e.preventDefault();
     const term = search.trim();
     
-    // Allow search if it's a number (Adm#) OR if it's 3+ characters (Name)
     if (!/^\d+$/.test(term) && term.length < 3) {
       setSearchError("Please enter at least 3 characters for a name, or a valid Admission No.");
       return;
@@ -103,7 +98,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         next.delete(student.id);
       } else {
         next.add(student.id);
-        // Save the full profile so we don't lose it when search results change
         setSelectedStudentProfiles(profiles => ({ ...profiles, [student.id]: student }));
       }
       return next;
@@ -319,11 +313,10 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
       {searchError && <p className="fm-error">{searchError}</p>}
 
-      {/* Changed from auto-loading to search-based */}
       <form onSubmit={handleSearch} className="fm-search-row">
         <input
           type="text"
-          placeholder="Search student by name (min 3 chars) or Admission No."
+          placeholder="Search student by name (min 3 chars), parent name, mobile, or Admission No."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
