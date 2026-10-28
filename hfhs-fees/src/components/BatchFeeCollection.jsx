@@ -29,7 +29,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
 
-  // FIX: Clear all selected state when a new search is made
   async function handleSearch(e) {
     e.preventDefault();
     const term = search.trim();
@@ -54,7 +53,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     }
   }
 
-  // FIX: Clear function resets EVERYTHING
   function handleClear() {
     setSearch("");
     setSearchResults([]);
@@ -110,7 +108,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       const next = new Set(prev);
       if (next.has(student.id)) {
         next.delete(student.id);
-        // Clean up the profile if unchecked
         setSelectedStudentProfiles(profiles => {
           const copy = { ...profiles };
           delete copy[student.id];
@@ -246,16 +243,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
     if (receipts.length > 0) {
       setReceiptsToPrint(receipts);
-      const clearedRows = { ...rows };
-      selectedList.forEach(s => {
-        if (clearedRows[s.id]) {
-          clearedRows[s.id].amount = "";
-          clearedRows[s.id].discount = 0;
-        }
-      });
-      setRows(clearedRows);
-      setHistories({}); 
-      handleClear(); // Full reset after submission
+      handleClear(); // <--- THIS is the critical fix. It clears the state immediately after submission.
     }
 
     if (errors.length === 0 && onDone) onDone(receipts);
@@ -476,7 +464,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                         : new Date(t.paymentDate || t.createdAt?.toDate?.() || 0).toLocaleDateString("en-GB")}
                     </td>
                     <td>{t.studentName}</td>
-                    <td>{t.receiptNumber || "—"}</td>
+                    <td style={{ fontWeight: 600 }}>{t.receiptNumber || "—"}</td>
                     <td style={{ fontWeight: 600 }}>₹{(t.amountReceived || t.netAmount || 0).toLocaleString()}</td>
                     <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
                     <td>{t.paymentMethod || "Cash"}</td>
