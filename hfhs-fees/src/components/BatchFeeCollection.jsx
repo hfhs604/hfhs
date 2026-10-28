@@ -2,8 +2,7 @@ import React, { useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
-import { collectPayment, getMonthlyBill, getPaymentHistory } from "../firebase/feeService";
-import { getAllStudents } from "../firebase/reportsService";
+import { collectPayment, getMonthlyBill, getPaymentHistory, searchStudents } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
@@ -11,14 +10,18 @@ import "../styles/feeManagement.css";
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
 
 export default function BatchFeeCollection({ session, month, preselectedIds = [], onDone }) {
-  const [allStudents, setAllStudents] = useState([]);
+  // We no longer load all students. We only store search results here.
+  const [searchResults, setSearchResults] = useState([]);
   const [selectedIds, setSelectedIds] = useState(() => new Set(preselectedIds));
   const [search, setSearch] = useState("");
-  const [loadingStudents, setLoadingStudents] = useState(true);
+  const [loadingStudents, setLoadingStudents] = useState(false);
   const [searchError, setSearchError] = useState(null);
 
   const [rows, setRows] = useState({});
   const [histories, setHistories] = useState({});
+  
+  // To store the actual student objects for those who are selected
+  const [selectedStudentProfiles, setSelectedStudentProfiles] = useState({});
 
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
   const [sharedMethod, setSharedMethod] = useState("Cash");
@@ -29,23 +32,29 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
 
-  useEffect(() => {
-    let active = true;
+  // Handle manual search
+  async function handleSearch(e) {
+    e.preventDefault();
+    const term = search.trim();
+    
+    // Allow search if it's a number (Adm#) OR if it's 3+ characters (Name)
+    if (!/^\d+$/.test(term) && term.length < 3) {
+      setSearchError("Please enter at least 3 characters for a name, or a valid Admission No.");
+      return;
+    }
+    
     setLoadingStudents(true);
-    getAllStudents({ session })
-      .then((list) => {
-        if (!active) return;
-        setAllStudents(list);
-      })
-      .catch((err) => {
-        if (!active) return;
-        setSearchError(err.message || "Could not load students.");
-      })
-      .finally(() => {
-        if (active) setLoadingStudents(false);
-      });
-    return () => { active = false; };
-  }, [session]);
+    setSearchError(null);
+    try {
+      const found = await searchStudents(term);
+      if (found.length === 0) setSearchError("No students found.");
+      setSearchResults(found);
+    } catch (err) {
+      setSearchError(err.message || "Could not load students.");
+    } finally {
+      setLoadingStudents(false);
+    }
+  }
 
   useEffect(() => {
     let active = true;
@@ -87,11 +96,16 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     return () => { active = false; };
   }, [selectedIds, session, month]);
 
-  function toggleStudent(id) {
+  function toggleStudent(student) {
     setSelectedIds((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(student.id)) {
+        next.delete(student.id);
+      } else {
+        next.add(student.id);
+        // Save the full profile so we don't lose it when search results change
+        setSelectedStudentProfiles(profiles => ({ ...profiles, [student.id]: student }));
+      }
       return next;
     });
   }
@@ -100,19 +114,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     setRows((prev) => ({ ...prev, [id]: { ...prev[id], [field]: String(value) } }));
   }
 
-  const filteredStudents = allStudents.filter((s) => {
-    if (!search.trim()) return true;
-    const t = search.trim().toLowerCase();
-    return (
-      String(s.name || "").toLowerCase().includes(t) ||
-      String(s.admissionNumber || "").toLowerCase().includes(t) ||
-      String(s.fatherName || "").toLowerCase().includes(t) ||
-      String(s.motherName || "").toLowerCase().includes(t) ||
-      String(s.mobileNumber || "").toLowerCase().includes(t)
-    );
-  });
-
-  const selectedList = allStudents.filter((s) => selectedIds.has(s.id));
+  const selectedList = Object.values(selectedStudentProfiles).filter(s => selectedIds.has(s.id));
 
   const calculateOutstandingFromHistory = (student) => {
     const baseFee = student.className === "IV" ? 1100 : student.className === "VI" ? 1200 : 0;
@@ -239,7 +241,9 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       });
       setRows(clearedRows);
       setHistories({}); 
-      setSelectedIds(new Set(selectedIds)); 
+      setSelectedIds(new Set()); 
+      setSelectedStudentProfiles({});
+      setSearchResults([]);
     }
 
     if (errors.length === 0 && onDone) onDone(receipts);
@@ -315,22 +319,26 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
       {searchError && <p className="fm-error">{searchError}</p>}
 
-      <div className="fm-search-row">
+      {/* Changed from auto-loading to search-based */}
+      <form onSubmit={handleSearch} className="fm-search-row">
         <input
           type="text"
-          placeholder="Search by name, admission no, father, or mother..."
+          placeholder="Search student by name (min 3 chars) or Admission No."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
         />
-        <button type="button" className="fm-secondary-btn" onClick={() => setSearch("")}>Clear</button>
-      </div>
+        <button type="submit" disabled={loadingStudents}>
+          {loadingStudents ? "Searching..." : "Search"}
+        </button>
+        {searchResults.length > 0 && (
+          <button type="button" className="fm-secondary-btn" onClick={() => { setSearch(""); setSearchResults([]); }}>
+            Clear
+          </button>
+        )}
+      </form>
 
-      {loadingStudents ? (
-        <p className="fm-empty-state">Loading students…</p>
-      ) : filteredStudents.length === 0 ? (
-        <p className="fm-empty-state">No students match this search.</p>
-      ) : (
-        <div className="fm-table-scroll" style={{ maxHeight: 300, overflowY: "auto" }}>
+      {searchResults.length > 0 && (
+        <div className="fm-table-scroll" style={{ maxHeight: 300, overflowY: "auto", marginBottom: 24, border: "1px solid #e2e8f0", borderRadius: 8 }}>
           <table className="fm-table">
             <thead>
               <tr>
@@ -339,28 +347,20 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                 <th>Adm#</th>
                 <th>Class</th>
                 <th>Father</th>
-                <th>Mother</th>
                 <th>Mobile</th>
-                <th>Status</th>
               </tr>
             </thead>
             <tbody>
-              {filteredStudents.map((s) => (
-                <tr key={s.id} onClick={() => toggleStudent(s.id)} style={{ cursor: "pointer" }}>
+              {searchResults.map((s) => (
+                <tr key={s.id} onClick={() => toggleStudent(s)} style={{ cursor: "pointer", background: selectedIds.has(s.id) ? "#f0fdf4" : "transparent" }}>
                   <td>
-                    <input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => toggleStudent(s.id)} onClick={(e) => e.stopPropagation()} />
+                    <input type="checkbox" checked={selectedIds.has(s.id)} onChange={() => {}} />
                   </td>
                   <td style={{ fontWeight: 500 }}>{s.name}</td>
                   <td>{s.admissionNumber}</td>
                   <td>{s.className}{s.section ? `-${s.section}` : ""}</td>
                   <td>{s.fatherName || "—"}</td>
-                  <td>{s.motherName || "—"}</td>
                   <td>{s.mobileNumber || s.fatherMobile || "—"}</td>
-                  <td>
-                    <span className={`fm-badge fm-badge-${(s.accountStatus || "PAID").toLowerCase()}`}>
-                      {s.accountStatus || "PAID"}
-                    </span>
-                  </td>
                 </tr>
               ))}
             </tbody>
@@ -406,7 +406,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                       <td><select value={r.method || sharedMethod} onChange={(e) => updateRow(s.id, "method", e.target.value)} style={{ padding: "6px 8px" }}>{PAYMENT_METHODS.map((m) => <option key={m}>{m}</option>)}</select></td>
                       <td><input type="text" value={r.ref || ""} onChange={(e) => updateRow(s.id, "ref", e.target.value)} style={{ width: 120, padding: "6px 8px" }} /></td>
                       <td style={{ textAlign: "center" }}>
-                        <button type="button" className="fm-icon-btn fm-danger-link" onClick={() => toggleStudent(s.id)} style={{ fontSize: 16, padding: "6px 8px", border: "1px solid #fecaca", borderRadius: 6 }}>🗑️</button>
+                        <button type="button" className="fm-icon-btn fm-danger-link" onClick={() => toggleStudent(s)} style={{ fontSize: 16, padding: "6px 8px", border: "1px solid #fecaca", borderRadius: 6 }}>🗑️</button>
                       </td>
                     </tr>
                   );
@@ -423,7 +423,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
               <strong style={{ color: "#059669" }}>₹{currentTotalDiscount.toLocaleString()}</strong>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" className="fm-secondary-btn" onClick={() => { setSelectedIds(new Set()); setRows({}); }} disabled={submitting}>Reset</button>
+              <button type="button" className="fm-secondary-btn" onClick={() => { setSelectedIds(new Set()); setRows({}); setSelectedStudentProfiles({}); }} disabled={submitting}>Reset</button>
               <button type="button" className="fm-primary-btn" onClick={handleSubmit} disabled={submitting || selectedList.length === 0}>
                 {submitting ? "Recording…" : `Record ${selectedList.length} payment(s)`}
               </button>
