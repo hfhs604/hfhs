@@ -8,7 +8,7 @@ import {
   editTransaction
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
-import StudentPrintPage from "./StudentPrintPage"; // Added for printing profile
+import StudentPrintPage from "./StudentPrintPage";
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
 
@@ -33,7 +33,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const [deletingId, setDeletingId] = useState(null);
   const [editingTxn, setEditingTxn] = useState(null);
 
-  // Print & Show All State
   const [printingStudent, setPrintingStudent] = useState(null);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
 
@@ -87,7 +86,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       } else {
         setBill(null);
       }
-      setHistory((hist || []).reverse()); 
+      setHistory(hist || []); 
     } catch (e) {
       setError(e.message);
     } finally {
@@ -101,7 +100,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     if (!term) return;
     
     if (!/^\d+$/.test(term) && term.length < 3) {
-      setError("Please enter at least 3 characters to search by name, or a valid Admission No.");
+      setError("Please enter at least 3 characters for a name search, or a valid Admission No.");
       return;
     }
     
@@ -123,7 +122,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     setSearchTerm("");
     setIdempotencyKey(uuidv4());
     setError(null);
-    setShowAllTransactions(false); // Reset view all on new search
+    setShowAllTransactions(false); 
     setForm(f => ({ ...f, amountReceived: "", discount: 0, lateFee: 0, remarks: "" }));
     await refreshAll(student.id);
   }
@@ -180,6 +179,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
 
+  // Calculate the running balance from oldest to newest
   let runningBalance = totalBilled;
   const calculatedHistory = history.map((t) => {
     const amt = Number(t.amountReceived || t.netAmount || 0);
@@ -194,9 +194,9 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       snapshotTotalDue: t.totalDue || (runningBalance + amt + disc), 
       runningBalance: Math.max(runningBalance, 0),
     };
-  }).reverse();
+  });
 
-  // Restrict to last 5 unless "Show All" is clicked
+  // Show oldest first by default (top 5)
   const visibleHistory = showAllTransactions ? calculatedHistory : calculatedHistory.slice(0, 5);
 
   async function handleSubmit(e) {
@@ -359,7 +359,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
       {selectedStudent && (
         <>
-          {/* MERGED STUDENT INFO GRID */}
           <div className="fm-card" style={{ marginBottom: 16, padding: 16, background: "#f8fafc" }}>
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
               <h3 style={{ margin: 0, color: "#1e293b", fontSize: 18 }}>{selectedStudent.name}</h3>
@@ -566,7 +565,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                 {calculatedHistory.length > 5 && (
                   <div style={{ textAlign: "center", marginTop: 12 }}>
                     <button type="button" className="fm-secondary-btn" onClick={() => setShowAllTransactions(!showAllTransactions)}>
-                      {showAllTransactions ? "Show Last 5 Transactions" : `View All (${calculatedHistory.length}) Transactions`}
+                      {showAllTransactions ? "Show First 5 Transactions" : `View All (${calculatedHistory.length}) Transactions`}
                     </button>
                   </div>
                 )}
