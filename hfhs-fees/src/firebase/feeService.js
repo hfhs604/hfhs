@@ -86,33 +86,31 @@ export async function getStudentFeeProfile(studentId) {
 export async function searchStudents(term) {
   const raw = (term || "").trim();
   if (!raw) return [];
+  
   const results = new Map();
-  const upper = raw.toUpperCase(), title = raw.toLowerCase().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "), lower = raw.toLowerCase();
-  const nameVariants = Array.from(new Set([upper, title, lower]));
 
-  for (const variant of nameVariants) {
+  // 1. If it's a number (Admission No), allow searching regardless of length
+  if (/^\d+$/.test(raw)) {
+    try {
+      const snap = await getDocs(query(collection(db, COL.students), where("admissionNumber", "==", raw), fsLimit(20)));
+      snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
+      if (results.size > 0) return Array.from(results.values());
+    } catch (err) {}
+  }
+
+  // 2. For names, enforce a minimum of 3 characters to prevent massive reads
+  if (raw.length < 3) return [];
+
+  const upper = raw.toUpperCase();
+  const title = raw.toLowerCase().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  
+  for (const variant of [upper, title]) {
     try {
       const snap = await getDocs(query(collection(db, COL.students), where("name", ">=", variant), where("name", "<=", variant + "\uf8ff"), fsLimit(20)));
       snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
     } catch (err) {}
   }
-  if (/^\d+$/.test(raw)) {
-    try {
-      const snap = await getDocs(query(collection(db, COL.students), where("admissionNumber", ">=", raw), where("admissionNumber", "<=", raw + "\uf8ff"), fsLimit(20)));
-      snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
-    } catch (err) {}
-  }
-  if (results.size === 0 && raw.length >= 2) {
-    try {
-      const snap = await getDocs(query(collection(db, COL.students), fsLimit(500)));
-      const needle = raw.toLowerCase();
-      snap.forEach((d) => {
-        const s = d.data();
-        const hay = `${s.name || ""} ${s.fatherName || ""} ${s.motherName || ""} ${s.guardianName || ""}`.toLowerCase();
-        if (hay.includes(needle)) results.set(d.id, { id: d.id, ...s });
-      });
-    } catch (err) {}
-  }
+  
   return Array.from(results.values());
 }
 
