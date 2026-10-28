@@ -1,0 +1,30 @@
+name: Auto Generate Monthly Bills
+
+on:
+  schedule:
+    # Runs at 18:25 UTC on the last day of every month (11:55 PM IST)
+    # GitHub Actions uses UTC. 11:55 PM IST = 18:25 UTC.
+    # The '28-31' covers all possible end-of-month dates.
+    - cron: '25 18 28-31 * *'
+  workflow_dispatch: # Allows you to manually run it to test
+
+jobs:
+  billing:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install dependencies
+        run: pip install firebase-admin
+
+      - name: Run Auto Billing
+        env:
+          # Uses the same secret you already have set up for importing students
+          FIREBASE_SERVICE_ACCOUNT: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: python scripts/auto_billing.py
