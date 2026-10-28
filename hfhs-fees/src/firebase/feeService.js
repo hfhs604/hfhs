@@ -90,7 +90,6 @@ export async function searchStudents(term) {
   const upper = raw.toUpperCase(), title = raw.toLowerCase().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "), lower = raw.toLowerCase();
   const nameVariants = Array.from(new Set([upper, title, lower]));
 
-  // 1. Exact Admission Number Match (allows 1-digit)
   if (/^\d+$/.test(raw)) {
     try {
       const snap = await getDocs(query(collection(db, COL.students), where("admissionNumber", "==", raw), fsLimit(20)));
@@ -99,7 +98,6 @@ export async function searchStudents(term) {
     } catch (err) {}
   }
 
-  // 2. Exact Name Match (limits to 3+ chars to save reads)
   if (raw.length >= 3) {
     for (const variant of nameVariants) {
       try {
@@ -109,7 +107,6 @@ export async function searchStudents(term) {
     }
   }
 
-  // 3. Fallback for Parent/Guardian search (requires 3+ chars)
   if (results.size === 0 && raw.length >= 3) {
     try {
       const snap = await getDocs(query(collection(db, COL.students), fsLimit(500)));
@@ -138,13 +135,11 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
   if (students.length === 0) throw new Error(`No students found.`);
 
   for (const student of students) {
-    // 1. Calculate Base Monthly Fees
     const tuition = MONTHLY_TUITION[student.className] || 0;
     const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
     const devFee = isFirstMonth ? DEVELOPMENT_FEE : 0;
     const currentMonthTotal = tuition + transport + devFee;
 
-    // 2. Fetch ALL past transactions for this session to calculate actual paid amounts
     const txnSnap = await getDocs(query(
       collection(db, COL.transactions),
       where("studentId", "==", student.id),
@@ -162,7 +157,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
       }
     });
 
-    // 3. Calculate Previous Due from the ACTUAL previous bill
     let previousDue = 0;
     const prevM = parseInt(month.split("-")[1]) - 1;
     const prevY = parseInt(month.split("-")[0]);
@@ -179,7 +173,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     const totalDue = previousDue + currentMonthTotal;
     const carriedForward = Math.max(totalDue - totalPaid - totalDiscount, 0);
 
-    // 4. Save the clean Bill
     const safeStudentId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
     const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeStudentId}`);
     
@@ -410,28 +403,24 @@ export async function getDashboardStats(session, month) {
     studentCount = c.data().count; 
   } catch (err) {}
 
-  // 1. Fetch ALL students to know who exists
   let students = [];
   try {
     const sSnap = await getDocs(query(collection(db, COL.students), where("session", "==", session)));
     students = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
   } catch (err) {}
 
-  // 2. Fetch ALL transactions for the session to calculate ACTUAL paid amounts
   let transactions = [];
   try {
     const tSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
     transactions = tSnap.docs.map(d => d.data());
   } catch (err) {}
 
-  // 3. Fetch ALL bills to get the expected base fees
   let bills = [];
   try {
     const bSnap = await getDocs(query(collection(db, COL.monthlyBills), where("session", "==", session)));
     bills = bSnap.docs.map(d => d.data());
   } catch (err) {}
 
-  // Group transactions by studentId
   const txnByStudent = {};
   let paymentMethodBreakdown = {}, todayCollection = 0, todayEntered = 0, totalDiscount = 0;
   let todayCash = 0, todayBank = 0;
@@ -442,13 +431,11 @@ export async function getDashboardStats(session, month) {
     const sid = t.studentId;
     if (!txnByStudent[sid]) txnByStudent[sid] = { paid: 0, discount: 0 };
     
-    // Only count monthly payments towards the bill balance
     if (!t.componentType || t.componentType === "monthly") {
       txnByStudent[sid].paid += Number(t.amountReceived || t.netAmount || 0);
       txnByStudent[sid].discount += Number(t.discount || 0);
     }
 
-    // Dashboard specific stats
     const method = t.paymentMethod || "Other"; 
     const amt = Number(t.netAmount || 0); 
     const disc = Number(t.discount || 0);
@@ -474,7 +461,6 @@ export async function getDashboardStats(session, month) {
     }
   });
 
-  // 4. Calculate true dues by looking at the latest bill for each student
   const latestBillByStudent = {};
   bills.forEach(b => {
     if (!latestBillByStudent[b.studentId] || b.month > latestBillByStudent[b.studentId].month) {
@@ -486,11 +472,10 @@ export async function getDashboardStats(session, month) {
 
   students.forEach(s => {
     const bill = latestBillByStudent[s.id];
-    if (!bill) return; // Student has no bill yet
+    if (!bill) return; 
 
     const txn = txnByStudent[s.id] || { paid: 0, discount: 0 };
     
-    // Expected total based on the latest bill's totalDue
     const expectedTotal = bill.totalDue || 0;
     const actualBalance = expectedTotal - txn.paid - txn.discount;
 
@@ -506,20 +491,7 @@ export async function getDashboardStats(session, month) {
   });
 
   return { 
-    paymentDateToday: todayCollection, 
-    enteredToday: todayEntered, 
-    todayCash, 
-    todayBank, 
-    monthCollection, 
-    totalCollection: trueTotalCollection, 
-    totalOutstandingDue, 
-    totalAdvance, 
-    totalDiscount, 
-    studentsWithDue, 
-    studentsFullyPaid, 
-    paymentMethodBreakdown, 
-    studentCount, 
-    month: actualMonth 
+    paymentDateToday: todayCollection, enteredToday: todayEntered, todayCash, todayBank, monthCollection, totalCollection: trueTotalCollection, totalOutstandingDue, totalAdvance, totalDiscount, studentsWithDue, studentsFullyPaid, paymentMethodBreakdown, studentCount, month: actualMonth 
   };
 }
 
@@ -535,11 +507,17 @@ export async function getFeeStructure(session, className) {
 
 export async function getPaymentHistory(studentId) {
   try {
-    const snap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId), orderBy("createdAt", "desc")));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
-  } catch (err) {
     const snap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
-    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).sort((a, b) => (b.createdAt?.toDate?.() || 0) - (a.createdAt?.toDate?.() || 0));
+    return snap.docs
+      .map((d) => ({ id: d.id, ...d.data() }))
+      .sort((a, b) => {
+        const timeA = a.createdAt?.toDate?.()?.getTime() || new Date(a.paymentDate || 0).getTime();
+        const timeB = b.createdAt?.toDate?.()?.getTime() || new Date(b.paymentDate || 0).getTime();
+        return timeB - timeA; 
+      });
+  } catch (err) {
+    console.error("Error fetching history:", err);
+    return [];
   }
 }
 
