@@ -6,8 +6,9 @@ export default function ReceiptCard({ receipt, school }) {
     className, section, guardianName, feeType, amountReceived, discount,
     lateFee, paymentMethod, referenceNumber,
     particulars: passedParticulars,
-    totalDue,       // This is passed exactly from the screen
-    remainingDue,   // This is passed exactly from the screen
+    totalDue, 
+    remainingDue,
+    editedAt,
   } = receipt;
 
   const disc = Number(discount || 0);
@@ -27,6 +28,24 @@ export default function ReceiptCard({ receipt, school }) {
 
     if (dateObj && !isNaN(dateObj.getTime())) {
       formattedDate = dateObj.toLocaleString("en-GB", {
+        day: '2-digit', month: 'short', year: 'numeric',
+        hour: '2-digit', minute: '2-digit', hour12: true
+      });
+    }
+  }
+
+  let formattedEditDate = null;
+  if (editedAt) {
+    let dateObj = null;
+    if (typeof editedAt === "object" && editedAt.seconds) {
+      dateObj = new Date(editedAt.seconds * 1000);
+    } else if (editedAt.toDate) {
+      dateObj = editedAt.toDate();
+    } else {
+      dateObj = new Date(editedAt);
+    }
+    if (dateObj && !isNaN(dateObj.getTime())) {
+      formattedEditDate = dateObj.toLocaleString("en-GB", {
         day: '2-digit', month: 'short', year: 'numeric',
         hour: '2-digit', minute: '2-digit', hour12: true
       });
@@ -131,7 +150,10 @@ export default function ReceiptCard({ receipt, school }) {
         <div className="receipt-sign-area">
           <div className="receipt-signature-box">Authorised Signature</div>
         </div>
-        <p className="receipt-computer-generated">This is a computer-generated receipt.</p>
+        <p className="receipt-computer-generated">
+          This is a computer-generated receipt.
+          {formattedEditDate && <span style={{ display: 'block', marginTop: 4 }}>Edited on: {formattedEditDate}</span>}
+        </p>
       </footer>
     </div>
   );
