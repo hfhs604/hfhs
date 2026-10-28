@@ -403,74 +403,123 @@ export async function getStudentsWithDue({ session, month, className } = {}) {
 
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
-  let studentCount = 0, bills = [], actualMonth = targetMonth;
+  let studentCount = 0, actualMonth = targetMonth;
 
-  try { const c = await getCountFromServer(query(collection(db, COL.students), where("session", "==", session))); studentCount = c.data().count; } catch (err) {}
-  try { const s = await getDocs(query(collection(db, COL.monthlyBills), where("session", "==", session), where("month", "==", targetMonth))); bills = s.docs.map((d) => d.data()); } catch (err) {}
+  try { 
+    const c = await getCountFromServer(query(collection(db, COL.students), where("session", "==", session))); 
+    studentCount = c.data().count; 
+  } catch (err) {}
 
-  if (bills.length === 0) {
-    try {
-      const allSnap = await getDocs(query(collection(db, COL.monthlyBills), where("session", "==", session)));
-      const allBills = allSnap.docs.map((d) => d.data());
-      const months = [...new Set(allBills.map((b) => b.month))].sort();
-      const latestMonth = months[months.length - 1];
-      if (latestMonth) { bills = allBills.filter((b) => b.month === latestMonth); actualMonth = latestMonth; }
-    } catch (err) {}
-  }
+  // 1. Fetch ALL students to know who exists
+  let students = [];
+  try {
+    const sSnap = await getDocs(query(collection(db, COL.students), where("session", "==", session)));
+    students = sSnap.docs.map(d => ({ id: d.id, ...d.data() }));
+  } catch (err) {}
 
-  let totalOutstandingDue = 0, totalAdvance = 0, studentsWithDue = 0, studentsFullyPaid = 0;
-  bills.forEach((b) => {
-    const carry = b.carriedForward || 0;
-    if (carry > 0) { totalOutstandingDue += carry; studentsWithDue++; }
-    else if (carry < 0) { totalAdvance += -carry; studentsFullyPaid++; }
-    else { studentsFullyPaid++; }
-  });
+  // 2. Fetch ALL transactions for the session to calculate ACTUAL paid amounts
+  let transactions = [];
+  try {
+    const tSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
+    transactions = tSnap.docs.map(d => d.data());
+  } catch (err) {}
 
+  // 3. Fetch ALL bills to get the expected base fees
+  let bills = [];
+  try {
+    const bSnap = await getDocs(query(collection(db, COL.monthlyBills), where("session", "==", session)));
+    bills = bSnap.docs.map(d => d.data());
+  } catch (err) {}
+
+  // Group transactions by studentId
+  const txnByStudent = {};
   let paymentMethodBreakdown = {}, todayCollection = 0, todayEntered = 0, totalDiscount = 0;
   let todayCash = 0, todayBank = 0;
   let trueTotalCollection = 0, monthCollection = 0;
+  const startOfDayMs = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
 
-  try {
-    const txnSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session), where("voided", "==", false)));
-    const startOfDayMs = new Date(new Date().getFullYear(), new Date().getMonth(), new Date().getDate()).getTime();
+  transactions.forEach((t) => {
+    const sid = t.studentId;
+    if (!txnByStudent[sid]) txnByStudent[sid] = { paid: 0, discount: 0 };
     
-    txnSnap.docs.forEach((d) => {
-      const t = d.data(); 
-      const method = t.paymentMethod || "Other"; 
-      const amt = Number(t.netAmount || 0); 
-      const disc = Number(t.discount || 0);
-      
-      paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
-      totalDiscount += disc;
-      
-      if (t.componentType === "refund") trueTotalCollection -= amt;
-      else trueTotalCollection += amt;
+    // Only count monthly payments towards the bill balance
+    if (!t.componentType || t.componentType === "monthly") {
+      txnByStudent[sid].paid += Number(t.amountReceived || t.netAmount || 0);
+      txnByStudent[sid].discount += Number(t.discount || 0);
+    }
 
-      if (t.month === targetMonth) {
-        monthCollection += amt;
-      }
+    // Dashboard specific stats
+    const method = t.paymentMethod || "Other"; 
+    const amt = Number(t.netAmount || 0); 
+    const disc = Number(t.discount || 0);
+    
+    paymentMethodBreakdown[method] = (paymentMethodBreakdown[method] || 0) + amt;
+    totalDiscount += disc;
+    
+    if (t.componentType === "refund") trueTotalCollection -= amt;
+    else trueTotalCollection += amt;
 
-      let paidAt = t.paymentDate?.toDate?.() || new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
-      let isToday = (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs);
-      
-      if (isToday) {
-        todayCollection += amt;
-        if (method === "Cash") {
-          todayCash += amt;
-        } else {
-          todayBank += amt;
-        }
-      }
+    if (t.month === targetMonth) monthCollection += amt;
 
-      let enteredAt = t.createdAt?.toDate?.() || new Date(0);
-      if (enteredAt && !isNaN(enteredAt.getTime()) && enteredAt.getTime() >= startOfDayMs) {
-        todayEntered += amt;
-      }
-    });
-  } catch (err) {}
+    let paidAt = t.paymentDate?.toDate?.() || new Date(t.paymentDate || t.createdAt?.toDate?.() || 0);
+    if (paidAt && !isNaN(paidAt.getTime()) && paidAt.getTime() >= startOfDayMs) {
+      todayCollection += amt;
+      if (method === "Cash") todayCash += amt;
+      else todayBank += amt;
+    }
+
+    let enteredAt = t.createdAt?.toDate?.() || new Date(0);
+    if (enteredAt && !isNaN(enteredAt.getTime()) && enteredAt.getTime() >= startOfDayMs) {
+      todayEntered += amt;
+    }
+  });
+
+  // 4. Calculate true dues by looking at the latest bill for each student
+  const latestBillByStudent = {};
+  bills.forEach(b => {
+    if (!latestBillByStudent[b.studentId] || b.month > latestBillByStudent[b.studentId].month) {
+      latestBillByStudent[b.studentId] = b;
+    }
+  });
+
+  let totalOutstandingDue = 0, totalAdvance = 0, studentsWithDue = 0, studentsFullyPaid = 0;
+
+  students.forEach(s => {
+    const bill = latestBillByStudent[s.id];
+    if (!bill) return; // Student has no bill yet
+
+    const txn = txnByStudent[s.id] || { paid: 0, discount: 0 };
+    
+    // Expected total based on the latest bill's totalDue
+    const expectedTotal = bill.totalDue || 0;
+    const actualBalance = expectedTotal - txn.paid - txn.discount;
+
+    if (actualBalance > 0) {
+      totalOutstandingDue += actualBalance;
+      studentsWithDue++;
+    } else if (actualBalance < 0) {
+      totalAdvance += Math.abs(actualBalance);
+      studentsFullyPaid++;
+    } else {
+      studentsFullyPaid++;
+    }
+  });
 
   return { 
-    paymentDateToday: todayCollection, enteredToday: todayEntered, todayCash, todayBank, monthCollection: monthCollection, totalCollection: trueTotalCollection, totalOutstandingDue, totalAdvance, totalDiscount, studentsWithDue, studentsFullyPaid, paymentMethodBreakdown, studentCount, month: actualMonth 
+    paymentDateToday: todayCollection, 
+    enteredToday: todayEntered, 
+    todayCash, 
+    todayBank, 
+    monthCollection, 
+    totalCollection: trueTotalCollection, 
+    totalOutstandingDue, 
+    totalAdvance, 
+    totalDiscount, 
+    studentsWithDue, 
+    studentsFullyPaid, 
+    paymentMethodBreakdown, 
+    studentCount, 
+    month: actualMonth 
   };
 }
 
