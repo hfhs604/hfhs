@@ -181,13 +181,36 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
 
-  const calculatedHistory = history.map((t) => {
-    return {
-      ...t,
-      snapshotTotalDue: t.totalDue || 0, 
-      runningBalance: t.remainingDue !== undefined ? t.remainingDue : 0,
-    };
-  });
+  // PERFECT LEDGER CALCULATION
+  let calculatedHistory = [];
+  
+  if (bill && history.length > 0) {
+    const latestBillMonth = parseInt(bill.month.split("-")[1]);
+    const monthsBilled = latestBillMonth >= 4 ? (latestBillMonth - 4 + 1) : 0;
+    const monthlyFee = tuition + transport;
+    const initialBillTotal = (monthlyFee * monthsBilled) + devFee + books + prevYear + kit;
+
+    let currentRunningBill = initialBillTotal;
+    let currentBalance = initialBillTotal;
+
+    calculatedHistory = history.map((t) => {
+      const amt = Number(t.amountReceived || t.netAmount || 0);
+      const disc = Number(t.discount || 0);
+      
+      const billSnapshot = currentRunningBill;
+      const balanceSnapshot = currentBalance;
+      
+      if (!t.componentType || t.componentType === "monthly") {
+        currentBalance = Math.max(currentBalance - amt - disc, 0);
+      }
+
+      return {
+        ...t,
+        snapshotTotalDue: billSnapshot, 
+        runningBalance: balanceSnapshot,
+      };
+    });
+  }
 
   const visibleHistory = showAllTransactions ? calculatedHistory : calculatedHistory.slice(0, 5);
 
