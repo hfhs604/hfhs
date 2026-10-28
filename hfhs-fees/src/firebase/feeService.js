@@ -511,9 +511,10 @@ export async function getPaymentHistory(studentId) {
     return snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
       .sort((a, b) => {
+        // Sort Ascending: Oldest first, Newest last (like the paper ledger)
         const timeA = a.createdAt?.toDate?.()?.getTime() || new Date(a.paymentDate || 0).getTime();
         const timeB = b.createdAt?.toDate?.()?.getTime() || new Date(b.paymentDate || 0).getTime();
-        return timeB - timeA; 
+        return timeA - timeB; 
       });
   } catch (err) {
     console.error("Error fetching history:", err);
