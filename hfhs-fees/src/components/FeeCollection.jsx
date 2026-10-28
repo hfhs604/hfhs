@@ -92,11 +92,19 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
   async function handleSearch(e) {
     if (e) e.preventDefault();
-    if (!searchTerm.trim()) return;
+    const term = searchTerm.trim();
+    if (!term) return;
+    
+    // Allow search if it's a number (Adm#) OR if it's 3+ characters (Name)
+    if (!/^\d+$/.test(term) && term.length < 3) {
+      setError("Please enter at least 3 characters for a name search, or a valid Admission No.");
+      return;
+    }
+    
     setError(null);
     setLoadingBill(true);
     try {
-      const found = await searchStudents(searchTerm.trim());
+      const found = await searchStudents(term);
       setResults(found);
     } catch (err) {
       setError("Search failed.");
@@ -166,7 +174,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
 
-  // FIXED: Render the exact "Total Bill" for that specific transaction row, not the cumulative session total.
   let runningBalance = totalBilled;
   const calculatedHistory = history.map((t) => {
     const amt = Number(t.amountReceived || t.netAmount || 0);
@@ -178,7 +185,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
     return {
       ...t,
-      // Use the specific totalDue stored on the transaction, fallback to running balance if missing
       snapshotTotalDue: t.totalDue || (runningBalance + amt + disc), 
       runningBalance: Math.max(runningBalance, 0),
     };
@@ -268,7 +274,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   }
 
   async function handleViewReceipt(txn) {
-    // Fetch the actual receipt doc to get the latest editedAt timestamp
     let latestReceipt = txn;
     if (txn.receiptRef) {
       try {
@@ -325,10 +330,12 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
       {flash && <div className="fm-flash">{flash}</div>}
 
-      <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
-        <input type="text" placeholder="Search by name or admission no." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} disabled={!!selectedStudent} />
-        <button type="submit" disabled={!!selectedStudent}>Search</button>
-      </form>
+      {!selectedStudent && (
+        <form onSubmit={handleSearch} className="fm-search-row" style={{ marginBottom: 8 }}>
+          <input type="text" placeholder="Search by name (min 3 chars) or Admission No." value={searchTerm} onChange={(e) => setSearchTerm(e.target.value)} />
+          <button type="submit">Search</button>
+        </form>
+      )}
 
       {results.length > 0 && !selectedStudent && (
         <ul className="fm-result-list fm-result-list-compact" style={{ margin: 0, padding: 0 }}>
@@ -343,12 +350,23 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
       {selectedStudent && (
         <>
-          <div className="fm-student-header fm-student-header-compact" style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 16 }}>
-            <div>
-              <h3 style={{ margin: 0, color: "#1e293b" }}>{selectedStudent.name}</h3>
-              <p style={{ margin: "4px 0 0", color: "#64748b" }}>Adm# {selectedStudent.admissionNumber} · Class {selectedStudent.className}</p>
+          {/* MERGED STUDENT INFO GRID */}
+          <div className="fm-card" style={{ marginBottom: 16, padding: 16, background: "#f8fafc" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+              <h3 style={{ margin: 0, color: "#1e293b", fontSize: 18 }}>{selectedStudent.name}</h3>
+              <button type="button" className="fm-secondary-btn" onClick={handleBack}>← Back</button>
             </div>
-            <button type="button" className="fm-secondary-btn" onClick={handleBack}>← Back</button>
+            
+            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, fontSize: 13 }}>
+              <div><span style={{ color: "#64748b", fontSize: 11, display: "block" }}>ADMISSION NO</span><strong>{selectedStudent.admissionNumber}</strong></div>
+              <div><span style={{ color: "#64748b", fontSize: 11, display: "block" }}>CLASS</span><strong>{selectedStudent.className}</strong></div>
+              <div><span style={{ color: "#64748b", fontSize: 11, display: "block" }}>ROLL NO</span><strong>{selectedStudent.rollNumber || "—"}</strong></div>
+              <div><span style={{ color: "#64748b", fontSize: 11, display: "block" }}>STATUS</span><strong style={{ color: "#16a34a" }}>{selectedStudent.accountStatus || "ACTIVE"}</strong></div>
+              <div><span style={{ color: "#64748b", fontSize: 11, display: "block" }}>FATHER'S NAME</span><strong>{selectedStudent.fatherName || "—"}</strong></div>
+              <div><span style={{ color: "#64748b", fontSize: 11, display: "block" }}>MOTHER'S NAME</span><strong>{selectedStudent.motherName || "—"}</strong></div>
+              <div><span style={{ color: "#64748b", fontSize: 11, display: "block" }}>MOBILE</span><strong>{selectedStudent.mobileNumber || "—"}</strong></div>
+              <div><span style={{ color: "#64748b", fontSize: 11, display: "block" }}>GUARDIAN</span><strong>{selectedStudent.guardianName || "—"}</strong></div>
+            </div>
           </div>
 
           {loadingBill && <p className="fm-subtle">Loading bill…</p>}
