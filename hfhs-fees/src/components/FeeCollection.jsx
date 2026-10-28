@@ -4,7 +4,8 @@ import { doc, getDoc } from "firebase/firestore";
 import { db, auth } from "../firebase/config";
 import {
   searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
-  addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole
+  addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole,
+  editTransaction
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
@@ -29,6 +30,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   
   const [userRole, setUserRole] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
+  const [editingTxn, setEditingTxn] = useState(null);
 
   const [addonBusy, setAddonBusy] = useState(false);
   const [addonMsg, setAddonMsg] = useState("");
@@ -80,7 +82,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       } else {
         setBill(null);
       }
-      setHistory((hist || []).reverse()); // Oldest first
+      setHistory((hist || []).reverse()); 
     } catch (e) {
       setError(e.message);
     } finally {
@@ -121,6 +123,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     setSearchTerm("");
     setError(null);
     setAddonMsg("");
+    setEditingTxn(null);
   }
 
   function showFlash(msg) {
@@ -138,7 +141,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     } catch { return "—"; }
   }
 
-  // --- MATH ---
   const previousDue = bill ? (bill.previousDue || 0) : 0;
   const tuition = bill ? (bill.tuitionBilled || 0) : 0;
   const transport = bill ? (bill.transportBilled || 0) : 0;
@@ -165,7 +167,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
 
-  // --- RUNNING LEDGER MATH ---
   let runningBalance = totalBilled;
   const calculatedHistory = history.map((t) => {
     const amt = Number(t.amountReceived || t.netAmount || 0);
@@ -180,7 +181,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     return {
       ...t,
       snapshotTotalDue: snapshotTotalDue,
-      runningBalance: Math.max(runningBalance, 0),
+      runningBalance: Math.max(snapshotTotalDue - amt - disc, 0),
     };
   }).reverse();
 
@@ -245,6 +246,25 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       setError(`❌ Failed to delete: ${err.message}`);
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  async function handleEditSubmit(e) {
+    e.preventDefault();
+    if (!editingTxn) return;
+    
+    try {
+      await editTransaction({
+        transactionId: editingTxn.id,
+        newAmount: editingTxn.amountReceived,
+        newDiscount: editingTxn.discount,
+        newPaymentDate: editingTxn.paymentDate,
+      });
+      showFlash("✅ Transaction updated");
+      setEditingTxn(null);
+      await refreshAll(selectedStudent.id);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
     }
   }
 
@@ -484,13 +504,15 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                           <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
                             👁️
                           </button>
-                          <button type="button" title="Print Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
-                            🖨️
-                          </button>
-                          {(userRole === "superAdmin" || userRole === "admin") && (
-                            <button type="button" title="Delete Transaction" className="fm-icon-btn fm-danger-link" onClick={() => handleDeleteTransaction(t)} disabled={deletingId === t.id}>
-                              {deletingId === t.id ? "⏳" : "🗑️"}
-                            </button>
+                          {userRole === "superAdmin" && (
+                            <>
+                              <button type="button" title="Edit" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setEditingTxn({...t, paymentDate: new Date(t.paymentDate?.seconds ? t.paymentDate.seconds * 1000 : t.paymentDate).toISOString().slice(0, 10)})}>
+                                ✏️
+                              </button>
+                              <button type="button" title="Delete" className="fm-icon-btn fm-danger-link" onClick={() => handleDeleteTransaction(t)} disabled={deletingId === t.id}>
+                                {deletingId === t.id ? "⏳" : "🗑️"}
+                              </button>
+                            </>
                           )}
                         </td>
                       </tr>
@@ -513,6 +535,32 @@ export default function FeeCollection({ session, month, role, initialStudentId }
               <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>Cancel</button>
               <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}>{promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}</button>
             </div>
+          </div>
+        </div>
+      )}
+
+      {editingTxn && (
+        <div className="fm-modal-overlay">
+          <div className="fm-modal" style={{ maxWidth: 400 }}>
+            <h3>Edit Transaction — {editingTxn.receiptNumber}</h3>
+            <form onSubmit={handleEditSubmit}>
+              <label className="fm-inline-label" style={{ marginBottom: 12 }}>
+                Amount Paid (₹)
+                <input type="number" value={editingTxn.amountReceived} onChange={(e) => setEditingTxn({ ...editingTxn, amountReceived: e.target.value })} />
+              </label>
+              <label className="fm-inline-label" style={{ marginBottom: 12 }}>
+                Discount (₹)
+                <input type="number" value={editingTxn.discount} onChange={(e) => setEditingTxn({ ...editingTxn, discount: e.target.value })} />
+              </label>
+              <label className="fm-inline-label" style={{ marginBottom: 20 }}>
+                Payment Date
+                <input type="date" value={editingTxn.paymentDate} onChange={(e) => setEditingTxn({ ...editingTxn, paymentDate: e.target.value })} />
+              </label>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" className="fm-secondary-btn" onClick={() => setEditingTxn(null)}>Cancel</button>
+                <button type="submit" className="fm-primary-btn">Save Changes</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
