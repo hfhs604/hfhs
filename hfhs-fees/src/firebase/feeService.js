@@ -1,9 +1,14 @@
+/**
+ * feeService.js
+ * Fee Management data layer for Holy Faith High School.
+ */
+
 import { db, auth } from "../firebase/config";
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, setDoc,
   deleteDoc, getCountFromServer,
   query, where, orderBy, limit as fsLimit,
-  runTransaction, serverTimestamp, Timestamp,
+  runTransaction, serverTimestamp, Timestamp, writeBatch,
 } from "firebase/firestore";
 
 const COL = {
@@ -225,7 +230,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    // THE CRITICAL FIX: Save the running balance before this transaction as the "Total Bill"
+    // SNAPSHOT EXACTLY BEFORE TRANSACTION
     const currentRunningBalance = bill.carriedForward !== undefined ? bill.carriedForward : bill.totalDue;
 
     const totalCredit = amt + disc;
@@ -239,7 +244,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
       studentId, session, month, componentType: "monthly", amountReceived: amt,
       discount: disc, lateFee: late, netAmount: amt,
       previousDue: bill.previousDue || 0, 
-      totalDue: currentRunningBalance, // Saves the exact snapshot
+      totalDue: currentRunningBalance, 
       remainingDue: Math.max(newCarry, 0),
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
@@ -526,6 +531,47 @@ export async function getPaymentHistory(studentId) {
     console.error("Error fetching history:", err);
     return [];
   }
+}
+
+export async function repairStudentHistory(studentId) {
+  const user = currentUser();
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can repair data.");
+
+  const txnsSnap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
+  const txns = txnsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
+    const tA = a.createdAt?.toDate?.()?.getTime() || new Date(a.paymentDate || 0).getTime();
+    const tB = b.createdAt?.toDate?.()?.getTime() || new Date(b.paymentDate || 0).getTime();
+    return tA - tB;
+  });
+
+  const billsSnap = await getDocs(query(collection(db, COL.monthlyBills), where("studentId", "==", studentId)));
+  const bills = billsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.month.localeCompare(a.month));
+
+  let currentRunningBalance = bills.length > 0 ? (bills[0].carriedForward || 0) : 0;
+  let updatedCount = 0;
+
+  const batch = writeBatch(db);
+
+  for (let i = txns.length - 1; i >= 0; i--) {
+    const txn = txns[i];
+    const amt = Number(txn.amountReceived || txn.netAmount || 0);
+    const disc = Number(txn.discount || 0);
+
+    const balanceBefore = currentRunningBalance + amt + disc;
+    
+    batch.update(doc(db, COL.transactions, txn.id), {
+      totalDue: balanceBefore,
+      remainingDue: currentRunningBalance
+    });
+
+    currentRunningBalance = balanceBefore;
+    updatedCount++;
+  }
+
+  await batch.commit();
+  await writeAuditLog({ action: "HISTORY_REPAIRED", studentId, newValue: { count: updatedCount } });
+  return updatedCount;
 }
 
 export async function getStudentPaymentSummary(studentId, session, month) {
