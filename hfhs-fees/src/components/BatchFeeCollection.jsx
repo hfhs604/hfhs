@@ -18,7 +18,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   const [rows, setRows] = useState({});
   const [histories, setHistories] = useState({});
-  const [bills, setBills] = useState({}); // NEW: Store actual bill documents
+  const [bills, setBills] = useState({}); // Store the actual bill documents
   const [selectedStudentProfiles, setSelectedStudentProfiles] = useState({});
 
   const [paymentDate, setPaymentDate] = useState(new Date().toISOString().slice(0, 10));
@@ -86,7 +86,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           };
 
           try {
-            // Fetch both the transaction history AND the exact bill document for this month
+            // Fetch both the history AND the exact monthly bill document
             const [hist, billDoc] = await Promise.all([
               getPaymentHistory(id),
               getMonthlyBill(session, month, id)
@@ -138,11 +138,10 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   const selectedList = Object.values(selectedStudentProfiles).filter(s => selectedIds.has(s.id));
 
-  // This now uses the exact same logic as Single Collection
+  // USE THE EXACT BILL DOCUMENT from Firestore
   const getStudentOutstanding = (studentId) => {
     const bill = bills[studentId];
     if (!bill) return 0;
-    // The bill document already has the correct carriedForward / totalDue calculated
     return bill.carriedForward || 0; 
   };
 
@@ -224,7 +223,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           studentName: s.name, 
           className: s.className,
           particulars: particulars,
-          totalDue: currentOutstanding, // The actual bill total, matching single collection
+          totalDue: currentOutstanding,
           remainingDue: Math.max(newBalance, 0),
         });
       } catch (err) {
@@ -237,7 +236,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
     if (receipts.length > 0) {
       setReceiptsToPrint(receipts);
-      handleClear(); 
+      handleClear(); // Resets the view entirely
     }
 
     if (errors.length === 0 && onDone) onDone(receipts);
