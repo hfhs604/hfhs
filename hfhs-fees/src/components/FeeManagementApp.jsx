@@ -11,15 +11,12 @@ import StudentDirectory from "./StudentDirectory";
 import FeeStructureConfig from "./FeeStructureConfig";
 import FeeCollection from "./FeeCollection";
 import BatchFeeCollection from "./BatchFeeCollection";
-import PaymentHistory from "./PaymentHistory";
 import DueManagement from "./DueManagement";
-import DiscountManager from "./DiscountManager";
 import Reports from "./Reports";
 import AuditLogViewer from "./AuditLogViewer";
 import Settings from "./Settings";
 import StudentPortal from "./StudentPortal";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
-import RelatedStudentsLookup from "./RelatedStudentsLookup";
 import AdvancesList from "./AdvancesList";
 import AttendanceTracker from "./AttendanceTracker";
 import ExamManager from "./ExamManager";
@@ -29,7 +26,6 @@ import "../styles/feeManagement.css";
 const NAV_SECTIONS = [
   { key: "dashboard", label: "Dashboard", roles: ["superAdmin", "admin", "accountant"] },
   { key: "students", label: "Students", roles: ["superAdmin", "admin", "accountant"] },
-  { key: "collect", label: "Fee Collection", roles: ["superAdmin", "admin", "accountant"] },
   { key: "dues", label: "Dues & Advances", roles: ["superAdmin", "admin", "accountant"] },
   { key: "attendance", label: "Attendance", roles: ["superAdmin", "admin", "staff", "accountant"] },
   { key: "exams", label: "Exams & Marks", roles: ["superAdmin", "admin", "staff"] },
@@ -70,7 +66,7 @@ export default function FeeManagementApp({ onLogout }) {
   const [sessions, setSessions] = useState([]);
   const [activeTab, setActiveTab] = useState("dashboard");
   
-  const [collectTab, setCollectTab] = useState("single");
+  const [studentsTab, setStudentsTab] = useState("single"); 
   const [duesTab, setDuesTab] = useState("due");
   const [settingsTab, setSettingsTab] = useState("sessions");
 
@@ -157,11 +153,9 @@ export default function FeeManagementApp({ onLogout }) {
             <h1 style={{ fontSize: "1.5em", color: "#1e293b" }}>Holy Faith High School — Fee Portal</h1>
             {onLogout && <button className="fm-secondary-btn" onClick={onLogout}>Log Out</button>}
           </div>
-          
           <div className="fm-content-inner">
             <StudentPortal />
           </div>
-          
           <footer className="fm-footer" style={{ background: "transparent", borderTop: "none", marginTop: 40 }}>
             All rights reserved © Holy Faith High School
           </footer>
@@ -188,7 +182,6 @@ export default function FeeManagementApp({ onLogout }) {
 
   return (
     <div className="fm-app">
-      
       <aside className={`fm-sidebar ${isSidebarOpen ? "" : "closed"}`}>
         <div className="fm-sidebar-header">
           <img src={schoolLogo} alt="Logo" className="fm-sidebar-logo" />
@@ -202,7 +195,7 @@ export default function FeeManagementApp({ onLogout }) {
               className={`fm-nav-btn ${activeTab === t.key ? "fm-nav-btn-active" : ""}`}
               onClick={() => {
                 setActiveTab(t.key);
-                if (t.key !== "collect") setSelectedStudentId(null);
+                if (t.key !== "students") setSelectedStudentId(null);
               }}
             >
               {t.label}
@@ -253,35 +246,20 @@ export default function FeeManagementApp({ onLogout }) {
             {activeTab === "dashboard" && <FeeDashboard session={session} />}
 
             {activeTab === "students" && (
-              <StudentDirectory
-                session={session}
-                role={role}
-                onSelectStudent={(id) => {
-                  setSelectedStudentId(id);
-                  setCollectTab("single");
-                  setActiveTab("collect");
-                }}
-              />
-            )}
-
-            {activeTab === "collect" && (
               <div>
                 <div className="fm-subtabs">
-                  <button 
-                    className={`fm-subtab-btn ${collectTab === "single" ? "active" : ""}`}
-                    onClick={() => setCollectTab("single")}
-                  >
-                    Single Student
+                  <button className={`fm-subtab-btn ${studentsTab === "single" ? "active" : ""}`} onClick={() => setStudentsTab("single")}>
+                    Single Collection
                   </button>
-                  <button 
-                    className={`fm-subtab-btn ${collectTab === "batch" ? "active" : ""}`}
-                    onClick={() => setCollectTab("batch")}
-                  >
-                    Batch Collection (Siblings)
+                  <button className={`fm-subtab-btn ${studentsTab === "batch" ? "active" : ""}`} onClick={() => setStudentsTab("batch")}>
+                    Batch Collection
+                  </button>
+                  <button className={`fm-subtab-btn ${studentsTab === "directory" ? "active" : ""}`} onClick={() => setStudentsTab("directory")}>
+                    Full Directory (Admin)
                   </button>
                 </div>
 
-                {collectTab === "single" && (
+                {studentsTab === "single" && (
                   <FeeCollection
                     session={session}
                     month={currentMonth}
@@ -290,7 +268,8 @@ export default function FeeManagementApp({ onLogout }) {
                     onReceiptGenerated={(receipt) => setLastReceipt(receipt)}
                   />
                 )}
-                {collectTab === "batch" && (
+                
+                {studentsTab === "batch" && (
                   <BatchFeeCollection
                     session={session}
                     month={currentMonth}
@@ -299,7 +278,18 @@ export default function FeeManagementApp({ onLogout }) {
                   />
                 )}
 
-                {collectTab === "single" && lastReceipt && (
+                {studentsTab === "directory" && (
+                  <StudentDirectory
+                    session={session}
+                    role={role}
+                    onSelectStudent={(id) => {
+                      setSelectedStudentId(id);
+                      setStudentsTab("single");
+                    }}
+                  />
+                )}
+
+                {studentsTab === "single" && lastReceipt && (
                   <div style={{ marginTop: 20 }}>
                     <h3 style={{ padding: "0 8px", color: "#166534" }}>
                       Payment recorded successfully — Receipt No.: {lastReceipt.receiptNumber}
@@ -313,16 +303,10 @@ export default function FeeManagementApp({ onLogout }) {
             {activeTab === "dues" && (
               <div>
                 <div className="fm-subtabs">
-                  <button 
-                    className={`fm-subtab-btn ${duesTab === "due" ? "active" : ""}`}
-                    onClick={() => setDuesTab("due")}
-                  >
-                    Outstanding Dues
+                  <button className={`fm-subtab-btn ${duesTab === "due" ? "active" : ""}`} onClick={() => setDuesTab("due")}>
+                    Outstanding Dues (Demand Slips)
                   </button>
-                  <button 
-                    className={`fm-subtab-btn ${duesTab === "advance" ? "active" : ""}`}
-                    onClick={() => setDuesTab("advance")}
-                  >
+                  <button className={`fm-subtab-btn ${duesTab === "advance" ? "active" : ""}`} onClick={() => setDuesTab("advance")}>
                     Advances (Credit)
                   </button>
                 </div>
@@ -344,16 +328,10 @@ export default function FeeManagementApp({ onLogout }) {
             {activeTab === "settings" && (
               <div>
                 <div className="fm-subtabs">
-                  <button 
-                    className={`fm-subtab-btn ${settingsTab === "sessions" ? "active" : ""}`}
-                    onClick={() => setSettingsTab("sessions")}
-                  >
+                  <button className={`fm-subtab-btn ${settingsTab === "sessions" ? "active" : ""}`} onClick={() => setSettingsTab("sessions")}>
                     Sessions & Audit
                   </button>
-                  <button 
-                    className={`fm-subtab-btn ${settingsTab === "structure" ? "active" : ""}`}
-                    onClick={() => setSettingsTab("structure")}
-                  >
+                  <button className={`fm-subtab-btn ${settingsTab === "structure" ? "active" : ""}`} onClick={() => setSettingsTab("structure")}>
                     Fee Structure
                   </button>
                 </div>
@@ -365,14 +343,8 @@ export default function FeeManagementApp({ onLogout }) {
                     <div className="fm-card" style={{ marginTop: 20 }}>
                       <h2>Academic Sessions</h2>
                       <div className="fm-search-row">
-                        <input
-                          placeholder="e.g. 2027-28"
-                          value={newSessionLabel}
-                          onChange={(e) => setNewSessionLabel(e.target.value)}
-                        />
-                        <button className="fm-primary-btn" onClick={handleCreateSession}>
-                          Create Session
-                        </button>
+                        <input placeholder="e.g. 2027-28" value={newSessionLabel} onChange={(e) => setNewSessionLabel(e.target.value)} />
+                        <button className="fm-primary-btn" onClick={handleCreateSession}>Create Session</button>
                       </div>
                       <ul className="fm-result-list" style={{ paddingLeft: 0, listStyle: "none" }}>
                         {sessions.map((s) => (
