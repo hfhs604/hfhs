@@ -132,12 +132,14 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
   } catch (err) {
     throw new Error(`Could not read students: ${err.message}`);
   }
-  if (students.length === 0) throw new Error(`No students found.`);
 
   for (const student of students) {
     const tuition = MONTHLY_TUITION[student.className] || 0;
     const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
-    const devFee = isFirstMonth ? DEVELOPMENT_FEE : 0;
+    
+    const currentMonthNum = parseInt(month.split("-")[1]);
+    const devFee = (currentMonthNum === 4 || isFirstMonth) ? DEVELOPMENT_FEE : 0;
+    
     const currentMonthTotal = tuition + transport + devFee;
 
     const txnSnap = await getDocs(query(
@@ -178,10 +180,16 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     
     await setDoc(billRef, {
       session, month, studentId: student.id, studentName: student.name, className: student.className,
-      previousDue, tuitionBilled: tuition, transportBilled: transport, devFeeBilled: devFee,
+      previousDue, 
+      tuitionBilled: tuition, 
+      transportBilled: transport, 
+      devFeeBilled: devFee,
       booksBilled: 0, previousYearBilled: 0, kitFeeBilled: 0,
-      totalDue, totalPaid, carriedForward,
-      status: carriedForward <= 0 ? "PAID" : "PARTIAL", createdAt: serverTimestamp(),
+      totalDue, 
+      totalPaid, 
+      carriedForward,
+      status: carriedForward <= 0 ? "PAID" : "PARTIAL", 
+      createdAt: serverTimestamp(),
     }, { merge: true }); 
     
     created++;
@@ -213,6 +221,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
   const result = await runTransaction(db, async (tx) => {
     const idemSnap = await tx.get(idemRef);
     if (idemSnap.exists()) return { alreadyProcessed: true, receiptId: idemSnap.data().receiptId };
+    
     const billSnap = await tx.get(billRef);
     if (!billSnap.exists()) throw new Error("No bill for this month.");
     const bill = billSnap.data();
@@ -220,6 +229,9 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const amt = Number(amountReceived);
     const disc = Number(discount);
     const late = Number(lateFee);
+
+    // CRITICAL FIX: The running balance BEFORE this transaction is what goes in the Total Bill column
+    const currentRunningBalance = bill.carriedForward !== undefined ? bill.carriedForward : bill.totalDue;
 
     const totalCredit = amt + disc;
     const newPaid = (bill.totalPaid || 0) + amt;
@@ -232,7 +244,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
       studentId, session, month, componentType: "monthly", amountReceived: amt,
       discount: disc, lateFee: late, netAmount: amt,
       previousDue: bill.previousDue || 0, 
-      totalDue: bill.totalDue || 0,       
+      totalDue: currentRunningBalance, // Save the snapshot here
       remainingDue: Math.max(newCarry, 0),
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
@@ -242,7 +254,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 
     tx.update(billRef, { totalPaid: newPaid, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL", lastPaymentAt: serverTimestamp() });
     tx.set(idemRef, { receiptId: receiptRef.id, createdAt: serverTimestamp() });
-    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid, totalCredit };
+    return { alreadyProcessed: false, receiptRef, txnRef, bill, newPaid, currentRunningBalance };
   });
 
   if (result.alreadyProcessed) {
@@ -258,7 +270,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     session, month, feeType, amountReceived: Number(amountReceived), discount: Number(discount),
     lateFee: Number(lateFee), 
     previousDue: result.bill.previousDue || 0,
-    totalDue: result.bill.totalDue || 0, 
+    totalDue: result.currentRunningBalance, 
     remainingDue: Math.max((result.bill.totalDue || 0) - result.newPaid, 0),
     paymentMethod, referenceNumber: referenceNumber || null, paymentDate, createdAt: serverTimestamp(),
   };
@@ -511,7 +523,6 @@ export async function getPaymentHistory(studentId) {
     return snap.docs
       .map((d) => ({ id: d.id, ...d.data() }))
       .sort((a, b) => {
-        // Sort Ascending: Oldest first, Newest last (like the paper ledger)
         const timeA = a.createdAt?.toDate?.()?.getTime() || new Date(a.paymentDate || 0).getTime();
         const timeB = b.createdAt?.toDate?.()?.getTime() || new Date(b.paymentDate || 0).getTime();
         return timeA - timeB; 
