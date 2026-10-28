@@ -1,8 +1,3 @@
-/**
- * feeService.js
- * Fee Management data layer for Holy Faith High School.
- */
-
 import { db, auth } from "../firebase/config";
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, setDoc,
@@ -230,7 +225,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    // CRITICAL FIX: The running balance BEFORE this transaction is what goes in the Total Bill column
+    // THE CRITICAL FIX: Save the running balance before this transaction as the "Total Bill"
     const currentRunningBalance = bill.carriedForward !== undefined ? bill.carriedForward : bill.totalDue;
 
     const totalCredit = amt + disc;
@@ -244,7 +239,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
       studentId, session, month, componentType: "monthly", amountReceived: amt,
       discount: disc, lateFee: late, netAmount: amt,
       previousDue: bill.previousDue || 0, 
-      totalDue: currentRunningBalance, // Save the snapshot here
+      totalDue: currentRunningBalance, // Saves the exact snapshot
       remainingDue: Math.max(newCarry, 0),
       paymentDate: Timestamp.fromDate(new Date(paymentDate)),
       paymentMethod, referenceNumber: referenceNumber || null, feeType, remarks,
@@ -618,103 +613,4 @@ export async function reserveAdmissionNumber() {
   return String(next);
 }
 
-export async function updateStudentFull(studentId, updates) {
-  const user = currentUser(); const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (!["superAdmin", "admin", "accountant"].includes(userDoc.data()?.role)) throw new Error("Permission denied.");
-  await updateDoc(doc(db, COL.students, studentId), { ...updates, updatedBy: user.uid, updatedAt: serverTimestamp() });
-  await writeAuditLog({ action: "STUDENT_UPDATED", studentId, newValue: updates });
-  return true;
-}
-
-export async function deleteStudentCompletely(studentId, studentName) {
-  const user = currentUser(); const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can delete.");
-  const studentRef = doc(db, COL.students, studentId); const studentSnap = await getDoc(studentRef);
-  if (!studentSnap.exists()) throw new Error("Student not found.");
-  const student = studentSnap.data();
-  const summary = { studentId, name: student.name || studentName, billsDeleted: 0, transactionsDeleted: 0, receiptsDeleted: 0, discountsDeleted: 0 };
-  
-  await deleteDoc(studentRef);
-  const deleteColl = async (coll, key, val, summaryKey) => {
-    try { const snap = await getDocs(query(collection(db, coll), where(key, "==", val))); for (const d of snap.docs) { await deleteDoc(doc(db, coll, d.id)); summary[summaryKey]++; } } catch (err) {}
-  };
-  await deleteColl(COL.monthlyBills, "studentId", studentId, "billsDeleted");
-  await deleteColl(COL.transactions, "studentId", studentId, "transactionsDeleted");
-  await deleteColl(COL.receipts, "studentId", studentId, "receiptsDeleted");
-  await deleteColl(COL.discounts, "studentId", studentId, "discountsDeleted");
-  
-  await writeAuditLog({ action: "STUDENT_DELETED", studentId, previousValue: { name: student.name, admissionNumber: student.admissionNumber }, newValue: { deletedBy: user.email || user.uid, summary } });
-  return summary;
-}
-
-export async function setStudentTransport(studentId, amount) {
-  const user = currentUser(); const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can change transport.");
-  const amt = Number(amount); if (amt !== 0 && (amt < 800 || amt > 1500)) throw new Error("Transport must be 0 or between ₹800 and ₹1500.");
-  
-  const studentRef = doc(db, COL.students, studentId); const before = await getDoc(studentRef);
-  if (!before.exists()) throw new Error("Student not found.");
-  await updateDoc(studentRef, { transportOpted: amt > 0, transportAmount: amt });
-  
-  const month = monthKey(); const session = before.data().session;
-  if (session) {
-    const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-"); const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId}`);
-    const billSnap = await getDoc(billRef);
-    if (billSnap.exists() && (billSnap.data().totalPaid || 0) === 0) {
-      const bill = billSnap.data(); const oldTransport = bill.transportBilled || 0;
-      const newTotalDue = (bill.totalDue || 0) - oldTransport + amt;
-      await updateDoc(billRef, { transportBilled: amt, totalDue: newTotalDue, carriedForward: newTotalDue - (bill.totalPaid || 0) });
-    }
-  }
-  await writeAuditLog({ action: "TRANSPORT_UPDATED", studentId, previousValue: { opted: before.data().transportOpted }, newValue: { opted: amt > 0 } });
-  return { transportOpted: amt > 0, transportAmount: amt };
-}
-
-export async function deleteTransaction(transactionId, reason = "") {
-  const user = currentUser(); const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can delete a transaction.");
-  const txnRef = doc(db, COL.transactions, transactionId); const txnSnap = await getDoc(txnRef);
-  if (!txnSnap.exists()) throw new Error("Transaction not found."); const txn = txnSnap.data();
-
-  if (txn.studentId && txn.session && txn.month) {
-    const safeId = String(txn.studentId).replace(/[\/\\.\*\[\]:;]/g, "-"); const billRef = doc(db, COL.monthlyBills, `${txn.session}_${txn.month}_${safeId}`);
-    const billSnap = await getDoc(billRef);
-    if (billSnap.exists()) {
-      const bill = billSnap.data(); const amt = Number(txn.netAmount || 0); const disc = Number(txn.discount || 0);
-      
-      if (!txn.componentType || txn.componentType === "monthly" || txn.componentType === "refund") {
-        const newPaid = Math.max((bill.totalPaid || 0) - amt, 0); 
-        const newCarry = (bill.totalDue || 0) - newPaid + disc; 
-        await updateDoc(billRef, { totalPaid: newPaid, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL" });
-      } else {
-        const field = { books: "booksBilled", kit: "kitFeeBilled", previousYear: "previousYearBilled", transport: "transportBilled" }[txn.componentType];
-        if (field) {
-          const newFieldValue = Math.max((bill[field] || 0) - amt, 0); const newDue = Math.max((bill.totalDue || 0) - amt, 0); const newCarry = newDue - (bill.totalPaid || 0);
-          await updateDoc(billRef, { [field]: newFieldValue, totalDue: newDue, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL" });
-        }
-      }
-    }
-  }
-  await deleteDoc(txnRef); if (txn.receiptRef) { try { await deleteDoc(doc(db, COL.receipts, txn.receiptRef)); } catch (err) {} }
-  await writeAuditLog({ action: "TRANSACTION_DELETED", studentId: txn.studentId || null, previousValue: txn, newValue: { deletedBy: user.email || user.uid, reason: reason || "Not specified" } });
-  return { success: true };
-}
-
-export async function getAttendance(date, className) {
-  try { const snap = await getDoc(doc(db, COL.attendance, `${date}_${className || "all"}`)); return snap.exists() ? snap.data() : { date, className, records: {} }; } catch (err) { return { date, className, records: {} }; }
-}
-export async function saveAttendance(date, className, records) {
-  const user = currentUser(); await setDoc(doc(db, COL.attendance, `${date}_${className || "all"}`), { date, className, records, updatedBy: user.uid, updatedAt: serverTimestamp() }, { merge: true }); return { success: true };
-}
-export async function getExams(session) {
-  try { const snap = await getDocs(query(collection(db, COL.exams), where("session", "==", session))); return snap.docs.map((d) => ({ id: d.id, ...d.data() })); } catch (err) { return []; }
-}
-export async function createExam({ session, name, className }) {
-  const user = currentUser(); const ref = doc(collection(db, COL.exams)); await setDoc(ref, { session, name, className, createdAt: serverTimestamp(), createdBy: user.uid }); return ref.id;
-}
-export async function getExamMarks(examId) {
-  try { const snap = await getDocs(collection(db, COL.exams, examId, "marks")); const marks = {}; snap.docs.forEach((d) => { marks[d.id] = d.data(); }); return marks; } catch (err) { return {}; }
-}
-export async function saveStudentMarks({ examId, studentId, marks, remarks = "" }) {
-  const user = currentUser(); await setDoc(doc(db, COL.exams, examId, "marks", studentId), { marks, remarks, updatedBy: user.uid, updatedAt: serverTimestamp() }); return { success: true };
-}
+export async function update
