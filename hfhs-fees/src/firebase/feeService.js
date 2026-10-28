@@ -86,10 +86,11 @@ export async function getStudentFeeProfile(studentId) {
 export async function searchStudents(term) {
   const raw = (term || "").trim();
   if (!raw) return [];
-  
   const results = new Map();
+  const upper = raw.toUpperCase(), title = raw.toLowerCase().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" "), lower = raw.toLowerCase();
+  const nameVariants = Array.from(new Set([upper, title, lower]));
 
-  // 1. If it's a number (Admission No), allow searching regardless of length
+  // 1. Exact Admission Number Match (allows 1-digit)
   if (/^\d+$/.test(raw)) {
     try {
       const snap = await getDocs(query(collection(db, COL.students), where("admissionNumber", "==", raw), fsLimit(20)));
@@ -98,19 +99,29 @@ export async function searchStudents(term) {
     } catch (err) {}
   }
 
-  // 2. For names, enforce a minimum of 3 characters to prevent massive reads
-  if (raw.length < 3) return [];
+  // 2. Exact Name Match (limits to 3+ chars to save reads)
+  if (raw.length >= 3) {
+    for (const variant of nameVariants) {
+      try {
+        const snap = await getDocs(query(collection(db, COL.students), where("name", ">=", variant), where("name", "<=", variant + "\uf8ff"), fsLimit(20)));
+        snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
+      } catch (err) {}
+    }
+  }
 
-  const upper = raw.toUpperCase();
-  const title = raw.toLowerCase().split(/\s+/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
-  
-  for (const variant of [upper, title]) {
+  // 3. Fallback for Parent/Guardian search (requires 3+ chars)
+  if (results.size === 0 && raw.length >= 3) {
     try {
-      const snap = await getDocs(query(collection(db, COL.students), where("name", ">=", variant), where("name", "<=", variant + "\uf8ff"), fsLimit(20)));
-      snap.forEach((d) => results.set(d.id, { id: d.id, ...d.data() }));
+      const snap = await getDocs(query(collection(db, COL.students), fsLimit(500)));
+      const needle = raw.toLowerCase();
+      snap.forEach((d) => {
+        const s = d.data();
+        const hay = `${s.name || ""} ${s.fatherName || ""} ${s.motherName || ""} ${s.guardianName || ""}`.toLowerCase();
+        if (hay.includes(needle)) results.set(d.id, { id: d.id, ...s });
+      });
     } catch (err) {}
   }
-  
+
   return Array.from(results.values());
 }
 
@@ -178,7 +189,7 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
       booksBilled: 0, previousYearBilled: 0, kitFeeBilled: 0,
       totalDue, totalPaid, carriedForward,
       status: carriedForward <= 0 ? "PAID" : "PARTIAL", createdAt: serverTimestamp(),
-    }, { merge: true }); // Merge true so we don't overwrite manual edits
+    }, { merge: true }); 
     
     created++;
   }
@@ -333,7 +344,6 @@ export async function editTransaction({ transactionId, newAmount, newDiscount, n
   
   const editTime = serverTimestamp();
 
-  // 1. Update the Transaction Record
   await updateDoc(txnRef, {
     amountReceived: Number(newAmount),
     discount: Number(newDiscount),
@@ -343,7 +353,6 @@ export async function editTransaction({ transactionId, newAmount, newDiscount, n
     editedAt: editTime 
   });
 
-  // 2. Update the Receipt Record to trigger the UI timestamp
   if (txn.receiptRef) {
     const receiptRef = doc(db, COL.receipts, txn.receiptRef);
     const receiptSnap = await getDoc(receiptRef);
