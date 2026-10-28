@@ -8,6 +8,7 @@ import {
 
 import FeeDashboard from "./FeeDashboard";
 import StudentDirectory from "./StudentDirectory";
+import Admissions from "./Admissions"; // IMPORTED NEW COMPONENT
 import FeeStructureConfig from "./FeeStructureConfig";
 import FeeCollection from "./FeeCollection";
 import BatchFeeCollection from "./BatchFeeCollection";
@@ -25,6 +26,7 @@ import "../styles/feeManagement.css";
 
 const NAV_SECTIONS = [
   { key: "dashboard", label: "Dashboard", roles: ["superAdmin", "admin", "accountant"] },
+  { key: "admissions", label: "Admissions", roles: ["superAdmin", "admin", "accountant"] }, // NEW TAB
   { key: "students", label: "Students", roles: ["superAdmin", "admin", "accountant"] },
   { key: "dues", label: "Dues & Advances", roles: ["superAdmin", "admin", "accountant"] },
   { key: "attendance", label: "Attendance", roles: ["superAdmin", "admin", "staff", "accountant"] },
@@ -245,6 +247,8 @@ export default function FeeManagementApp({ onLogout }) {
             
             {activeTab === "dashboard" && <FeeDashboard session={session} />}
 
+            {activeTab === "admissions" && <Admissions session={session} role={role} />}
+
             {activeTab === "students" && (
               <div>
                 <div className="fm-subtabs">
@@ -255,7 +259,7 @@ export default function FeeManagementApp({ onLogout }) {
                     Batch Collection
                   </button>
                   <button className={`fm-subtab-btn ${studentsTab === "directory" ? "active" : ""}`} onClick={() => setStudentsTab("directory")}>
-                    Full Directory (Admin)
+                    Directory (Search)
                   </button>
                 </div>
 
