@@ -181,13 +181,45 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
 
-  const calculatedHistory = history.map((t) => {
-    return {
-      ...t,
-      snapshotTotalDue: t.totalDue || 0, 
-      runningBalance: t.remainingDue !== undefined ? t.remainingDue : 0,
-    };
-  });
+  // =========================================================================
+  // PERFECT LEDGER CALCULATION (Chronological, mirrors the paper)
+  // =========================================================================
+  let calculatedHistory = [];
+  
+  if (bill && history.length > 0) {
+    // 1. Calculate the Total Initial Bill (before any payments)
+    // We use the bill's data to figure out the initial base fee.
+    const latestBillMonth = parseInt(bill.month.split("-")[1]);
+    const monthsBilled = latestBillMonth >= 4 ? (latestBillMonth - 4 + 1) : 0;
+    const monthlyFee = tuition + transport;
+    
+    // The absolute initial amount they were billed when they joined
+    const initialBillTotal = (monthlyFee * monthsBilled) + devFee + books + prevYear + kit;
+
+    // 2. Walk through transactions chronologically (Oldest -> Newest)
+    let currentRunningBill = initialBillTotal;
+    let currentBalance = initialBillTotal;
+
+    calculatedHistory = history.map((t) => {
+      const amt = Number(t.amountReceived || t.netAmount || 0);
+      const disc = Number(t.discount || 0);
+      
+      // Snapshot the state BEFORE this transaction
+      const billSnapshot = currentRunningBill;
+      const balanceSnapshot = currentBalance;
+      
+      // Apply the payment
+      if (!t.componentType || t.componentType === "monthly") {
+        currentBalance = Math.max(currentBalance - amt - disc, 0);
+      }
+
+      return {
+        ...t,
+        snapshotTotalDue: billSnapshot, 
+        runningBalance: balanceSnapshot,
+      };
+    });
+  }
 
   const visibleHistory = showAllTransactions ? calculatedHistory : calculatedHistory.slice(0, 5);
 
