@@ -29,6 +29,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
   const [loadingReceipt, setLoadingReceipt] = useState(false);
 
+  // FIX: Clear all selected state when a new search is made
   async function handleSearch(e) {
     e.preventDefault();
     const term = search.trim();
@@ -40,6 +41,8 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     
     setLoadingStudents(true);
     setSearchError(null);
+    setSearchResults([]); // Clear old results immediately
+    
     try {
       const found = await searchStudents(term);
       if (found.length === 0) setSearchError("No students found.");
@@ -49,6 +52,17 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     } finally {
       setLoadingStudents(false);
     }
+  }
+
+  // FIX: Clear function resets EVERYTHING
+  function handleClear() {
+    setSearch("");
+    setSearchResults([]);
+    setSelectedIds(new Set());
+    setSelectedStudentProfiles({});
+    setRows({});
+    setHistories({});
+    setSearchError(null);
   }
 
   useEffect(() => {
@@ -96,6 +110,12 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       const next = new Set(prev);
       if (next.has(student.id)) {
         next.delete(student.id);
+        // Clean up the profile if unchecked
+        setSelectedStudentProfiles(profiles => {
+          const copy = { ...profiles };
+          delete copy[student.id];
+          return copy;
+        });
       } else {
         next.add(student.id);
         setSelectedStudentProfiles(profiles => ({ ...profiles, [student.id]: student }));
@@ -136,7 +156,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       }
     });
 
-    return totalExpectedBill + addOns - totalCash - totalDiscount;
+    return Math.max(totalExpectedBill + addOns - totalCash - totalDiscount, 0);
   };
 
   let calculatedPaid = 0;
@@ -235,9 +255,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       });
       setRows(clearedRows);
       setHistories({}); 
-      setSelectedIds(new Set()); 
-      setSelectedStudentProfiles({});
-      setSearchResults([]);
+      handleClear(); // Full reset after submission
     }
 
     if (errors.length === 0 && onDone) onDone(receipts);
@@ -323,11 +341,9 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         <button type="submit" disabled={loadingStudents}>
           {loadingStudents ? "Searching..." : "Search"}
         </button>
-        {searchResults.length > 0 && (
-          <button type="button" className="fm-secondary-btn" onClick={() => { setSearch(""); setSearchResults([]); }}>
-            Clear
-          </button>
-        )}
+        <button type="button" className="fm-secondary-btn" onClick={handleClear}>
+          Clear All
+        </button>
       </form>
 
       {searchResults.length > 0 && (
@@ -338,9 +354,12 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                 <th></th>
                 <th>Name</th>
                 <th>Adm#</th>
+                <th>Roll</th>
                 <th>Class</th>
                 <th>Father</th>
+                <th>Mother</th>
                 <th>Mobile</th>
+                <th>Status</th>
               </tr>
             </thead>
             <tbody>
@@ -351,9 +370,16 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                   </td>
                   <td style={{ fontWeight: 500 }}>{s.name}</td>
                   <td>{s.admissionNumber}</td>
+                  <td>{s.rollNumber ?? "—"}</td>
                   <td>{s.className}{s.section ? `-${s.section}` : ""}</td>
                   <td>{s.fatherName || "—"}</td>
+                  <td>{s.motherName || "—"}</td>
                   <td>{s.mobileNumber || s.fatherMobile || "—"}</td>
+                  <td>
+                    <span className={`fm-badge fm-badge-${(s.accountStatus || "PAID").toLowerCase()}`}>
+                      {s.accountStatus || "PAID"}
+                    </span>
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -416,7 +442,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
               <strong style={{ color: "#059669" }}>₹{currentTotalDiscount.toLocaleString()}</strong>
             </div>
             <div style={{ display: "flex", gap: 8 }}>
-              <button type="button" className="fm-secondary-btn" onClick={() => { setSelectedIds(new Set()); setRows({}); setSelectedStudentProfiles({}); }} disabled={submitting}>Reset</button>
+              <button type="button" className="fm-secondary-btn" onClick={handleClear} disabled={submitting}>Reset All</button>
               <button type="button" className="fm-primary-btn" onClick={handleSubmit} disabled={submitting || selectedList.length === 0}>
                 {submitting ? "Recording…" : `Record ${selectedList.length} payment(s)`}
               </button>
