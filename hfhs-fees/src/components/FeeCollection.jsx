@@ -5,10 +5,11 @@ import { db, auth } from "../firebase/config";
 import {
   searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
   addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole,
-  editTransaction, MONTHLY_TUITION, DEVELOPMENT_FEE
+  editTransaction
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import StudentPrintPage from "./StudentPrintPage";
+import LedgerPrintSheet from "./LedgerPrintSheet";
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
 
@@ -34,6 +35,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const [editingTxn, setEditingTxn] = useState(null);
 
   const [printingStudent, setPrintingStudent] = useState(null);
+  const [printLedger, setPrintLedger] = useState(false);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
 
   const [addonBusy, setAddonBusy] = useState(false);
@@ -179,56 +181,14 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
 
-  // CALCULATE RUNNING TOTAL BILL FOR HISTORY
-  const sessionStartYear = parseInt(session.split("-")[0]);
-  const currentMonthNum = new Date().getMonth() + 1;
-  const monthsBilled = currentMonthNum >= 4 ? (currentMonthNum - 4 + 1) : 0; 
-
-  const baseTuition = MONTHLY_TUITION[selectedStudent?.className] || 0;
-  const baseTransport = selectedStudent?.transportOpted ? (selectedStudent.transportAmount || 0) : 0;
-  const monthlyFee = baseTuition + baseTransport;
-
-  let runningTotalBill = 0; // Start at 0
-  let runningBalance = 0;
-  
   const calculatedHistory = history.map((t) => {
-    const amt = Number(t.amountReceived || t.netAmount || 0);
-    const disc = Number(t.discount || 0);
-    
-    // Only add to running bill if it's a regular monthly transaction
-    if (!t.componentType || t.componentType === "monthly") {
-      // Extract the month from the transaction. (Fallback to transaction's month if available)
-      const txnMonthStr = t.month || month; 
-      const txnM = parseInt(txnMonthStr.split("-")[1]);
-      
-      // Calculate how many months have passed since April
-      const monthsPassed = txnM >= 4 ? (txnM - 4 + 1) : 0;
-      
-      // Initial Expected Bill = All months passed * monthly fee + development fee
-      let expectedBill = (monthsPassed * monthlyFee) + DEVELOPMENT_FEE;
-      
-      // Add any extra one-time fees (Books, Kit, Prev Year) that were recorded in this transaction or globally
-      // Note: For simplicity, we'll assume the first month includes the Books fee if it was recorded.
-      // In a real scenario, the backend calculates this perfectly. Here we match the paper ledger.
-      if (monthsPassed === 1) {
-        expectedBill += 11016; // The ₹11,016 books fee from your paper
-      }
-
-      // Note: This is an approximation to match the paper. The real bill is calculated dynamically.
-      // To be 100% accurate with the paper, we just use the cumulative sum of bills generated.
-      runningTotalBill = expectedBill; 
-    }
-
-    runningBalance = Math.max(runningTotalBill - amt - disc, 0);
-
     return {
       ...t,
-      snapshotTotalDue: runningTotalBill, 
-      runningBalance: runningBalance,
+      snapshotTotalDue: t.totalDue || 0, 
+      runningBalance: t.remainingDue !== undefined ? t.remainingDue : 0,
     };
   });
 
-  // Show oldest first by default (top 5)
   const visibleHistory = showAllTransactions ? calculatedHistory : calculatedHistory.slice(0, 5);
 
   async function handleSubmit(e) {
@@ -543,7 +503,16 @@ export default function FeeCollection({ session, month, role, initialStudentId }
           )}
 
           <div style={{ marginTop: 40, borderTop: "1px solid #e2e8f0", paddingTop: 20 }}>
-            <h3>Student Transaction History</h3>
+            
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
+              <h3 style={{ margin: 0 }}>Student Transaction History</h3>
+              {history.length > 0 && (
+                <button type="button" className="fm-primary-btn" style={{ padding: "8px 16px" }} onClick={() => setPrintLedger(true)}>
+                  🖨️ Print Ledger
+                </button>
+              )}
+            </div>
+
             {calculatedHistory.length === 0 ? (
               <p className="fm-empty-state">No transactions recorded yet for this student.</p>
             ) : (
@@ -575,14 +544,21 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                           </td>
                           <td>{t.paymentMethod || "Cash"}</td>
                           <td style={{ textAlign: "center", whiteSpace: "nowrap" }}>
-                            <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => handleViewReceipt(t)}>
+                            
+                            <button type="button" title="View Receipt" className="fm-icon-btn" style={{ marginRight: 6 }} onClick={() => handleViewReceipt(t)}>
                               👁️
                             </button>
+
+                            <button type="button" title="Print Receipt" className="fm-icon-btn" style={{ marginRight: 6 }} onClick={() => handleViewReceipt(t)}>
+                              🖨️
+                            </button>
+
                             {userRole === "superAdmin" && (
                               <>
-                                <button type="button" title="Edit" className="fm-icon-btn" style={{ marginRight: 8 }} onClick={() => setEditingTxn({...t, paymentDate: new Date(t.paymentDate?.seconds ? t.paymentDate.seconds * 1000 : t.paymentDate).toISOString().slice(0, 10)})}>
+                                <button type="button" title="Edit" className="fm-icon-btn" style={{ marginRight: 6 }} onClick={() => setEditingTxn({...t, paymentDate: new Date(t.paymentDate?.seconds ? t.paymentDate.seconds * 1000 : t.paymentDate).toISOString().slice(0, 10)})}>
                                   ✏️
                                 </button>
+                                
                                 <button type="button" title="Delete" className="fm-icon-btn fm-danger-link" onClick={() => handleDeleteTransaction(t)} disabled={deletingId === t.id}>
                                   {deletingId === t.id ? "⏳" : "🗑️"}
                                 </button>
@@ -653,6 +629,10 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
       <PrintManager active={!!printingStudent} onClose={() => setPrintingStudent(null)} type="student">
         {printingStudent && <StudentPrintPage student={printingStudent} />}
+      </PrintManager>
+
+      <PrintManager active={printLedger} onClose={() => setPrintLedger(false)} type="student">
+        {printLedger && selectedStudent && <LedgerPrintSheet student={selectedStudent} history={calculatedHistory} session={session} currentBalance={finalBalance} />}
       </PrintManager>
     </div>
   );
