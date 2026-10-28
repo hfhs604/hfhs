@@ -129,84 +129,60 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
   if (students.length === 0) throw new Error(`No students found.`);
 
   for (const student of students) {
-    let startMonth = "04"; 
-    if (student.dateOfAdmission) {
-      startMonth = String(new Date(student.dateOfAdmission).getMonth() + 1).padStart(2, '0');
+    // 1. Calculate Base Monthly Fees
+    const tuition = MONTHLY_TUITION[student.className] || 0;
+    const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
+    const devFee = isFirstMonth ? DEVELOPMENT_FEE : 0;
+    const currentMonthTotal = tuition + transport + devFee;
+
+    // 2. Fetch ALL past transactions for this session to calculate actual paid amounts
+    const txnSnap = await getDocs(query(
+      collection(db, COL.transactions),
+      where("studentId", "==", student.id),
+      where("session", "==", session),
+      where("voided", "==", false)
+    ));
+    
+    let totalPaid = 0;
+    let totalDiscount = 0;
+    txnSnap.forEach(t => {
+      const data = t.data();
+      if (!data.componentType || data.componentType === "monthly") {
+        totalPaid += Number(data.amountReceived || data.netAmount || 0);
+        totalDiscount += Number(data.discount || 0);
+      }
+    });
+
+    // 3. Calculate Previous Due from the ACTUAL previous bill
+    let previousDue = 0;
+    const prevM = parseInt(month.split("-")[1]) - 1;
+    const prevY = parseInt(month.split("-")[0]);
+    if (prevM > 0) {
+       const prevMonthStr = `${prevY}-${String(prevM).padStart(2, '0')}`;
+       const safePrevId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
+       const prevRef = doc(db, COL.monthlyBills, `${session}_${prevMonthStr}_${safePrevId}`);
+       const prevSnap = await getDoc(prevRef);
+       if (prevSnap.exists()) {
+         previousDue = prevSnap.data().carriedForward || 0;
+       }
     }
 
-    const targetYear = month.split("-")[0];
-    const targetMonthNum = parseInt(month.split("-")[1]);
+    const totalDue = previousDue + currentMonthTotal;
+    const carriedForward = Math.max(totalDue - totalPaid - totalDiscount, 0);
 
-    for (let m = parseInt(startMonth); m <= targetMonthNum; m++) {
-      const currentMonthStr = `${targetYear}-${String(m).padStart(2, '0')}`;
-      const isApril = m === 4;
-      const devFee = isApril ? DEVELOPMENT_FEE : 0;
-
-      let previousDue = 0;
-      const prevM = m === 1 ? 12 : m - 1;
-      const prevY = m === 1 ? parseInt(targetYear) - 1 : targetYear;
-      const prevMonthStr = `${prevY}-${String(prevM).padStart(2, '0')}`;
-
-      const safePrevId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
-      const prevRef = doc(db, COL.monthlyBills, `${session}_${prevMonthStr}_${safePrevId}`);
-      const prevSnap = await getDoc(prevRef);
-      
-      if (prevSnap.exists()) {
-        // Calculate TRUE balance based on transactions to fix old corrupted data
-        const prevData = prevSnap.data();
-        const totalDue = prevData.totalDue || 0;
-        
-        let totalCash = 0, totalDisc = 0;
-        try {
-          const txnSnap = await getDocs(query(
-            collection(db, COL.transactions),
-            where("studentId", "==", student.id),
-            where("session", "==", session),
-            where("month", "==", prevMonthStr),
-            where("voided", "==", false)
-          ));
-          txnSnap.forEach(t => {
-            totalCash += Number(t.data().netAmount || 0);
-            totalDisc += Number(t.data().discount || 0);
-          });
-        } catch(e) {}
-        
-        previousDue = Math.max(totalDue - totalCash - totalDisc, 0);
-      }
-
-      const tuitionBilled = MONTHLY_TUITION[student.className] || 0;
-      const transportBilled = student.transportOpted ? (student.transportAmount || 0) : 0;
-      
-      const safeStudentId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
-      const billId = `${session}_${currentMonthStr}_${safeStudentId}`;
-      const billRef = doc(db, COL.monthlyBills, billId);
-      const billSnap = await getDoc(billRef);
-
-      if (!billSnap.exists()) {
-        const totalDue = previousDue + tuitionBilled + transportBilled + devFee;
-        
-        await setDoc(billRef, {
-          session, 
-          month: currentMonthStr, 
-          studentId: student.id, 
-          studentName: student.name, 
-          className: student.className,
-          previousDue, 
-          tuitionBilled, 
-          transportBilled, 
-          devFeeBilled: devFee, 
-          booksBilled: 0,
-          previousYearBilled: 0, 
-          kitFeeBilled: 0, 
-          totalDue, 
-          totalPaid: 0, 
-          carriedForward: totalDue,
-          status: totalDue > 0 ? "DUE" : "PAID", 
-          createdAt: serverTimestamp(),
-        });
-        created++;
-      }
-    }
+    // 4. Save the clean Bill
+    const safeStudentId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
+    const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeStudentId}`);
+    
+    await setDoc(billRef, {
+      session, month, studentId: student.id, studentName: student.name, className: student.className,
+      previousDue, tuitionBilled: tuition, transportBilled: transport, devFeeBilled: devFee,
+      booksBilled: 0, previousYearBilled: 0, kitFeeBilled: 0,
+      totalDue, totalPaid, carriedForward,
+      status: carriedForward <= 0 ? "PAID" : "PARTIAL", createdAt: serverTimestamp(),
+    }, { merge: true }); // Merge true so we don't overwrite manual edits
+    
+    created++;
   }
 
   await writeAuditLog({ action: "MONTH_STARTED", newValue: { session, month, isFirstMonth, studentCount: created } });
@@ -356,15 +332,31 @@ export async function editTransaction({ transactionId, newAmount, newDiscount, n
   const txnSnap = await getDoc(txnRef);
   if (!txnSnap.exists()) throw new Error("Transaction not found.");
   const txn = txnSnap.data();
+  
+  const editTime = serverTimestamp();
 
+  // 1. Update the Transaction Record
   await updateDoc(txnRef, {
     amountReceived: Number(newAmount),
     discount: Number(newDiscount),
     netAmount: Number(newAmount),
     paymentDate: Timestamp.fromDate(new Date(newPaymentDate)),
     editedBy: user.email || user.uid,
-    editedAt: serverTimestamp()
+    editedAt: editTime 
   });
+
+  // 2. Update the Receipt Record to trigger the UI timestamp
+  if (txn.receiptRef) {
+    const receiptRef = doc(db, COL.receipts, txn.receiptRef);
+    const receiptSnap = await getDoc(receiptRef);
+    if (receiptSnap.exists()) {
+      await updateDoc(receiptRef, {
+        amountReceived: Number(newAmount),
+        discount: Number(newDiscount),
+        editedAt: editTime 
+      });
+    }
+  }
 
   await writeAuditLog({ action: "TRANSACTION_EDITED", studentId: txn.studentId, previousValue: txn, newValue: { amount: newAmount, discount: newDiscount, date: newPaymentDate }, transactionRef: transactionId });
   return { success: true };
