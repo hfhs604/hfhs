@@ -5,7 +5,7 @@ import { db, auth } from "../firebase/config";
 import {
   searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
   addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole,
-  editTransaction
+  editTransaction, repairStudentHistory
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import StudentPrintPage from "./StudentPrintPage";
@@ -25,6 +25,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   
   const [loadingBill, setLoadingBill] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  const [repairing, setRepairing] = useState(false);
   const [error, setError] = useState(null);
   const [idempotencyKey, setIdempotencyKey] = useState(null);
   const [flash, setFlash] = useState("");
@@ -93,6 +94,21 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       setError(e.message);
     } finally {
       setLoadingBill(false);
+    }
+  }
+
+  async function handleRepair() {
+    if (!window.confirm("This will recalculate the historical running balances for this student to match the paper ledger. Proceed?")) return;
+    setRepairing(true);
+    setError(null);
+    try {
+      await repairStudentHistory(selectedStudent.id);
+      await refreshAll(selectedStudent.id);
+      showFlash("✅ Ledger data repaired successfully.");
+    } catch (err) {
+      setError(`❌ Failed to repair: ${err.message}`);
+    } finally {
+      setRepairing(false);
     }
   }
 
@@ -181,36 +197,13 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
 
-  // PERFECT LEDGER CALCULATION
-  let calculatedHistory = [];
-  
-  if (bill && history.length > 0) {
-    const latestBillMonth = parseInt(bill.month.split("-")[1]);
-    const monthsBilled = latestBillMonth >= 4 ? (latestBillMonth - 4 + 1) : 0;
-    const monthlyFee = tuition + transport;
-    const initialBillTotal = (monthlyFee * monthsBilled) + devFee + books + prevYear + kit;
-
-    let currentRunningBill = initialBillTotal;
-    let currentBalance = initialBillTotal;
-
-    calculatedHistory = history.map((t) => {
-      const amt = Number(t.amountReceived || t.netAmount || 0);
-      const disc = Number(t.discount || 0);
-      
-      const billSnapshot = currentRunningBill;
-      const balanceSnapshot = currentBalance;
-      
-      if (!t.componentType || t.componentType === "monthly") {
-        currentBalance = Math.max(currentBalance - amt - disc, 0);
-      }
-
-      return {
-        ...t,
-        snapshotTotalDue: billSnapshot, 
-        runningBalance: balanceSnapshot,
-      };
-    });
-  }
+  const calculatedHistory = history.map((t) => {
+    return {
+      ...t,
+      snapshotTotalDue: t.totalDue || 0, 
+      runningBalance: t.remainingDue !== undefined ? t.remainingDue : 0,
+    };
+  });
 
   const visibleHistory = showAllTransactions ? calculatedHistory : calculatedHistory.slice(0, 5);
 
@@ -529,11 +522,18 @@ export default function FeeCollection({ session, month, role, initialStudentId }
             
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ margin: 0 }}>Student Transaction History</h3>
-              {history.length > 0 && (
-                <button type="button" className="fm-primary-btn" style={{ padding: "8px 16px" }} onClick={() => setPrintLedger(true)}>
-                  🖨️ Print Ledger
-                </button>
-              )}
+              <div style={{ display: "flex", gap: 8 }}>
+                {history.length > 0 && (
+                  <button type="button" className="fm-secondary-btn" style={{ padding: "8px 16px" }} onClick={handleRepair} disabled={repairing}>
+                    {repairing ? "Fixing..." : "🔧 Fix History"}
+                  </button>
+                )}
+                {history.length > 0 && (
+                  <button type="button" className="fm-primary-btn" style={{ padding: "8px 16px" }} onClick={() => setPrintLedger(true)}>
+                    🖨️ Print Ledger
+                  </button>
+                )}
+              </div>
             </div>
 
             {calculatedHistory.length === 0 ? (
