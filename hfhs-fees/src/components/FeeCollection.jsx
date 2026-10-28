@@ -161,27 +161,26 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   });
 
   const enteredDiscount = Number(form.discount || 0);
-  const enteredLateFee = Number(form.lateFee || 0);
   const amountAdd = Number(form.amountReceived || 0);
 
   const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
   const liveSessionPaid = totalCashPaid + amountAdd;
 
+  // FIXED: Render the exact "Total Bill" for that specific transaction row, not the cumulative session total.
   let runningBalance = totalBilled;
   const calculatedHistory = history.map((t) => {
     const amt = Number(t.amountReceived || t.netAmount || 0);
     const disc = Number(t.discount || 0);
     
-    const snapshotTotalDue = t.totalDue || (runningBalance + amt + disc);
-
     if (!t.componentType || t.componentType === "monthly") {
       runningBalance -= (amt + disc);
     }
 
     return {
       ...t,
-      snapshotTotalDue: snapshotTotalDue,
-      runningBalance: Math.max(snapshotTotalDue - amt - disc, 0),
+      // Use the specific totalDue stored on the transaction, fallback to running balance if missing
+      snapshotTotalDue: t.totalDue || (runningBalance + amt + disc), 
+      runningBalance: Math.max(runningBalance, 0),
     };
   }).reverse();
 
@@ -269,8 +268,19 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   }
 
   async function handleViewReceipt(txn) {
+    // Fetch the actual receipt doc to get the latest editedAt timestamp
+    let latestReceipt = txn;
+    if (txn.receiptRef) {
+      try {
+        const snap = await getDoc(doc(db, "receipts", txn.receiptRef));
+        if (snap.exists()) {
+          latestReceipt = { ...txn, ...snap.data() };
+        }
+      } catch(e) { console.error("Error fetching receipt", e); }
+    }
+
     setReceiptPopup({
-      ...txn,
+      ...latestReceipt,
       studentName: selectedStudent?.name,
       admissionNumber: selectedStudent?.admissionNumber,
       className: selectedStudent?.className,
