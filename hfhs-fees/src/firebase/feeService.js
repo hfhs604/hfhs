@@ -1,8 +1,3 @@
-/**
- * feeService.js
- * Fee Management data layer for Holy Faith High School.
- */
-
 import { db, auth } from "../firebase/config";
 import {
   collection, doc, getDoc, getDocs, addDoc, updateDoc, setDoc,
@@ -543,12 +538,11 @@ export async function repairStudentHistory(studentId) {
 
   const txnsSnap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
   
-  // NEW FIX: Sort strictly by Receipt Number (which is sequential) to guarantee chronological order.
+  // Sort strictly by Receipt Number
   const txns = txnsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
     const recA = a.receiptNumber || "";
     const recB = b.receiptNumber || "";
     if (recA && recB) return recA.localeCompare(recB);
-    // Fallback to date if receipt numbers are missing
     const timeA = a.createdAt?.toDate?.()?.getTime() || new Date(a.paymentDate || 0).getTime();
     const timeB = b.createdAt?.toDate?.()?.getTime() || new Date(b.paymentDate || 0).getTime();
     return timeA - timeB;
@@ -567,7 +561,6 @@ export async function repairStudentHistory(studentId) {
   const baseTransport = student.transportOpted ? (student.transportAmount || 0) : 0;
   const monthlyFee = baseTuition + baseTransport;
   
-  // Start at April.
   const initialBaseBill = (monthlyFee * monthsBilled) + DEVELOPMENT_FEE + (latestBill.booksBilled || 0) + (latestBill.previousYearBilled || 0) + (latestBill.kitFeeBilled || 0);
 
   let runningTotalBill = initialBaseBill;
