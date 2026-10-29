@@ -230,7 +230,6 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const disc = Number(discount);
     const late = Number(lateFee);
 
-    // SNAPSHOT EXACTLY BEFORE TRANSACTION
     const currentRunningBalance = bill.carriedForward !== undefined ? bill.carriedForward : bill.totalDue;
 
     const totalCredit = amt + disc;
@@ -538,6 +537,10 @@ export async function repairStudentHistory(studentId) {
   const userDoc = await getDoc(doc(db, "users", user.uid));
   if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can repair data.");
 
+  const studentSnap = await getDoc(doc(db, COL.students, studentId));
+  if (!studentSnap.exists()) throw new Error("Student not found");
+  const student = studentSnap.data();
+
   const txnsSnap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
   const txns = txnsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
     const tA = a.createdAt?.toDate?.()?.getTime() || new Date(a.paymentDate || 0).getTime();
@@ -546,26 +549,44 @@ export async function repairStudentHistory(studentId) {
   });
 
   const billsSnap = await getDocs(query(collection(db, COL.monthlyBills), where("studentId", "==", studentId)));
-  const bills = billsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => b.month.localeCompare(a.month));
+  const bills = billsSnap.docs.map(d => d.data()).sort((a, b) => b.month.localeCompare(a.month)); 
+  
+  if (bills.length === 0) throw new Error("No bills found.");
+  const latestBill = bills[0];
 
-  let currentRunningBalance = bills.length > 0 ? (bills[0].carriedForward || 0) : 0;
+  // THE DETERMINISTIC MATH
+  const latestBillMonth = parseInt(latestBill.month.split("-")[1]);
+  const monthsBilled = latestBillMonth >= 4 ? (latestBillMonth - 4 + 1) : 0;
+  
+  const baseTuition = MONTHLY_TUITION[student.className] || 0;
+  const baseTransport = student.transportOpted ? (student.transportAmount || 0) : 0;
+  const monthlyFee = baseTuition + baseTransport;
+  
+  // Start at April.
+  const initialBaseBill = (monthlyFee * monthsBilled) + DEVELOPMENT_FEE + (latestBill.booksBilled || 0) + (latestBill.previousYearBilled || 0) + (latestBill.kitFeeBilled || 0);
+
+  let runningTotalBill = initialBaseBill;
+  let runningBalance = initialBaseBill;
   let updatedCount = 0;
 
   const batch = writeBatch(db);
 
-  for (let i = txns.length - 1; i >= 0; i--) {
-    const txn = txns[i];
+  for (const txn of txns) {
     const amt = Number(txn.amountReceived || txn.netAmount || 0);
     const disc = Number(txn.discount || 0);
 
-    const balanceBefore = currentRunningBalance + amt + disc;
-    
+    const billSnapshot = runningTotalBill;
+    const balanceSnapshot = runningBalance;
+
+    if (!txn.componentType || txn.componentType === "monthly") {
+      runningBalance = Math.max(runningBalance - amt - disc, 0);
+    }
+
     batch.update(doc(db, COL.transactions, txn.id), {
-      totalDue: balanceBefore,
-      remainingDue: currentRunningBalance
+      totalDue: billSnapshot,
+      remainingDue: balanceSnapshot
     });
 
-    currentRunningBalance = balanceBefore;
     updatedCount++;
   }
 
