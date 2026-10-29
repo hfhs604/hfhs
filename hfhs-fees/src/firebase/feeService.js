@@ -368,6 +368,41 @@ export async function editTransaction({ transactionId, newAmount, newDiscount, n
   return { success: true };
 }
 
+export async function editBillDirect({ billId, newTotalDue, reason }) {
+  const user = currentUser();
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  if (userDoc.data()?.role !== "superAdmin") {
+    throw new Error("Only Super Admin can edit bills directly.");
+  }
+
+  const billRef = doc(db, COL.monthlyBills, billId);
+  const billSnap = await getDoc(billRef);
+  if (!billSnap.exists()) throw new Error("Bill not found.");
+
+  const billData = billSnap.data();
+  const totalPaid = billData.totalPaid || 0;
+  const newTotal = Number(newTotalDue);
+  
+  const newCarriedForward = Math.max(newTotal - totalPaid, 0);
+
+  await updateDoc(billRef, {
+    totalDue: newTotal,
+    carriedForward: newCarriedForward,
+    status: newCarriedForward <= 0 ? "PAID" : "PARTIAL",
+    lastEditedBy: user.email || user.uid,
+    lastEditedAt: serverTimestamp()
+  });
+
+  await writeAuditLog({ 
+    action: "BILL_EDITED_DIRECTLY", 
+    studentId: billData.studentId, 
+    previousValue: { totalDue: billData.totalDue, carriedForward: billData.carriedForward }, 
+    newValue: { newTotalDue: newTotal, reason } 
+  });
+
+  return { success: true, newTotalDue: newTotal, newCarriedForward };
+}
+
 export async function refundAdvance({ studentId, amount, session, month, reason = "" }) {
   const user = currentUser(); const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
   const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId}`); const amt = Number(amount);
@@ -521,10 +556,11 @@ export async function getPaymentHistory(studentId) {
 
     const timeline = [];
 
+    // Add all bill charges to timeline (dated 1st of the month)
     bills.forEach(bill => {
-      const newCharges = bill.totalDue - (bill.previousDue || 0);
+      const newCharges = Math.max((bill.totalDue || 0) - (bill.previousDue || 0), 0);
       const [year, monthStr] = bill.month.split("-");
-      const billDate = new Date(parseInt(year), parseInt(monthStr) - 1, 1); 
+      const billDate = new Date(parseInt(year), parseInt(monthStr) - 1, 1, 0, 0, 0); 
 
       timeline.push({
         type: 'CHARGE',
@@ -533,8 +569,18 @@ export async function getPaymentHistory(studentId) {
       });
     });
 
+    // Add all transactions to timeline
     transactions.forEach(txn => {
-      const txnDate = txn.paymentDate?.toDate?.() || new Date(txn.paymentDate || txn.createdAt?.toDate?.() || 0);
+      let txnDate;
+      if (txn.paymentDate?.toDate) txnDate = txn.paymentDate.toDate();
+      else if (txn.paymentDate?.seconds) txnDate = new Date(txn.paymentDate.seconds * 1000);
+      else txnDate = new Date(txn.paymentDate || txn.createdAt?.toDate?.() || 0);
+      
+      // Ensure time is set to noon to avoid daylight saving/midnight overlap issues
+      if (txnDate.getHours() === 0 && txnDate.getMinutes() === 0) {
+         txnDate.setHours(12); 
+      }
+
       timeline.push({
         type: 'PAYMENT',
         date: txnDate,
@@ -542,6 +588,7 @@ export async function getPaymentHistory(studentId) {
       });
     });
 
+    // Sort chronologically (charges first if same exact time)
     timeline.sort((a, b) => {
       const timeDiff = a.date.getTime() - b.date.getTime();
       if (timeDiff !== 0) return timeDiff;
@@ -551,6 +598,7 @@ export async function getPaymentHistory(studentId) {
     let runningBalance = 0;
     const ledger = [];
 
+    // Process chronological timeline to calculate accurate running balances
     timeline.forEach(event => {
       if (event.type === 'CHARGE') {
         runningBalance += event.amount;
@@ -560,12 +608,15 @@ export async function getPaymentHistory(studentId) {
         const disc = Number(txn.discount || 0);
         const addOn = Number(txn.addOnAmount || 0);
 
+        // Add to balance if it's a charge-type transaction
         if (txn.componentType && txn.componentType !== 'monthly' && txn.componentType !== 'refund') {
            runningBalance += addOn;
         }
 
+        // Snapshot before this transaction
         const billSnapshot = runningBalance;
 
+        // Apply payment/refund
         if (txn.componentType === 'refund') {
             runningBalance -= amt; 
         } else {
@@ -574,7 +625,7 @@ export async function getPaymentHistory(studentId) {
 
         ledger.push({
           id: txn.id,
-          date: txn.paymentDate?.toDate?.() || new Date(txn.paymentDate || 0),
+          date: event.date,
           receiptNumber: txn.receiptNumber || "N/A",
           totalBillBeforePayment: billSnapshot, 
           amountPaid: amt,
@@ -612,7 +663,7 @@ export async function repairStudentHistory(studentId) {
   
   const timeline = [];
   bills.forEach(bill => {
-      const newCharges = bill.totalDue - (bill.previousDue || 0);
+      const newCharges = Math.max((bill.totalDue || 0) - (bill.previousDue || 0), 0);
       const [y, m] = bill.month.split("-");
       timeline.push({ type: 'CHARGE', date: new Date(parseInt(y), parseInt(m) - 1, 1), amount: newCharges });
   });
