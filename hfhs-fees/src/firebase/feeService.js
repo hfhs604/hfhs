@@ -542,10 +542,16 @@ export async function repairStudentHistory(studentId) {
   const student = studentSnap.data();
 
   const txnsSnap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
+  
+  // NEW FIX: Sort strictly by Receipt Number (which is sequential) to guarantee chronological order.
   const txns = txnsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
-    const tA = a.createdAt?.toDate?.()?.getTime() || new Date(a.paymentDate || 0).getTime();
-    const tB = b.createdAt?.toDate?.()?.getTime() || new Date(b.paymentDate || 0).getTime();
-    return tA - tB;
+    const recA = a.receiptNumber || "";
+    const recB = b.receiptNumber || "";
+    if (recA && recB) return recA.localeCompare(recB);
+    // Fallback to date if receipt numbers are missing
+    const timeA = a.createdAt?.toDate?.()?.getTime() || new Date(a.paymentDate || 0).getTime();
+    const timeB = b.createdAt?.toDate?.()?.getTime() || new Date(b.paymentDate || 0).getTime();
+    return timeA - timeB;
   });
 
   const billsSnap = await getDocs(query(collection(db, COL.monthlyBills), where("studentId", "==", studentId)));
@@ -554,7 +560,6 @@ export async function repairStudentHistory(studentId) {
   if (bills.length === 0) throw new Error("No bills found.");
   const latestBill = bills[0];
 
-  // THE DETERMINISTIC MATH
   const latestBillMonth = parseInt(latestBill.month.split("-")[1]);
   const monthsBilled = latestBillMonth >= 4 ? (latestBillMonth - 4 + 1) : 0;
   
@@ -575,9 +580,11 @@ export async function repairStudentHistory(studentId) {
     const amt = Number(txn.amountReceived || txn.netAmount || 0);
     const disc = Number(txn.discount || 0);
 
+    // Snapshot BEFORE transaction
     const billSnapshot = runningTotalBill;
     const balanceSnapshot = runningBalance;
 
+    // Apply transaction
     if (!txn.componentType || txn.componentType === "monthly") {
       runningBalance = Math.max(runningBalance - amt - disc, 0);
     }
