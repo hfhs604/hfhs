@@ -538,14 +538,9 @@ export async function repairStudentHistory(studentId) {
 
   const txnsSnap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
   
-  // Sort strictly by Receipt Number
+  // Strict chronological sort by Receipt Number
   const txns = txnsSnap.docs.map(d => ({ id: d.id, ...d.data() })).sort((a, b) => {
-    const recA = a.receiptNumber || "";
-    const recB = b.receiptNumber || "";
-    if (recA && recB) return recA.localeCompare(recB);
-    const timeA = a.createdAt?.toDate?.()?.getTime() || new Date(a.paymentDate || 0).getTime();
-    const timeB = b.createdAt?.toDate?.()?.getTime() || new Date(b.paymentDate || 0).getTime();
-    return timeA - timeB;
+    return (a.receiptNumber || "").localeCompare(b.receiptNumber || "");
   });
 
   const billsSnap = await getDocs(query(collection(db, COL.monthlyBills), where("studentId", "==", studentId)));
@@ -554,6 +549,7 @@ export async function repairStudentHistory(studentId) {
   if (bills.length === 0) throw new Error("No bills found.");
   const latestBill = bills[0];
 
+  // Calculate the exact starting total bill (April onwards)
   const latestBillMonth = parseInt(latestBill.month.split("-")[1]);
   const monthsBilled = latestBillMonth >= 4 ? (latestBillMonth - 4 + 1) : 0;
   
@@ -561,9 +557,10 @@ export async function repairStudentHistory(studentId) {
   const baseTransport = student.transportOpted ? (student.transportAmount || 0) : 0;
   const monthlyFee = baseTuition + baseTransport;
   
-  const initialBaseBill = (monthlyFee * monthsBilled) + DEVELOPMENT_FEE + (latestBill.booksBilled || 0) + (latestBill.previousYearBilled || 0) + (latestBill.kitFeeBilled || 0);
+  let initialBaseBill = (monthlyFee * monthsBilled) + (latestBill.devFeeBilled || 0) + (latestBill.booksBilled || 0) + (latestBill.previousYearBilled || 0) + (latestBill.kitFeeBilled || 0);
 
-  let runningTotalBill = initialBaseBill;
+  // Apply payments
+  let runningBill = initialBaseBill;
   let runningBalance = initialBaseBill;
   let updatedCount = 0;
 
@@ -573,15 +570,16 @@ export async function repairStudentHistory(studentId) {
     const amt = Number(txn.amountReceived || txn.netAmount || 0);
     const disc = Number(txn.discount || 0);
 
-    // Snapshot BEFORE transaction
-    const billSnapshot = runningTotalBill;
+    // Save the state BEFORE this transaction
+    const billSnapshot = runningBill;
     const balanceSnapshot = runningBalance;
 
-    // Apply transaction
+    // Deduct the payment
     if (!txn.componentType || txn.componentType === "monthly") {
       runningBalance = Math.max(runningBalance - amt - disc, 0);
     }
 
+    // Update both fields in the database
     batch.update(doc(db, COL.transactions, txn.id), {
       totalDue: billSnapshot,
       remainingDue: balanceSnapshot
@@ -591,10 +589,8 @@ export async function repairStudentHistory(studentId) {
   }
 
   await batch.commit();
-  await writeAuditLog({ action: "HISTORY_REPAIRED", studentId, newValue: { count: updatedCount } });
   return updatedCount;
 }
-
 export async function getStudentPaymentSummary(studentId, session, month) {
   try {
     const snap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
