@@ -5,7 +5,7 @@ import { db, auth } from "../firebase/config";
 import {
   searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
   addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole,
-  editTransaction, repairStudentHistory
+  editTransaction, repairStudentHistory, editBillDirect
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import StudentPrintPage from "./StudentPrintPage";
@@ -34,6 +34,11 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const [userRole, setUserRole] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [editingTxn, setEditingTxn] = useState(null);
+
+  const [editingBill, setEditingBill] = useState(null);
+  const [newBillAmount, setNewBillAmount] = useState("");
+  const [editBillReason, setEditBillReason] = useState("");
+  const [editBillSaving, setEditBillSaving] = useState(false);
 
   const [printingStudent, setPrintingStudent] = useState(null);
   const [printLedger, setPrintLedger] = useState(false);
@@ -208,7 +213,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const visibleHistory = showAllTransactions ? calculatedHistory : calculatedHistory.slice(0, 5);
 
   async function handleSubmit(e) {
-    e.preventDefault();
+    if (e) e.preventDefault();
     if (submitting || !selectedStudent) return;
 
     setSubmitting(true);
@@ -287,6 +292,26 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       await refreshAll(selectedStudent.id);
     } catch (err) {
       alert(`Error: ${err.message}`);
+    }
+  }
+
+  async function handleEditBillSubmit(e) {
+    e.preventDefault();
+    if (!editingBill) return;
+    setEditBillSaving(true);
+    try {
+      await editBillDirect({ 
+        billId: editingBill.id, 
+        newTotalDue: Number(newBillAmount), 
+        reason: editBillReason 
+      });
+      showFlash("✅ Bill updated successfully.");
+      setEditingBill(null);
+      await refreshAll(selectedStudent.id);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    } finally {
+      setEditBillSaving(false);
     }
   }
 
@@ -402,7 +427,23 @@ export default function FeeCollection({ session, month, role, initialStudentId }
             <div className="fm-bill-two-col fm-bill-two-col-compact" style={{ background: "#f8fafc", padding: 16, borderRadius: 8, marginTop: 16 }}>
               
               <div className="fm-bill-left" style={{ flex: 1 }}>
-                <h4 style={{ color: "#475569", textTransform: "uppercase", fontSize: 12, marginBottom: 12 }}>Current Bill Breakdown</h4>
+                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
+                  <h4 style={{ color: "#475569", textTransform: "uppercase", fontSize: 12, margin: 0 }}>Current Bill Breakdown</h4>
+                  {userRole === "superAdmin" && (
+                    <button 
+                      type="button" 
+                      className="fm-link-btn" 
+                      onClick={() => {
+                        setEditingBill(bill);
+                        setNewBillAmount(bill.totalDue);
+                        setEditBillReason("");
+                      }}
+                      style={{ fontSize: 12 }}
+                    >
+                      ✏️ Edit Bill
+                    </button>
+                  )}
+                </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <tbody>
                     {previousDue > 0 && <tr style={{ color: "#dc2626" }}><td style={{ padding: "4px 0" }}>Previous Due</td><td align="right">₹{previousDue}</td></tr>}
@@ -640,6 +681,44 @@ export default function FeeCollection({ session, month, role, initialStudentId }
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                 <button type="button" className="fm-secondary-btn" onClick={() => setEditingTxn(null)}>Cancel</button>
                 <button type="submit" className="fm-primary-btn">Save Changes</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingBill && (
+        <div className="fm-modal-overlay">
+          <div className="fm-modal" style={{ maxWidth: 400 }}>
+            <h3>Edit Bill — {month}</h3>
+            <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
+              Directly overriding the total due will recalculate the carried-forward balance. Use this to fix errors.
+            </p>
+            <form onSubmit={handleEditBillSubmit}>
+              <label className="fm-inline-label" style={{ marginBottom: 12 }}>
+                New Total Billed Amount (₹)
+                <input 
+                  type="number" 
+                  required 
+                  value={newBillAmount} 
+                  onChange={(e) => setNewBillAmount(e.target.value)} 
+                />
+              </label>
+              <label className="fm-inline-label" style={{ marginBottom: 20 }}>
+                Reason for Edit *
+                <input 
+                  type="text" 
+                  required 
+                  value={editBillReason} 
+                  onChange={(e) => setEditBillReason(e.target.value)} 
+                  placeholder="e.g. Correcting historical ledger error"
+                />
+              </label>
+              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
+                <button type="button" className="fm-secondary-btn" onClick={() => setEditingBill(null)} disabled={editBillSaving}>Cancel</button>
+                <button type="submit" className="fm-primary-btn" disabled={editBillSaving}>
+                  {editBillSaving ? "Saving…" : "Save New Bill"}
+                </button>
               </div>
             </form>
           </div>
