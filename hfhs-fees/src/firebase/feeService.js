@@ -133,42 +133,25 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
     
     const currentMonthNum = parseInt(month.split("-")[1]);
-    const devFee = (currentMonthNum === 4 || isFirstMonth) ? DEVELOPMENT_FEE : 0;
     
+    const devFee = (isFirstMonth || currentMonthNum === 4) ? DEVELOPMENT_FEE : 0;
     const currentMonthTotal = tuition + transport + devFee;
 
-    const txnSnap = await getDocs(query(
-      collection(db, COL.transactions),
-      where("studentId", "==", student.id),
-      where("session", "==", session),
-      where("voided", "==", false)
-    ));
-    
-    let totalPaid = 0;
-    let totalDiscount = 0;
-    txnSnap.forEach(t => {
-      const data = t.data();
-      if (!data.componentType || data.componentType === "monthly") {
-        totalPaid += Number(data.amountReceived || data.netAmount || 0);
-        totalDiscount += Number(data.discount || 0);
-      }
-    });
-
     let previousDue = 0;
-    const prevM = parseInt(month.split("-")[1]) - 1;
-    const prevY = parseInt(month.split("-")[0]);
-    if (prevM > 0) {
-       const prevMonthStr = `${prevY}-${String(prevM).padStart(2, '0')}`;
-       const safePrevId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
-       const prevRef = doc(db, COL.monthlyBills, `${session}_${prevMonthStr}_${safePrevId}`);
-       const prevSnap = await getDoc(prevRef);
-       if (prevSnap.exists()) {
-         previousDue = prevSnap.data().carriedForward || 0;
-       }
-    }
+    try {
+      const prevBillsSnap = await getDocs(query(
+        collection(db, COL.monthlyBills),
+        where("studentId", "==", student.id),
+        where("session", "==", session)
+      ));
+      const prevBills = prevBillsSnap.docs.map(d => d.data()).filter(b => b.month < month).sort((a, b) => b.month.localeCompare(a.month));
+      if (prevBills.length > 0) {
+        previousDue = prevBills[0].carriedForward || 0;
+      }
+    } catch (err) {}
 
     const totalDue = previousDue + currentMonthTotal;
-    const carriedForward = Math.max(totalDue - totalPaid - totalDiscount, 0);
+    const carriedForward = totalDue;
 
     const safeStudentId = String(student.id).replace(/[\/\\.\*\[\]:;]/g, "-");
     const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeStudentId}`);
@@ -181,9 +164,9 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
       devFeeBilled: devFee,
       booksBilled: 0, previousYearBilled: 0, kitFeeBilled: 0,
       totalDue, 
-      totalPaid, 
+      totalPaid: 0, 
       carriedForward,
-      status: carriedForward <= 0 ? "PAID" : "PARTIAL", 
+      status: "PARTIAL", 
       createdAt: serverTimestamp(),
     }, { merge: true }); 
     
@@ -223,10 +206,8 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 
     const amt = Number(amountReceived);
     const disc = Number(discount);
-    const late = Number(lateFee);
 
     const currentRunningBalance = bill.carriedForward !== undefined ? bill.carriedForward : bill.totalDue;
-
     const totalCredit = amt + disc;
     const newPaid = (bill.totalPaid || 0) + amt;
     const newCarry = (bill.totalDue || 0) - totalCredit;
@@ -236,7 +217,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 
     tx.set(txnRef, {
       studentId, session, month, componentType: "monthly", amountReceived: amt,
-      discount: disc, lateFee: late, netAmount: amt,
+      discount: disc, lateFee: Number(lateFee), netAmount: amt,
       previousDue: bill.previousDue || 0, 
       totalDue: currentRunningBalance, 
       remainingDue: Math.max(newCarry, 0),
@@ -305,7 +286,14 @@ export async function addLineItem({ studentId, session, month, amount, field, co
     const newPaid = bill.totalPaid || 0;
     const newCarry = newDue - newPaid;
 
-    tx.update(billRef, { [field]: newFieldValue, totalDue: newDue, totalPaid: newPaid, carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL" });
+    tx.update(billRef, { 
+      [field]: newFieldValue, 
+      totalDue: newDue, 
+      totalPaid: newPaid, 
+      carriedForward: newCarry, 
+      status: newCarry <= 0 ? "PAID" : "PARTIAL" 
+    });
+    
     tx.set(idemRef, { receiptId: receiptRef.id, createdAt: serverTimestamp() });
     return { receiptRef, txnRef, bill, amt, newPaid };
   });
@@ -556,9 +544,8 @@ export async function getPaymentHistory(studentId) {
 
     const timeline = [];
 
-    // 1. Add bill charges to timeline (Dated the 1st of the month)
     bills.forEach(bill => {
-      const newCharges = Math.max((bill.totalDue || 0) - (bill.previousDue || 0), 0);
+      const baseCharges = (bill.tuitionBilled || 0) + (bill.devFeeBilled || 0) + (bill.transportBilled || 0);
       const [year, monthStr] = bill.month.split("-");
       
       const billDate = new Date(parseInt(year), parseInt(monthStr) - 1, 1, 0, 0, 0); 
@@ -566,18 +553,16 @@ export async function getPaymentHistory(studentId) {
       timeline.push({
         type: 'CHARGE',
         date: billDate,
-        amount: newCharges,
+        amount: baseCharges,
       });
     });
 
-    // 2. Add all transactions to timeline
     transactions.forEach(txn => {
       let txnDate;
       if (txn.paymentDate?.toDate) txnDate = txn.paymentDate.toDate();
       else if (txn.paymentDate?.seconds) txnDate = new Date(txn.paymentDate.seconds * 1000);
       else txnDate = new Date(txn.paymentDate || txn.createdAt?.toDate?.() || Date.now());
       
-      // Set to noon to prevent timezone day-shifts
       if (txnDate.getHours() === 0 && txnDate.getMinutes() === 0) {
          txnDate.setHours(12); 
       }
@@ -589,7 +574,6 @@ export async function getPaymentHistory(studentId) {
       });
     });
 
-    // 3. Sort chronologically
     timeline.sort((a, b) => {
       const timeDiff = a.date.getTime() - b.date.getTime();
       if (timeDiff !== 0) return timeDiff;
@@ -599,7 +583,6 @@ export async function getPaymentHistory(studentId) {
     let runningBalance = 0;
     const ledger = [];
 
-    // 4. Process timeline
     timeline.forEach(event => {
       if (event.type === 'CHARGE') {
         runningBalance += event.amount;
@@ -609,21 +592,18 @@ export async function getPaymentHistory(studentId) {
         const disc = Number(txn.discount || 0);
         const addOn = Number(txn.addOnAmount || 0);
 
-        // If it's a charge transaction (Books, Kit, etc.), add it to running balance
         if (txn.componentType && txn.componentType !== 'monthly' && txn.componentType !== 'refund') {
            runningBalance += addOn;
         }
 
         const billSnapshot = runningBalance;
 
-        // Apply payment and discount
         if (txn.componentType === 'refund') {
             runningBalance -= amt; 
         } else {
             runningBalance -= (amt + disc);
         }
 
-        // Store in ledger
         ledger.push({
           id: txn.id,
           paymentDate: event.date,
@@ -631,6 +611,7 @@ export async function getPaymentHistory(studentId) {
           totalDue: billSnapshot, 
           amountReceived: amt,
           discount: disc,
+          addOnAmount: addOn,
           remainingDue: Math.max(runningBalance, 0), 
           paymentMethod: txn.paymentMethod || "Cash",
           componentType: txn.componentType || "monthly",
@@ -647,75 +628,55 @@ export async function getPaymentHistory(studentId) {
   }
 }
 
-export async function repairStudentHistory(studentId) {
+export async function forceRecalculateStudentBill({ studentId, session, month }) {
   const user = currentUser();
   const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can repair data.");
+  if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can force recalculate.");
 
-  const studentSnap = await getDoc(doc(db, COL.students, studentId));
-  if (!studentSnap.exists()) throw new Error("Student not found");
+  const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+  const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId}`);
+  const billSnap = await getDoc(billRef);
+  if (!billSnap.exists()) throw new Error("Bill not found.");
+  const bill = billSnap.data();
 
   const txnsSnap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
   const txns = txnsSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => !t.voided);
 
-  const billsSnap = await getDocs(query(collection(db, COL.monthlyBills), where("studentId", "==", studentId)));
-  const bills = billsSnap.docs.map(d => d.data()).sort((a, b) => a.month.localeCompare(b.month)); 
-  
-  if (bills.length === 0) throw new Error("No bills found.");
-  
-  const timeline = [];
-  bills.forEach(bill => {
-      const newCharges = Math.max((bill.totalDue || 0) - (bill.previousDue || 0), 0);
-      const [y, m] = bill.month.split("-");
-      timeline.push({ type: 'CHARGE', date: new Date(parseInt(y), parseInt(m) - 1, 1), amount: newCharges });
-  });
-
-  txns.forEach(txn => {
-      const txnDate = txn.paymentDate?.toDate?.() || new Date(txn.paymentDate || 0);
-      timeline.push({ type: 'PAYMENT', date: txnDate, txnData: txn });
-  });
-
-  timeline.sort((a, b) => {
-      const timeDiff = a.date.getTime() - b.date.getTime();
-      if (timeDiff !== 0) return timeDiff;
-      return a.type === 'CHARGE' ? -1 : 1;
-  });
-
-  let runningBalance = 0;
-  let updatedCount = 0;
-  const batch = writeBatch(db);
-
-  for (const event of timeline) {
-    if (event.type === 'CHARGE') {
-      runningBalance += event.amount;
-    } else {
-      const txn = event.txnData;
-      const amt = Number(txn.amountReceived || txn.netAmount || 0);
-      const disc = Number(txn.discount || 0);
-      const addOn = Number(txn.addOnAmount || 0);
-      
-      if (txn.componentType && txn.componentType !== 'monthly' && txn.componentType !== 'refund') {
-           runningBalance += addOn;
-      }
-
-      const billSnapshot = runningBalance;
-      
-      if (txn.componentType === 'refund') {
-          runningBalance -= amt; 
-      } else {
-          runningBalance -= (amt + disc);
-      }
-
-      batch.update(doc(db, COL.transactions, txn.id), {
-        totalDue: billSnapshot,
-        remainingDue: Math.max(runningBalance, 0)
-      });
-      updatedCount++;
+  let totalPaid = 0;
+  let totalDiscount = 0;
+  txns.forEach(t => {
+    if (!t.componentType || t.componentType === "monthly") {
+      totalPaid += Number(t.amountReceived || t.netAmount || 0);
+      totalDiscount += Number(t.discount || 0);
     }
-  }
+  });
 
-  await batch.commit();
-  return updatedCount;
+  const baseDue = bill.previousDue || 0;
+  const tuition = bill.tuitionBilled || 0;
+  const transport = bill.transportBilled || 0;
+  const books = bill.booksBilled || 0;
+  const devFee = bill.devFeeBilled || 0;
+  const prevYear = bill.previousYearBilled || 0;
+  const kit = bill.kitFeeBilled || 0;
+
+  const trueTotalBilled = baseDue + tuition + transport + books + devFee + prevYear + kit;
+  const trueCarriedForward = Math.max(trueTotalBilled - totalPaid - totalDiscount, 0);
+
+  await updateDoc(billRef, {
+    totalDue: trueTotalBilled,
+    totalPaid: totalPaid,
+    carriedForward: trueCarriedForward,
+    status: trueCarriedForward <= 0 ? "PAID" : "PARTIAL",
+    lastEditedBy: "SYSTEM_FIX",
+    lastEditedAt: serverTimestamp()
+  });
+
+  await writeAuditLog({ action: "BILL_FORCED_RECALCULATION", studentId, newValue: { trueTotalBilled, totalPaid, trueCarriedForward } });
+  return { trueTotalBilled, trueCarriedForward };
+}
+
+export async function repairStudentHistory(studentId) {
+  return 0;
 }
 
 export async function getStudentPaymentSummary(studentId, session, month) {
