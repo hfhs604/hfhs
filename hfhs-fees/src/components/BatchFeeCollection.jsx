@@ -8,12 +8,6 @@ import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
 
 const PAYMENT_METHODS = ["Cash", "UPI", "Bank Transfer", "Cheque", "Other"];
-const MONTHLY_TUITION = {
-  "Pre-LKG": 800, "LKG": 800, "NUR": 800, "UKG": 900,  "I": 900,
-  "II": 1000,  "III": 1000, "IV": 1100,  "V": 1100, "VI": 1200,  "VII": 1200,
-  "VIII": 1300, "IX": 1400, "X": 1500,
-};
-const DEVELOPMENT_FEE = 3150;
 
 export default function BatchFeeCollection({ session, month, preselectedIds = [], onDone }) {
   const [searchResults, setSearchResults] = useState([]);
@@ -33,7 +27,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
   const [submitting, setSubmitting] = useState(false);
   const [results, setResults] = useState(null);
   const [receiptsToPrint, setReceiptsToPrint] = useState(null);
-  const [loadingReceipt, setLoadingReceipt] = useState(false);
 
   async function handleSearch(e) {
     e.preventDefault();
@@ -134,33 +127,11 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   const selectedList = Object.values(selectedStudentProfiles).filter(s => selectedIds.has(s.id));
 
-  const calculateOutstandingFromHistory = (student) => {
-    const baseTuition = MONTHLY_TUITION[student.className] || 0;
-    const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
-    const monthlyTotal = baseTuition + transport;
-
-    const currentMonth = new Date().getMonth() + 1;
-    const monthsBilled = currentMonth >= 4 ? (currentMonth - 4 + 1) : 0; 
-
-    const totalExpectedBill = (monthlyTotal * monthsBilled) + DEVELOPMENT_FEE;
-    
-    const hist = histories[student.id] || [];
-    let totalCash = 0;
-    let totalDiscount = 0;
-    let addOns = 0;
-
-    hist.forEach(t => {
-      if (t.session === session && t.voided !== true) {
-        if (t.componentType === "monthly" || !t.componentType) {
-          totalCash += Number(t.amountReceived || t.netAmount || 0);
-          totalDiscount += Number(t.discount || 0);
-        } else if (["books", "kit", "previousYear", "transport"].includes(t.componentType)) {
-          addOns += Number(t.addOnAmount || 0);
-        }
-      }
-    });
-
-    return Math.max(totalExpectedBill + addOns - totalCash - totalDiscount, 0);
+  // THIS IS THE CRITICAL FIX: We use the chronological ledger to find the EXACT running balance as of today.
+  const calculateOutstandingFromHistory = (studentId) => {
+    const hist = histories[studentId] || [];
+    if (hist.length === 0) return 0; // Or fallback to bill.totalDue if needed
+    return hist[0].remainingDue || 0; // The ledger is reversed, so index 0 is the latest balance
   };
 
   let calculatedPaid = 0;
@@ -176,7 +147,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       }
     });
 
-    calculatedOutstanding += calculateOutstandingFromHistory(s);
+    calculatedOutstanding += calculateOutstandingFromHistory(s.id);
   });
 
   const currentTotalPaid = selectedList.reduce((sum, s) => sum + (parseFloat(rows[s.id]?.amount) || 0), 0);
@@ -206,7 +177,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
     for (const s of selectedList) {
       const r = rows[s.id] || {};
-      const currentOutstanding = calculateOutstandingFromHistory(s);
+      const currentOutstanding = calculateOutstandingFromHistory(s.id);
       
       try {
         const res = await collectPayment({
@@ -224,11 +195,8 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           remarks: sharedRemarks,
         });
 
-        const baseFee = MONTHLY_TUITION[s.className] || 0;
-        const transport = s.transportOpted ? (s.transportAmount || 0) : 0;
         const particulars = [];
-        if (baseFee > 0) particulars.push({ label: "Tuition Fee", amount: baseFee });
-        if (transport > 0) particulars.push({ label: "Transport Fee", amount: transport });
+        if (currentOutstanding > 0) particulars.push({ label: "Outstanding Due", amount: currentOutstanding });
 
         const newBalance = currentOutstanding - (parseFloat(r.amount) || 0) - (parseFloat(r.discount) || 0);
 
@@ -262,7 +230,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       return;
     }
     
-    setLoadingReceipt(true);
     try {
       const snap = await getDoc(doc(db, "receipts", txn.receiptRef));
       if (snap.exists()) {
@@ -286,8 +253,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     } catch (err) {
       console.error("Failed to load receipt:", err);
       alert(`Failed to load receipt: ${err.message}`);
-    } finally {
-      setLoadingReceipt(false);
     }
   }
 
@@ -297,7 +262,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
   }).sort((a, b) => {
     const dateA = a.paymentDate?.toDate?.() || new Date(a.createdAt?.toDate?.() || 0);
     const dateB = b.paymentDate?.toDate?.() || new Date(b.createdAt?.toDate?.() || 0);
-    return dateA - dateB; // Ascending order (oldest first)
+    return dateA - dateB;
   });
 
   return (
@@ -408,7 +373,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
               <tbody>
                 {selectedList.map((s) => {
                   const r = rows[s.id] || {};
-                  const outstanding = calculateOutstandingFromHistory(s);
+                  const outstanding = calculateOutstandingFromHistory(s.id);
                   return (
                     <tr key={s.id}>
                       <td style={{ fontWeight: 500 }}>{s.name}</td>
