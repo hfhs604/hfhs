@@ -5,7 +5,7 @@ import { db, auth } from "../firebase/config";
 import {
   searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
   addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole,
-  editTransaction, repairStudentHistory, editBillDirect
+  editTransaction, editBillField
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import StudentPrintPage from "./StudentPrintPage";
@@ -25,7 +25,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   
   const [loadingBill, setLoadingBill] = useState(false);
   const [submitting, setSubmitting] = useState(false);
-  const [repairing, setRepairing] = useState(false);
   const [error, setError] = useState(null);
   const [idempotencyKey, setIdempotencyKey] = useState(null);
   const [flash, setFlash] = useState("");
@@ -34,6 +33,9 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const [userRole, setUserRole] = useState(null);
   const [deletingId, setDeletingId] = useState(null);
   const [editingTxn, setEditingTxn] = useState(null);
+
+  const [editingBillField, setEditingBillField] = useState(null);
+  const [newBillFieldValue, setNewBillFieldValue] = useState("");
 
   const [printingStudent, setPrintingStudent] = useState(null);
   const [printLedger, setPrintLedger] = useState(false);
@@ -180,7 +182,10 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const enteredDiscount = Number(form.discount || 0);
   const amountAdd = Number(form.amountReceived || 0);
 
-  const finalBalance = Math.max(totalBilled - totalCashPaid - totalDiscountGiven - amountAdd - enteredDiscount, 0);
+  // Final Balance = Total Billed - (Cash Paid + Cash Entered) - (Total Discount + Entered Discount)
+  const finalBalance = Math.max(totalBilled - totalCashPaid - amountAdd - totalDiscountGiven - enteredDiscount, 0);
+  
+  // Session Paid strictly tracks CASH received
   const liveSessionPaid = totalCashPaid + amountAdd;
 
   const calculatedHistory = history.map((t) => {
@@ -273,6 +278,23 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       });
       showFlash("✅ Transaction updated");
       setEditingTxn(null);
+      await refreshAll(selectedStudent.id);
+    } catch (err) {
+      alert(`Error: ${err.message}`);
+    }
+  }
+
+  async function handleEditBillFieldSubmit(e) {
+    e.preventDefault();
+    if (!editingBillField) return;
+    try {
+      await editBillField({
+        billId: bill.id,
+        field: editingBillField.field,
+        newAmount: Number(newBillFieldValue)
+      });
+      showFlash("✅ Bill updated");
+      setEditingBillField(null);
       await refreshAll(selectedStudent.id);
     } catch (err) {
       alert(`Error: ${err.message}`);
@@ -407,7 +429,27 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                     <tr><td style={{ padding: "4px 0" }}>Tuition Fee</td><td align="right">₹{tuition}</td></tr>
                     {transport > 0 && <tr><td style={{ padding: "4px 0" }}>Transport Fee</td><td align="right">₹{transport}</td></tr>}
                     {devFee > 0 && <tr><td style={{ padding: "4px 0" }}>Development Fee</td><td align="right">₹{devFee}</td></tr>}
-                    {books > 0 && <tr><td style={{ padding: "4px 0" }}>Books Fee</td><td align="right">₹{books}</td></tr>}
+                    
+                    <tr>
+                      <td style={{ padding: "4px 0", display: "flex", alignItems: "center", gap: 8 }}>
+                        Books Fee
+                        {userRole === "superAdmin" && (
+                          <button 
+                            type="button" 
+                            className="fm-link-btn" 
+                            style={{ fontSize: 12, padding: 0 }}
+                            onClick={() => {
+                              setEditingBillField({ field: "booksBilled", label: "Books Fee" });
+                              setNewBillFieldValue(books);
+                            }}
+                          >
+                            ✏️ Edit
+                          </button>
+                        )}
+                      </td>
+                      <td align="right">₹{books}</td>
+                    </tr>
+
                     {prevYear > 0 && <tr><td style={{ padding: "4px 0" }}>Previous Year</td><td align="right">₹{prevYear}</td></tr>}
                     {kit > 0 && <tr><td style={{ padding: "4px 0" }}>Kit Fee</td><td align="right">₹{kit}</td></tr>}
                   </tbody>
@@ -435,12 +477,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Discount Given</span>
-                    <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>₹{enteredDiscount}</div>
-                    {totalDiscountGiven > 0 && (
-                      <div style={{ fontSize: 10, color: "#94a3b8", marginTop: 2 }}>
-                        (Past discounts: ₹{totalDiscountGiven})
-                      </div>
-                    )}
+                    <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>₹{totalDiscountGiven + enteredDiscount}</div>
                   </div>
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
@@ -616,6 +653,20 @@ export default function FeeCollection({ session, month, role, initialStudentId }
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
               <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>Cancel</button>
               <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0 || !promptDate}>{promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingBillField && (
+        <div className="fm-modal-overlay">
+          <div className="fm-modal" style={{ maxWidth: 380 }}>
+            <h3>Edit {editingBillField.label}</h3>
+            <p style={{ margin: "12px 0 4px", fontSize: 14, color: "#4b5563" }}>Enter the correct total amount in ₹</p>
+            <input type="number" min="0" autoFocus value={newBillFieldValue} onChange={(e) => setNewBillFieldValue(e.target.value)} style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15 }} />
+            <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
+              <button type="button" className="fm-secondary-btn" onClick={() => setEditingBillField(null)}>Cancel</button>
+              <button type="button" className="fm-primary-btn" onClick={handleEditBillFieldSubmit}>Save Amount</button>
             </div>
           </div>
         </div>
