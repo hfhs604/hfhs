@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
-import { collectPayment, getPaymentHistory, searchStudents, getMonthlyBill } from "../firebase/feeService";
+import { collectPayment, getPaymentHistory, searchStudents } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
@@ -65,7 +65,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     setResults(null);
   }
 
-  // Load data when selection changes
+  // Fetch bill and full history when a student is selected
   useEffect(() => {
     let active = true;
 
@@ -86,7 +86,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           };
 
           try {
-            // Fetch the exact same data as Single Collection
             const safeId = String(id).replace(/[\/\\.\*\[\]:;]/g, "-");
             const billRef = doc(db, "monthlyBills", `${session}_${month}_${safeId}`);
             
@@ -146,7 +145,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   const selectedList = Object.values(selectedStudentProfiles).filter(s => selectedIds.has(s.id));
 
-  // Replicates the exact math from FeeCollection.jsx top card
+  // EXACT same math as the Single Collection top card
   const calculateOutstanding = (studentId) => {
     const bill = bills[studentId];
     if (!bill) return 0;
@@ -215,6 +214,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
     const receipts = [];
     const errors = [];
+    const successfulStudentIds = [];
 
     for (const s of selectedList) {
       const r = rows[s.id] || {};
@@ -258,6 +258,8 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           totalDue: currentOutstanding,
           remainingDue: Math.max(newBalance, 0),
         });
+        
+        successfulStudentIds.push(s.id);
       } catch (err) {
         errors.push({ student: s.name, message: err.message });
       }
@@ -268,7 +270,42 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
     if (receipts.length > 0) {
       setReceiptsToPrint(receipts);
-      handleClear(); 
+      
+      // Optimistic UI Update
+      const newHistories = { ...histories };
+      successfulStudentIds.forEach(id => {
+        if (!newHistories[id]) newHistories[id] = [];
+        const newTxn = {
+          id: `temp-${uuidv4()}`,
+          paymentDate: { seconds: new Date(paymentDate).getTime() / 1000 },
+          amountReceived: parseFloat(rows[id].amount) || 0,
+          discount: parseFloat(rows[id].discount) || 0,
+          componentType: "monthly",
+          session,
+          voided: false
+        };
+        newHistories[id] = [newTxn, ...newHistories[id]];
+      });
+      setHistories(newHistories);
+      
+      // Remove successful students from the selection and reset their rows
+      setSelectedIds(prev => {
+        const next = new Set(prev);
+        successfulStudentIds.forEach(id => next.delete(id));
+        return next;
+      });
+      
+      const newRows = { ...rows };
+      successfulStudentIds.forEach(id => {
+        delete newRows[id];
+        delete bills[id];
+      });
+      setRows(newRows);
+      setBills(prev => {
+        const next = { ...prev };
+        successfulStudentIds.forEach(id => delete next[id]);
+        return next;
+      });
     }
 
     if (errors.length === 0 && onDone) onDone(receipts);
@@ -310,8 +347,8 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     const hist = histories[s.id] || [];
     return hist.map(t => ({ ...t, studentName: s.name }));
   }).sort((a, b) => {
-    const dateA = a.paymentDate?.toDate?.() || new Date(a.createdAt?.toDate?.() || 0);
-    const dateB = b.paymentDate?.toDate?.() || new Date(b.createdAt?.toDate?.() || 0);
+    const dateA = a.paymentDate?.toDate?.() || new Date(a.paymentDate || a.createdAt?.toDate?.() || 0);
+    const dateB = b.paymentDate?.toDate?.() || new Date(b.paymentDate || b.createdAt?.toDate?.() || 0);
     return dateA - dateB;
   });
 
