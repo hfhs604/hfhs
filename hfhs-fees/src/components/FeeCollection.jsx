@@ -241,7 +241,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   }
 
   async function handleDeleteTransaction(txn) {
-    const ok = window.confirm(`Are you sure you want to DELETE this transaction?\n\nAmount: ₹${txn.amountReceived || txn.netAmount || 0}\nDate: ${formatDate(txn)}\n\nThis cannot be undone.`);
+    const ok = window.confirm(`Are you sure you want to DELETE this transaction?\n\nAmount: ₹${txn.amountReceived || txn.netAmount || txn.addOnAmount || 0}\nDate: ${formatDate(txn)}\n\nThis cannot be undone.`);
     if (!ok) return;
 
     setDeletingId(txn.id);
