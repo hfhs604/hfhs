@@ -364,6 +364,35 @@ export async function editTransaction({ transactionId, newAmount, newDiscount, n
   return { success: true };
 }
 
+export async function editBillField({ billId, field, newAmount }) {
+  const user = currentUser();
+  const userDoc = await getDoc(doc(db, "users", user.uid));
+  if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can edit bill fields.");
+
+  const billRef = doc(db, COL.monthlyBills, billId);
+  const billSnap = await getDoc(billRef);
+  if (!billSnap.exists()) throw new Error("Bill not found.");
+  const bill = billSnap.data();
+
+  const oldAmount = bill[field] || 0;
+  const diff = Number(newAmount) - oldAmount;
+  
+  const newTotalDue = (bill.totalDue || 0) + diff;
+  const newCarriedForward = Math.max(newTotalDue - (bill.totalPaid || 0), 0);
+
+  await updateDoc(billRef, {
+    [field]: Number(newAmount),
+    totalDue: newTotalDue,
+    carriedForward: newCarriedForward,
+    status: newCarriedForward <= 0 ? "PAID" : "PARTIAL",
+    lastEditedBy: user.email || user.uid,
+    lastEditedAt: serverTimestamp()
+  });
+
+  await writeAuditLog({ action: "BILL_FIELD_EDITED", studentId: bill.studentId, previousValue: { [field]: oldAmount, totalDue: bill.totalDue }, newValue: { [field]: newAmount, totalDue: newTotalDue } });
+  return { success: true };
+}
+
 export async function refundAdvance({ studentId, amount, session, month, reason = "" }) {
   const user = currentUser(); const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
   const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId}`); const amt = Number(amount);
