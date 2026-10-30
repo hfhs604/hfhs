@@ -5,7 +5,7 @@ import { db, auth } from "../firebase/config";
 import {
   searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
   addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole,
-  editTransaction, repairStudentHistory, editBillDirect
+  editTransaction, repairStudentHistory, editBillDirect, forceRecalculateStudentBill
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import StudentPrintPage from "./StudentPrintPage";
@@ -102,16 +102,16 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     }
   }
 
-  async function handleRepair() {
-    if (!window.confirm("This will recalculate the historical running balances for this student to match the paper ledger. Proceed?")) return;
+  async function handleForceFix() {
+    if (!window.confirm("This will force the system to accept the numbers exactly as shown in the Current Bill Breakdown. Proceed?")) return;
     setRepairing(true);
     setError(null);
     try {
-      await repairStudentHistory(selectedStudent.id);
+      await forceRecalculateStudentBill({ studentId: selectedStudent.id, session, month });
       await refreshAll(selectedStudent.id);
-      showFlash("✅ Ledger data repaired successfully.");
+      showFlash("✅ Bill math forced to match screen.");
     } catch (err) {
-      setError(`❌ Failed to repair: ${err.message}`);
+      setError(`❌ Failed to fix: ${err.message}`);
     } finally {
       setRepairing(false);
     }
@@ -429,20 +429,34 @@ export default function FeeCollection({ session, month, role, initialStudentId }
               <div className="fm-bill-left" style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <h4 style={{ color: "#475569", textTransform: "uppercase", fontSize: 12, margin: 0 }}>Current Bill Breakdown</h4>
-                  {userRole === "superAdmin" && (
-                    <button 
-                      type="button" 
-                      className="fm-link-btn" 
-                      onClick={() => {
-                        setEditingBill(bill);
-                        setNewBillAmount(bill.totalDue);
-                        setEditBillReason("");
-                      }}
-                      style={{ fontSize: 12 }}
-                    >
-                      ✏️ Edit Bill
-                    </button>
-                  )}
+                  <div style={{ display: "flex", gap: 8 }}>
+                    {userRole === "superAdmin" && (
+                      <button 
+                        type="button" 
+                        className="fm-link-btn" 
+                        onClick={handleForceFix}
+                        disabled={repairing}
+                        title="Force total billed to match this exact breakdown"
+                        style={{ fontSize: 12, color: "#b91c1c" }}
+                      >
+                        {repairing ? "Fixing..." : "🛠️ Force Fix Math"}
+                      </button>
+                    )}
+                    {userRole === "superAdmin" && (
+                      <button 
+                        type="button" 
+                        className="fm-link-btn" 
+                        onClick={() => {
+                          setEditingBill(bill);
+                          setNewBillAmount(bill.totalDue);
+                          setEditBillReason("");
+                        }}
+                        style={{ fontSize: 12 }}
+                      >
+                        ✏️ Edit Bill
+                      </button>
+                    )}
+                  </div>
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <tbody>
@@ -564,11 +578,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
             <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16 }}>
               <h3 style={{ margin: 0 }}>Student Transaction History</h3>
               <div style={{ display: "flex", gap: 8 }}>
-                {history.length > 0 && (
-                  <button type="button" className="fm-secondary-btn" style={{ padding: "8px 16px" }} onClick={handleRepair} disabled={repairing}>
-                    {repairing ? "Fixing..." : "🔧 Fix History"}
-                  </button>
-                )}
                 {history.length > 0 && (
                   <button type="button" className="fm-primary-btn" style={{ padding: "8px 16px" }} onClick={() => setPrintLedger(true)}>
                     🖨️ Print Ledger
