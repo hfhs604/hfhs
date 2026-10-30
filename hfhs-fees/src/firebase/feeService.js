@@ -319,7 +319,7 @@ export async function addBooksFee(a) { return addLineItem({ ...a, field: "booksB
 export async function addPreviousYearBalance(a) { return addLineItem({ ...a, field: "previousYearBilled", componentType: "previousYear", feeType: "Previous Year Balance", remarks: "Previous year dues" }); }
 export async function addKitFee(a) { return addLineItem({ ...a, field: "kitFeeBilled", componentType: "kit", feeType: "Admission / Kit", remarks: "Admission / Kit" }); }
 
-export async function editTransaction({ transactionId, newAmount, newDiscount, newPaymentDate }) {
+export async function editTransaction({ transactionId, newAmount, newDiscount, newPaymentDate, newAddOnAmount }) {
   const user = currentUser();
   const userDoc = await getDoc(doc(db, "users", user.uid));
   if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can edit a transaction.");
@@ -331,64 +331,38 @@ export async function editTransaction({ transactionId, newAmount, newDiscount, n
   
   const editTime = serverTimestamp();
 
-  await updateDoc(txnRef, {
-    amountReceived: Number(newAmount),
-    discount: Number(newDiscount),
-    netAmount: Number(newAmount),
+  const updateData = {
     paymentDate: Timestamp.fromDate(new Date(newPaymentDate)),
     editedBy: user.email || user.uid,
     editedAt: editTime 
-  });
+  };
+
+  if (newAddOnAmount !== undefined) {
+    updateData.addOnAmount = Number(newAddOnAmount);
+  } else {
+    updateData.amountReceived = Number(newAmount);
+    updateData.discount = Number(newDiscount);
+    updateData.netAmount = Number(newAmount);
+  }
+
+  await updateDoc(txnRef, updateData);
 
   if (txn.receiptRef) {
     const receiptRef = doc(db, COL.receipts, txn.receiptRef);
     const receiptSnap = await getDoc(receiptRef);
     if (receiptSnap.exists()) {
-      await updateDoc(receiptRef, {
-        amountReceived: Number(newAmount),
-        discount: Number(newDiscount),
-        editedAt: editTime 
-      });
+      const receiptUpdate = { editedAt: editTime };
+      if (newAddOnAmount !== undefined) receiptUpdate.addOnAmount = Number(newAddOnAmount);
+      else {
+        receiptUpdate.amountReceived = Number(newAmount);
+        receiptUpdate.discount = Number(newDiscount);
+      }
+      await updateDoc(receiptRef, receiptUpdate);
     }
   }
 
-  await writeAuditLog({ action: "TRANSACTION_EDITED", studentId: txn.studentId, previousValue: txn, newValue: { amount: newAmount, discount: newDiscount, date: newPaymentDate }, transactionRef: transactionId });
+  await writeAuditLog({ action: "TRANSACTION_EDITED", studentId: txn.studentId, previousValue: txn, newValue: updateData, transactionRef: transactionId });
   return { success: true };
-}
-
-export async function editBillDirect({ billId, newTotalDue, reason }) {
-  const user = currentUser();
-  const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (userDoc.data()?.role !== "superAdmin") {
-    throw new Error("Only Super Admin can edit bills directly.");
-  }
-
-  const billRef = doc(db, COL.monthlyBills, billId);
-  const billSnap = await getDoc(billRef);
-  if (!billSnap.exists()) throw new Error("Bill not found.");
-
-  const billData = billSnap.data();
-  const totalPaid = billData.totalPaid || 0;
-  const newTotal = Number(newTotalDue);
-  
-  const newCarriedForward = Math.max(newTotal - totalPaid, 0);
-
-  await updateDoc(billRef, {
-    totalDue: newTotal,
-    carriedForward: newCarriedForward,
-    status: newCarriedForward <= 0 ? "PAID" : "PARTIAL",
-    lastEditedBy: user.email || user.uid,
-    lastEditedAt: serverTimestamp()
-  });
-
-  await writeAuditLog({ 
-    action: "BILL_EDITED_DIRECTLY", 
-    studentId: billData.studentId, 
-    previousValue: { totalDue: billData.totalDue, carriedForward: billData.carriedForward }, 
-    newValue: { newTotalDue: newTotal, reason } 
-  });
-
-  return { success: true, newTotalDue: newTotal, newCarriedForward };
 }
 
 export async function refundAdvance({ studentId, amount, session, month, reason = "" }) {
@@ -626,57 +600,6 @@ export async function getPaymentHistory(studentId) {
     console.error("Error fetching history:", err);
     return [];
   }
-}
-
-export async function forceRecalculateStudentBill({ studentId, session, month }) {
-  const user = currentUser();
-  const userDoc = await getDoc(doc(db, "users", user.uid));
-  if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can force recalculate.");
-
-  const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
-  const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId}`);
-  const billSnap = await getDoc(billRef);
-  if (!billSnap.exists()) throw new Error("Bill not found.");
-  const bill = billSnap.data();
-
-  const txnsSnap = await getDocs(query(collection(db, COL.transactions), where("studentId", "==", studentId)));
-  const txns = txnsSnap.docs.map(d => ({ id: d.id, ...d.data() })).filter(t => !t.voided);
-
-  let totalPaid = 0;
-  let totalDiscount = 0;
-  txns.forEach(t => {
-    if (!t.componentType || t.componentType === "monthly") {
-      totalPaid += Number(t.amountReceived || t.netAmount || 0);
-      totalDiscount += Number(t.discount || 0);
-    }
-  });
-
-  const baseDue = bill.previousDue || 0;
-  const tuition = bill.tuitionBilled || 0;
-  const transport = bill.transportBilled || 0;
-  const books = bill.booksBilled || 0;
-  const devFee = bill.devFeeBilled || 0;
-  const prevYear = bill.previousYearBilled || 0;
-  const kit = bill.kitFeeBilled || 0;
-
-  const trueTotalBilled = baseDue + tuition + transport + books + devFee + prevYear + kit;
-  const trueCarriedForward = Math.max(trueTotalBilled - totalPaid - totalDiscount, 0);
-
-  await updateDoc(billRef, {
-    totalDue: trueTotalBilled,
-    totalPaid: totalPaid,
-    carriedForward: trueCarriedForward,
-    status: trueCarriedForward <= 0 ? "PAID" : "PARTIAL",
-    lastEditedBy: "SYSTEM_FIX",
-    lastEditedAt: serverTimestamp()
-  });
-
-  await writeAuditLog({ action: "BILL_FORCED_RECALCULATION", studentId, newValue: { trueTotalBilled, totalPaid, trueCarriedForward } });
-  return { trueTotalBilled, trueCarriedForward };
-}
-
-export async function repairStudentHistory(studentId) {
-  return 0;
 }
 
 export async function getStudentPaymentSummary(studentId, session, month) {
