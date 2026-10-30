@@ -133,7 +133,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     const transport = student.transportOpted ? (student.transportAmount || 0) : 0;
     
     const currentMonthNum = parseInt(month.split("-")[1]);
-    
     const devFee = (isFirstMonth || currentMonthNum === 4) ? DEVELOPMENT_FEE : 0;
     const currentMonthTotal = tuition + transport + devFee;
 
