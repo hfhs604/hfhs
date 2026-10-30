@@ -5,7 +5,7 @@ import { db, auth } from "../firebase/config";
 import {
   searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
   addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole,
-  editTransaction, repairStudentHistory, editBillDirect, forceRecalculateStudentBill
+  editTransaction, repairStudentHistory, editBillDirect
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import StudentPrintPage from "./StudentPrintPage";
@@ -35,11 +35,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const [deletingId, setDeletingId] = useState(null);
   const [editingTxn, setEditingTxn] = useState(null);
 
-  const [editingBill, setEditingBill] = useState(null);
-  const [newBillAmount, setNewBillAmount] = useState("");
-  const [editBillReason, setEditBillReason] = useState("");
-  const [editBillSaving, setEditBillSaving] = useState(false);
-
   const [printingStudent, setPrintingStudent] = useState(null);
   const [printLedger, setPrintLedger] = useState(false);
   const [showAllTransactions, setShowAllTransactions] = useState(false);
@@ -48,6 +43,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const [addonMsg, setAddonMsg] = useState("");
   const [promptSlot, setPromptSlot] = useState(null);
   const [promptValue, setPromptValue] = useState("");
+  const [promptDate, setPromptDate] = useState(new Date().toISOString().slice(0, 10));
   const [promptConfirming, setPromptConfirming] = useState(false);
 
   const canManageAddons = ADDON_ROLES.includes(role);
@@ -99,21 +95,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       setError(e.message);
     } finally {
       setLoadingBill(false);
-    }
-  }
-
-  async function handleForceFix() {
-    if (!window.confirm("This will force the system to accept the numbers exactly as shown in the Current Bill Breakdown. Proceed?")) return;
-    setRepairing(true);
-    setError(null);
-    try {
-      await forceRecalculateStudentBill({ studentId: selectedStudent.id, session, month });
-      await refreshAll(selectedStudent.id);
-      showFlash("✅ Bill math forced to match screen.");
-    } catch (err) {
-      setError(`❌ Failed to fix: ${err.message}`);
-    } finally {
-      setRepairing(false);
     }
   }
 
@@ -281,37 +262,20 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     if (!editingTxn) return;
     
     try {
+      const isAddOn = editingTxn.componentType !== "monthly" && editingTxn.componentType !== "refund";
+
       await editTransaction({
         transactionId: editingTxn.id,
         newAmount: editingTxn.amountReceived,
         newDiscount: editingTxn.discount,
         newPaymentDate: editingTxn.paymentDate,
+        newAddOnAmount: isAddOn ? editingTxn.addOnAmount : undefined
       });
       showFlash("✅ Transaction updated");
       setEditingTxn(null);
       await refreshAll(selectedStudent.id);
     } catch (err) {
       alert(`Error: ${err.message}`);
-    }
-  }
-
-  async function handleEditBillSubmit(e) {
-    e.preventDefault();
-    if (!editingBill) return;
-    setEditBillSaving(true);
-    try {
-      await editBillDirect({ 
-        billId: editingBill.id, 
-        newTotalDue: Number(newBillAmount), 
-        reason: editBillReason 
-      });
-      showFlash("✅ Bill updated successfully.");
-      setEditingBill(null);
-      await refreshAll(selectedStudent.id);
-    } catch (err) {
-      alert(`Error: ${err.message}`);
-    } finally {
-      setEditBillSaving(false);
     }
   }
 
@@ -337,13 +301,19 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     });
   }
 
-  function promptForAmount(slot) { setPromptSlot(slot); setPromptValue(""); setPromptConfirming(false); }
+  function promptForAmount(slot) { 
+    setPromptSlot(slot); 
+    setPromptValue(""); 
+    setPromptDate(new Date().toISOString().slice(0, 10)); 
+    setPromptConfirming(false); 
+  }
+  
   function cancelPrompt() { setPromptSlot(null); setPromptValue(""); setPromptConfirming(false); }
 
-  async function handleAddon(fn, amount, label) {
+  async function handleAddon(fn, amount, label, date) {
     setAddonBusy(true); setAddonMsg("");
     try {
-      const res = await fn({ studentId: selectedStudent.id, amount, session, month, paymentDate: new Date().toISOString(), idempotencyKey: uuidv4() });
+      const res = await fn({ studentId: selectedStudent.id, amount, session, month, paymentDate: new Date(date).toISOString(), idempotencyKey: uuidv4() });
       showFlash(`✅ ${label} ₹${amount} added`);
       await refreshAll(selectedStudent.id);
       setAddonMsg(res.duplicateBlocked ? "Already recorded." : `${label} ₹${amount} added.`);
@@ -354,11 +324,12 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     if (promptConfirming) return;
     const amt = Number(promptValue);
     if (!amt || amt <= 0) { setAddonMsg("Please enter a valid amount."); return; }
+    if (!promptDate) { setAddonMsg("Please select a date."); return; }
     setPromptConfirming(true);
     try {
-      if (promptSlot === "books") await handleAddon(addBooksFee, amt, "Books");
-      else if (promptSlot === "previousYear") await handleAddon(addPreviousYearBalance, amt, "Previous Year Balance");
-      else if (promptSlot === "kit") await handleAddon(addKitFee, amt, "Admission / Kit");
+      if (promptSlot === "books") await handleAddon(addBooksFee, amt, "Books", promptDate);
+      else if (promptSlot === "previousYear") await handleAddon(addPreviousYearBalance, amt, "Previous Year Balance", promptDate);
+      else if (promptSlot === "kit") await handleAddon(addKitFee, amt, "Admission / Kit", promptDate);
       cancelPrompt();
     } catch (e) { setPromptConfirming(false); }
   }
@@ -429,34 +400,6 @@ export default function FeeCollection({ session, month, role, initialStudentId }
               <div className="fm-bill-left" style={{ flex: 1 }}>
                 <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 12 }}>
                   <h4 style={{ color: "#475569", textTransform: "uppercase", fontSize: 12, margin: 0 }}>Current Bill Breakdown</h4>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    {userRole === "superAdmin" && (
-                      <button 
-                        type="button" 
-                        className="fm-link-btn" 
-                        onClick={handleForceFix}
-                        disabled={repairing}
-                        title="Force total billed to match this exact breakdown"
-                        style={{ fontSize: 12, color: "#b91c1c" }}
-                      >
-                        {repairing ? "Fixing..." : "🛠️ Force Fix Math"}
-                      </button>
-                    )}
-                    {userRole === "superAdmin" && (
-                      <button 
-                        type="button" 
-                        className="fm-link-btn" 
-                        onClick={() => {
-                          setEditingBill(bill);
-                          setNewBillAmount(bill.totalDue);
-                          setEditBillReason("");
-                        }}
-                        style={{ fontSize: 12 }}
-                      >
-                        ✏️ Edit Bill
-                      </button>
-                    )}
-                  </div>
                 </div>
                 <table style={{ width: "100%", borderCollapse: "collapse" }}>
                   <tbody>
@@ -597,7 +540,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                         <th>Date</th>
                         <th>Receipt#</th>
                         <th>Total Bill</th>
-                        <th>Amount Paid</th>
+                        <th>Amount Paid / Add-on</th>
                         <th>Discount</th>
                         <th>Balance Due</th>
                         <th>Method</th>
@@ -605,12 +548,16 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                       </tr>
                     </thead>
                     <tbody>
-                      {visibleHistory.map((t, idx) => (
+                      {visibleHistory.map((t, idx) => {
+                        const isAddon = t.componentType && t.componentType !== "monthly" && t.componentType !== "refund";
+                        return (
                         <tr key={t.id || idx}>
                           <td>{formatDate(t)}</td>
                           <td>{t.receiptNumber || "—"}</td>
                           <td style={{ fontWeight: 600 }}>₹{t.snapshotTotalDue || 0}</td>
-                          <td style={{ color: "#16a34a", fontWeight: 600 }}>₹{t.amountReceived || t.netAmount || 0}</td>
+                          <td style={{ color: isAddon ? "#2563eb" : "#16a34a", fontWeight: 600 }}>
+                            {isAddon ? `₹${t.addOnAmount || 0} (Add-on)` : `₹${t.amountReceived || t.netAmount || 0}`}
+                          </td>
                           <td style={{ color: "#059669" }}>{t.discount > 0 ? `-₹${t.discount}` : "—"}</td>
                           <td className={t.runningBalance > 0 ? "fm-due-cell" : ""} style={{ fontWeight: 600 }}>
                             ₹{t.runningBalance}
@@ -639,7 +586,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                             )}
                           </td>
                         </tr>
-                      ))}
+                      )})}
                     </tbody>
                   </table>
                 </div>
@@ -660,11 +607,15 @@ export default function FeeCollection({ session, month, role, initialStudentId }
         <div className="fm-modal-overlay">
           <div className="fm-modal" style={{ maxWidth: 380 }}>
             <h3>{promptSlot === "books" && "Add Books Fee"}{promptSlot === "previousYear" && "Add Previous Year Balance"}{promptSlot === "kit" && "Add Admission / Kit Fee"}</h3>
-            <p style={{ margin: "12px 0", fontSize: 14, color: "#4b5563" }}>Enter the amount in ₹</p>
-            <input type="number" min="1" autoFocus value={promptValue} onChange={(e) => setPromptValue(e.target.value)} onKeyDown={(e) => e.key === "Enter" && confirmPrompt()} disabled={promptConfirming} style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15 }} />
+            <p style={{ margin: "12px 0 4px", fontSize: 14, color: "#4b5563" }}>Enter the amount in ₹</p>
+            <input type="number" min="1" autoFocus value={promptValue} onChange={(e) => setPromptValue(e.target.value)} disabled={promptConfirming} style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15, marginBottom: 12 }} />
+            
+            <p style={{ margin: "0 0 4px", fontSize: 14, color: "#4b5563" }}>Date billed</p>
+            <input type="date" required value={promptDate} onChange={(e) => setPromptDate(e.target.value)} disabled={promptConfirming} style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15 }} />
+
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
               <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>Cancel</button>
-              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0}>{promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}</button>
+              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0 || !promptDate}>{promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}</button>
             </div>
           </div>
         </div>
@@ -675,59 +626,32 @@ export default function FeeCollection({ session, month, role, initialStudentId }
           <div className="fm-modal" style={{ maxWidth: 400 }}>
             <h3>Edit Transaction — {editingTxn.receiptNumber}</h3>
             <form onSubmit={handleEditSubmit}>
-              <label className="fm-inline-label" style={{ marginBottom: 12 }}>
-                Amount Paid (₹)
-                <input type="number" value={editingTxn.amountReceived} onChange={(e) => setEditingTxn({ ...editingTxn, amountReceived: e.target.value })} />
-              </label>
-              <label className="fm-inline-label" style={{ marginBottom: 12 }}>
-                Discount (₹)
-                <input type="number" value={editingTxn.discount} onChange={(e) => setEditingTxn({ ...editingTxn, discount: e.target.value })} />
-              </label>
+              
+              {editingTxn.componentType && editingTxn.componentType !== "monthly" && editingTxn.componentType !== "refund" ? (
+                <label className="fm-inline-label" style={{ marginBottom: 12 }}>
+                  Add-on Amount (₹)
+                  <input type="number" value={editingTxn.addOnAmount} onChange={(e) => setEditingTxn({ ...editingTxn, addOnAmount: e.target.value })} />
+                </label>
+              ) : (
+                <>
+                  <label className="fm-inline-label" style={{ marginBottom: 12 }}>
+                    Amount Paid (₹)
+                    <input type="number" value={editingTxn.amountReceived} onChange={(e) => setEditingTxn({ ...editingTxn, amountReceived: e.target.value })} />
+                  </label>
+                  <label className="fm-inline-label" style={{ marginBottom: 12 }}>
+                    Discount (₹)
+                    <input type="number" value={editingTxn.discount} onChange={(e) => setEditingTxn({ ...editingTxn, discount: e.target.value })} />
+                  </label>
+                </>
+              )}
+              
               <label className="fm-inline-label" style={{ marginBottom: 20 }}>
-                Payment Date
+                Date
                 <input type="date" value={editingTxn.paymentDate} onChange={(e) => setEditingTxn({ ...editingTxn, paymentDate: e.target.value })} />
               </label>
               <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
                 <button type="button" className="fm-secondary-btn" onClick={() => setEditingTxn(null)}>Cancel</button>
                 <button type="submit" className="fm-primary-btn">Save Changes</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {editingBill && (
-        <div className="fm-modal-overlay">
-          <div className="fm-modal" style={{ maxWidth: 400 }}>
-            <h3>Edit Bill — {month}</h3>
-            <p style={{ fontSize: 13, color: "#64748b", marginBottom: 16 }}>
-              Directly overriding the total due will recalculate the carried-forward balance. Use this to fix errors.
-            </p>
-            <form onSubmit={handleEditBillSubmit}>
-              <label className="fm-inline-label" style={{ marginBottom: 12 }}>
-                New Total Billed Amount (₹)
-                <input 
-                  type="number" 
-                  required 
-                  value={newBillAmount} 
-                  onChange={(e) => setNewBillAmount(e.target.value)} 
-                />
-              </label>
-              <label className="fm-inline-label" style={{ marginBottom: 20 }}>
-                Reason for Edit *
-                <input 
-                  type="text" 
-                  required 
-                  value={editBillReason} 
-                  onChange={(e) => setEditBillReason(e.target.value)} 
-                  placeholder="e.g. Correcting historical ledger error"
-                />
-              </label>
-              <div style={{ display: "flex", gap: 10, justifyContent: "flex-end" }}>
-                <button type="button" className="fm-secondary-btn" onClick={() => setEditingBill(null)} disabled={editBillSaving}>Cancel</button>
-                <button type="submit" className="fm-primary-btn" disabled={editBillSaving}>
-                  {editBillSaving ? "Saving…" : "Save New Bill"}
-                </button>
               </div>
             </form>
           </div>
