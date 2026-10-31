@@ -145,33 +145,15 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
   const selectedList = Object.values(selectedStudentProfiles).filter(s => selectedIds.has(s.id));
 
-  // EXACT same math as the Single Collection top card
+  // Single source of truth: the bill's running balance, maintained atomically
+  // by collectPayment / addLineItem (already includes discounts and add-ons).
   const calculateOutstanding = (studentId) => {
     const bill = bills[studentId];
     if (!bill) return 0;
-
-    const previousDue = bill.previousDue || 0;
-    const tuition = bill.tuitionBilled || 0;
-    const transport = bill.transportBilled || 0;
-    const devFee = bill.devFeeBilled || 0;
-    const books = bill.booksBilled || 0;
-    const prevYear = bill.previousYearBilled || 0;
-    const kit = bill.kitFeeBilled || 0;
-
-    const totalBilled = previousDue + tuition + transport + devFee + books + prevYear + kit;
-
-    let totalCashPaid = 0;
-    let totalDiscountGiven = 0;
-    
-    const hist = histories[studentId] || [];
-    hist.forEach(t => {
-      if (t.session === session && t.voided !== true && (!t.componentType || t.componentType === "monthly")) {
-        totalCashPaid += Number(t.amountReceived || t.netAmount || 0);
-        totalDiscountGiven += Number(t.discount || 0);
-      }
-    });
-
-    return Math.max(totalBilled - totalCashPaid - totalDiscountGiven, 0);
+    const balance = bill.carriedForward !== undefined
+      ? bill.carriedForward
+      : (bill.totalDue || 0) - (bill.totalPaid || 0);
+    return Math.max(balance, 0);
   };
 
   let calculatedPaid = 0;
@@ -198,14 +180,19 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
 
     for (const s of selectedList) {
       const amt = parseFloat(rows[s.id]?.amount) || 0;
-      if (amt <= 0) {
-        alert(`Enter an amount greater than 0 for ${s.name}.`);
+      const disc = parseFloat(rows[s.id]?.discount) || 0;
+      if (amt < 0 || disc < 0) {
+        alert(`Amount and discount cannot be negative for ${s.name}.`);
+        return;
+      }
+      if (amt + disc <= 0) {
+        alert(`Enter a cash amount or a discount for ${s.name}.`);
         return;
       }
     }
 
     const confirmed = window.confirm(
-      `Record ${selectedList.length} payment(s)?\n\nCash: ₹${currentTotalPaid.toLocaleString()}\nDiscount: ₹${currentTotalDiscount.toLocaleString()}`
+      `Record ${selectedList.length} payment(s)?\n\nCash received: ₹${currentTotalPaid.toLocaleString()}\nDiscount (not cash): ₹${currentTotalDiscount.toLocaleString()}\nBalance reduced by: ₹${(currentTotalPaid + currentTotalDiscount).toLocaleString()}`
     );
     if (!confirmed) return;
 
@@ -248,17 +235,16 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           if ((bill.kitFeeBilled || 0) > 0) actualParticulars.push({ label: "Admission / Kit", amount: bill.kitFeeBilled });
         }
 
-        const newBalance = currentOutstanding - (parseFloat(r.amount) || 0) - (parseFloat(r.discount) || 0);
-
-        receipts.push({ 
-          ...res.receipt, 
-          studentName: s.name, 
+        receipts.push({
+          ...res.receipt,
+          studentName: s.name,
           className: s.className,
           particulars: actualParticulars,
           totalDue: currentOutstanding,
-          remainingDue: Math.max(newBalance, 0),
+          // Trust the balance computed inside the DB transaction
+          remainingDue: res.receipt.remainingDue,
         });
-        
+
         successfulStudentIds.push(s.id);
       } catch (err) {
         errors.push({ student: s.name, message: err.message });
@@ -298,7 +284,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       const newRows = { ...rows };
       successfulStudentIds.forEach(id => {
         delete newRows[id];
-        delete bills[id];
       });
       setRows(newRows);
       setBills(prev => {
@@ -452,6 +437,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                 <tr>
                   <th>Name</th>
                   <th>Outstanding</th>
+                  <th>Balance After</th>
                   <th>Amount (₹)</th>
                   <th>Discount (₹)</th>
                   <th>Method</th>
@@ -468,6 +454,9 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
                       <td style={{ fontWeight: 500 }}>{s.name}</td>
                       <td className={outstanding > 0 ? "fm-due-cell" : ""}>
                         {r.loadingBill ? "Loading…" : `₹${outstanding.toLocaleString()}`}
+                      </td>
+                      <td style={{ fontWeight: 600 }}>
+                        {r.loadingBill ? "…" : `₹${Math.max(outstanding - (parseFloat(r.amount) || 0) - (parseFloat(r.discount) || 0), 0).toLocaleString()}`}
                       </td>
                       <td><input type="number" min="0" value={r.amount ?? ""} onChange={(e) => updateRow(s.id, "amount", e.target.value)} style={{ width: 100, padding: "6px 8px" }} /></td>
                       <td><input type="number" min="0" value={r.discount ?? 0} onChange={(e) => updateRow(s.id, "discount", e.target.value)} style={{ width: 100, padding: "6px 8px" }} /></td>
