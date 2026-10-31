@@ -189,6 +189,58 @@ export async function listBillsForMonth(session, month) {
   } catch (err) { throw new Error("Index required."); }
 }
 
+// Itemised receipt lines for a monthly bill (only non-zero items).
+// If balanceBefore is given and is lower than the bill total (earlier payments/discounts this month),
+// a negative "Less: Paid / Discount Earlier" row is added so the lines add up to the balance before this entry.
+export function billToParticulars(bill, balanceBefore) {
+  if (!bill) return [];
+  const items = [
+    ["Previous Due", bill.previousDue], ["Tuition Fee", bill.tuitionBilled],
+    ["Transport Fee", bill.transportBilled], ["Development Fee", bill.devFeeBilled],
+    ["Books Fee", bill.booksBilled], ["Previous Year", bill.previousYearBilled],
+    ["Admission / Kit", bill.kitFeeBilled],
+  ];
+  const lines = items.filter(([, a]) => (a || 0) > 0).map(([label, amount]) => ({ label, amount }));
+  const total = lines.reduce((sum, l) => sum + l.amount, 0);
+  if (balanceBefore !== undefined && balanceBefore !== null && total - balanceBefore > 0) {
+    lines.push({ label: "Less: Paid / Discount Earlier", amount: -(total - balanceBefore) });
+  }
+  return lines;
+}
+
+// One-off repair: recompute every bill's carriedForward / totalPaid / status from its transactions.
+// Fixes balances corrupted by the old "totalDue - (amount + discount)" calculation.
+export async function recalculateBillBalances(session) {
+  const billsSnap = await getDocs(query(collection(db, COL.monthlyBills), where("session", "==", session)));
+  const txnSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session)));
+  const sums = {};
+  txnSnap.forEach((d) => {
+    const t = d.data();
+    if (t.voided === true) return;
+    const k = `${t.studentId}__${t.month}`;
+    if (!sums[k]) sums[k] = { paid: 0, disc: 0, refund: 0 };
+    if (t.componentType === "refund") sums[k].refund += Math.abs(Number(t.amountReceived || t.netAmount || 0));
+    else if (!t.componentType || t.componentType === "monthly") {
+      sums[k].paid += Number(t.amountReceived || t.netAmount || 0);
+      sums[k].disc += Number(t.discount || 0);
+    }
+  });
+  const fixed = [];
+  for (const d of billsSnap.docs) {
+    const b = d.data();
+    const x = sums[`${b.studentId}__${b.month}`] || { paid: 0, disc: 0, refund: 0 };
+    const carry = (b.totalDue || 0) - x.paid - x.disc + x.refund;
+    if (b.carriedForward !== carry || (b.totalPaid || 0) !== x.paid) {
+      await updateDoc(d.ref, { totalPaid: x.paid, carriedForward: carry, status: carry <= 0 ? "PAID" : "PARTIAL" });
+      fixed.push({ student: b.studentName, month: b.month, before: b.carriedForward, after: carry });
+    }
+  }
+  await writeAuditLog({ action: "BILLS_RECALCULATED", newValue: { session, fixedCount: fixed.length } });
+  return fixed;
+}
+// Temporary: lets you run the repair once from the browser console (remove after use)
+if (typeof window !== "undefined") window.__repairBills = recalculateBillBalances;
+
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
   const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
@@ -211,7 +263,9 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     const currentRunningBalance = bill.carriedForward !== undefined ? bill.carriedForward : bill.totalDue;
     const totalCredit = amt + disc;
     const newPaid = (bill.totalPaid || 0) + amt;
-    const newCarry = (bill.totalDue || 0) - totalCredit;
+    // Subtract from the CURRENT running balance (already net of earlier payments and discounts),
+    // not from the original bill total.
+    const newCarry = currentRunningBalance - totalCredit;
 
     const txnRef = doc(collection(db, COL.transactions));
     const receiptRef = doc(collection(db, COL.receipts));
@@ -246,6 +300,7 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
     session, month, feeType, amountReceived: Number(amountReceived), discount: Number(discount),
     lateFee: Number(lateFee), 
     previousDue: result.bill.previousDue || 0,
+    particulars: billToParticulars(result.bill, result.currentRunningBalance), // snapshot of what was billed at payment time
     totalDue: result.currentRunningBalance, 
     remainingDue: Math.max(result.newCarry, 0), // discount-aware, computed inside the transaction
     paymentMethod, referenceNumber: referenceNumber || null, paymentDate, createdAt: serverTimestamp(),
