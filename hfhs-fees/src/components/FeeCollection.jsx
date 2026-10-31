@@ -5,7 +5,7 @@ import { db, auth } from "../firebase/config";
 import {
   searchStudents, collectPayment, getMonthlyBill, getStudentPaymentSummary, getStudentFeeProfile,
   addBooksFee, addPreviousYearBalance, addKitFee, getPaymentHistory, deleteTransaction, getUserRole,
-  editTransaction, editBillField
+  editTransaction, editBillField, billToParticulars
 } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import StudentPrintPage from "./StudentPrintPage";
@@ -236,7 +236,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       
       const enrichedReceipt = {
         ...receipt,
-        particulars: actualParticulars,
+        particulars: receipt.particulars?.length ? receipt.particulars : actualParticulars,
         // totalDue = balance before this payment; remainingDue = balance after cash + discount
         totalDue: receipt.totalDue ?? dbBalance,
         remainingDue: receipt.remainingDue,
@@ -315,20 +315,39 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     if (txn.receiptRef) {
       try {
         const snap = await getDoc(doc(db, "receipts", txn.receiptRef));
-        if (snap.exists()) {
-          latestReceipt = { ...txn, ...snap.data() };
-        }
-      } catch(e) { console.error("Error fetching receipt", e); }
+        if (snap.exists()) latestReceipt = { ...txn, ...snap.data() };
+      } catch (e) { console.error("Error fetching receipt", e); }
+    }
+
+    // 1) Use the itemised snapshot saved with the receipt, else 2) rebuild from that month's bill
+    let particulars = Array.isArray(latestReceipt.particulars) ? latestReceipt.particulars : [];
+    const hasSnapshot = particulars.length > 0;
+    if (!hasSnapshot) {
+      try {
+        const rMonth = latestReceipt.month || txn.month || month;
+        const rSession = latestReceipt.session || txn.session || session;
+        const b = rMonth === month && rSession === session && bill
+          ? bill
+          : await getMonthlyBill(rSession, rMonth, selectedStudent.id);
+        particulars = billToParticulars(b);
+      } catch (e) { console.error("Error building particulars", e); }
+    }
+
+    let grossTotal = particulars.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+    if (!hasSnapshot && txn.snapshotTotalDue && grossTotal > txn.snapshotTotalDue) {
+      particulars = [...particulars, { label: "Less: Paid / Discount Earlier", amount: -(grossTotal - txn.snapshotTotalDue) }];
+      grossTotal = txn.snapshotTotalDue;
     }
 
     setReceiptPopup({
       ...latestReceipt,
+      particulars,
       studentName: selectedStudent?.name,
       admissionNumber: selectedStudent?.admissionNumber,
       className: selectedStudent?.className,
       guardianName: selectedStudent?.guardianName || selectedStudent?.fatherName,
-      totalDue: txn.snapshotTotalDue,
-      remainingDue: txn.runningBalance,
+      totalDue: hasSnapshot ? (latestReceipt.totalDue ?? grossTotal) : (grossTotal || txn.snapshotTotalDue),
+      remainingDue: hasSnapshot && latestReceipt.remainingDue !== undefined ? latestReceipt.remainingDue : txn.runningBalance,
     });
   }
 
