@@ -2,7 +2,7 @@ import React, { useEffect, useState } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { doc, getDoc } from "firebase/firestore";
 import { db } from "../firebase/config";
-import { collectPayment, getPaymentHistory, searchStudents } from "../firebase/feeService";
+import { collectPayment, getPaymentHistory, searchStudents, getMonthlyBill, billToParticulars } from "../firebase/feeService";
 import ReceiptPrintSheet from "./ReceiptPrintSheet";
 import PrintManager from "./PrintManager";
 import "../styles/feeManagement.css";
@@ -46,6 +46,15 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       const found = await searchStudents(term);
       if (found.length === 0) setSearchError("No students found.");
       setSearchResults(found);
+
+      // Preload each result's bill so the Status column (DUE / PAID) is accurate before selecting
+      found.slice(0, 20).forEach(async (st) => {
+        try {
+          const safeId = String(st.id).replace(/[\/\\.\*\[\]:;]/g, "-");
+          const snap = await getDoc(doc(db, "monthlyBills", `${session}_${month}_${safeId}`));
+          setBills((prev) => ({ ...prev, [st.id]: snap.exists() ? { id: snap.id, ...snap.data() } : null }));
+        } catch (e) {}
+      });
     } catch (err) {
       setSearchError(err.message || "Could not load students.");
     } finally {
@@ -65,58 +74,48 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     setResults(null);
   }
 
-  // Fetch bill and full history when a student is selected
+  // Fetch the bill and full history whenever a selected student's data is missing
+  async function loadStudentData(id) {
+    const safeId = String(id).replace(/[\/\\.\*\[\]:;]/g, "-");
+    const billRef = doc(db, "monthlyBills", `${session}_${month}_${safeId}`);
+    const [billSnap, hist] = await Promise.all([getDoc(billRef), getPaymentHistory(id)]);
+    return {
+      bill: billSnap.exists() ? { id: billSnap.id, ...billSnap.data() } : null,
+      hist: hist || [],
+    };
+  }
+
   useEffect(() => {
     let active = true;
 
-    (async () => {
-      let newRows = { ...rows };
-      let newBills = { ...bills };
-      let newHistories = { ...histories };
+    selectedIds.forEach((id) => {
+      // Skip only if BOTH bill and history are already loaded
+      if (bills[id] !== undefined && histories[id]) return;
 
-      for (const id of selectedIds) {
-        if (!histories[id]) {
-          newRows[id] = {
-            ...newRows[id],
-            amount: newRows[id]?.amount ?? "",
-            discount: newRows[id]?.discount ?? 0,
-            method: newRows[id]?.method ?? sharedMethod,
-            ref: newRows[id]?.ref ?? "",
-            loadingBill: true,
-          };
+      setRows((prev) => ({
+        ...prev,
+        [id]: {
+          ...prev[id],
+          amount: prev[id]?.amount ?? "",
+          discount: prev[id]?.discount ?? 0,
+          method: prev[id]?.method ?? sharedMethod,
+          ref: prev[id]?.ref ?? "",
+          loadingBill: true,
+        },
+      }));
 
-          try {
-            const safeId = String(id).replace(/[\/\\.\*\[\]:;]/g, "-");
-            const billRef = doc(db, "monthlyBills", `${session}_${month}_${safeId}`);
-            
-            const [billSnap, hist] = await Promise.all([
-              getDoc(billRef),
-              getPaymentHistory(id)
-            ]);
-
-            if (!active) return;
-
-            if (billSnap.exists()) {
-              newBills[id] = { id: billSnap.id, ...billSnap.data() };
-            } else {
-              newBills[id] = null;
-            }
-
-            newHistories[id] = hist || [];
-            newRows[id].loadingBill = false;
-          } catch (err) {
-            if (!active) return;
-            newRows[id].loadingBill = false;
-          }
-        }
-      }
-
-      if (active) {
-        setRows(newRows);
-        setBills(newBills);
-        setHistories(newHistories);
-      }
-    })();
+      loadStudentData(id)
+        .then(({ bill, hist }) => {
+          if (!active) return;
+          setBills((prev) => ({ ...prev, [id]: bill }));
+          setHistories((prev) => ({ ...prev, [id]: hist }));
+          setRows((prev) => ({ ...prev, [id]: { ...prev[id], loadingBill: false } }));
+        })
+        .catch(() => {
+          if (!active) return;
+          setRows((prev) => ({ ...prev, [id]: { ...prev[id], loadingBill: false } }));
+        });
+    });
 
     return () => { active = false; };
   }, [selectedIds, session, month]);
@@ -239,7 +238,7 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
           ...res.receipt,
           studentName: s.name,
           className: s.className,
-          particulars: actualParticulars,
+          particulars: res.receipt.particulars?.length ? res.receipt.particulars : actualParticulars,
           totalDue: currentOutstanding,
           // Trust the balance computed inside the DB transaction
           remainingDue: res.receipt.remainingDue,
@@ -257,23 +256,15 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
     if (receipts.length > 0) {
       setReceiptsToPrint(receipts);
       
-      // Optimistic UI Update
-      const newHistories = { ...histories };
-      successfulStudentIds.forEach(id => {
-        if (!newHistories[id]) newHistories[id] = [];
-        const newTxn = {
-          id: `temp-${uuidv4()}`,
-          paymentDate: { seconds: new Date(paymentDate).getTime() / 1000 },
-          amountReceived: parseFloat(rows[id].amount) || 0,
-          discount: parseFloat(rows[id].discount) || 0,
-          componentType: "monthly",
-          session,
-          voided: false
-        };
-        newHistories[id] = [newTxn, ...newHistories[id]];
-      });
-      setHistories(newHistories);
-      
+      // Reload fresh bill + history (real balances, session/month fields) for paid students
+      await Promise.all(successfulStudentIds.map(async (id) => {
+        try {
+          const { bill, hist } = await loadStudentData(id);
+          setBills((prev) => ({ ...prev, [id]: bill }));
+          setHistories((prev) => ({ ...prev, [id]: hist }));
+        } catch (e) { /* will be re-fetched on next selection */ }
+      }));
+
       // Remove successful students from the selection and reset their rows
       setSelectedIds(prev => {
         const next = new Set(prev);
@@ -286,11 +277,6 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
         delete newRows[id];
       });
       setRows(newRows);
-      setBills(prev => {
-        const next = { ...prev };
-        successfulStudentIds.forEach(id => delete next[id]);
-        return next;
-      });
     }
 
     if (errors.length === 0 && onDone) onDone(receipts);
@@ -307,17 +293,24 @@ export default function BatchFeeCollection({ session, month, preselectedIds = []
       if (snap.exists()) {
         const receiptData = { ...snap.data(), id: snap.id };
         
-        const particulars = [];
-        if (receiptData.previousDue > 0) particulars.push({ label: "Previous Due", amount: receiptData.previousDue });
-        if (receiptData.feeType) particulars.push({ label: receiptData.feeType, amount: receiptData.amountReceived || 0 });
-
-        const totalAmt = Number(receiptData.amountReceived || 0) + Number(receiptData.discount || 0) + Number(receiptData.previousDue || 0) + Number(receiptData.lateFee || 0);
+        let particulars = Array.isArray(receiptData.particulars) ? receiptData.particulars : [];
+        const hasSnapshot = particulars.length > 0;
+        if (particulars.length === 0) {
+          const b = await getMonthlyBill(receiptData.session || session, receiptData.month || month, receiptData.studentId || txn.studentId);
+          particulars = billToParticulars(b);
+        }
+        let grossTotal = particulars.reduce((sum, p) => sum + Number(p.amount || 0), 0);
+        if (!hasSnapshot && txn.totalDue && grossTotal > txn.totalDue) {
+          particulars = [...particulars, { label: "Less: Paid / Discount Earlier", amount: -(grossTotal - txn.totalDue) }];
+          grossTotal = txn.totalDue;
+        }
 
         setReceiptsToPrint([{
           ...receiptData,
-          particulars: particulars,
-          totalDue: totalAmt,
-          remainingDue: receiptData.remainingDue || 0,
+          particulars,
+          // Old receipts without a saved snapshot use the ledger's figures so the numbers tie out
+          totalDue: hasSnapshot ? (receiptData.totalDue ?? grossTotal) : (txn.totalDue || grossTotal),
+          remainingDue: hasSnapshot ? (receiptData.remainingDue || 0) : (txn.remainingDue ?? 0),
         }]);
       } else {
         alert("Receipt document not found in the database.");
