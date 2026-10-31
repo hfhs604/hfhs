@@ -169,24 +169,29 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   const kit = bill ? (bill.kitFeeBilled || 0) : 0;
 
   const totalBilled = previousDue + tuition + transport + devFee + books + prevYear + kit;
-  
-  let totalCashPaid = 0;
+
+  // Balance as stored by the database (already net of every earlier payment AND discount)
+  const dbBalance = bill
+    ? (bill.carriedForward !== undefined ? bill.carriedForward : (bill.totalDue || 0) - (bill.totalPaid || 0))
+    : 0;
+
+  // This month's cash and discount
+  const totalCashPaid = bill ? (bill.totalPaid || 0) : 0;
   let totalDiscountGiven = 0;
+  // Session cash (all months) - discount is NOT cash, so it is never counted here
+  let sessionCashPaid = 0;
   history.forEach(t => {
-    if (t.session === session && t.voided !== true && (!t.componentType || t.componentType === "monthly")) {
-      totalCashPaid += Number(t.amountReceived || t.netAmount || 0);
-      totalDiscountGiven += Number(t.discount || 0);
-    }
+    if (t.voided === true || (t.componentType && t.componentType !== "monthly")) return;
+    if (t.session === session) sessionCashPaid += Number(t.amountReceived || t.netAmount || 0);
+    if (t.session === session && t.month === month) totalDiscountGiven += Number(t.discount || 0);
   });
 
   const enteredDiscount = Number(form.discount || 0);
   const amountAdd = Number(form.amountReceived || 0);
 
-  // Final Balance = Total Billed - (Cash Paid + Cash Entered) - (Total Discount + Entered Discount)
-  const finalBalance = Math.max(totalBilled - totalCashPaid - amountAdd - totalDiscountGiven - enteredDiscount, 0);
-  
-  // Session Paid strictly tracks CASH received
-  const liveSessionPaid = totalCashPaid + amountAdd;
+  // Cash and discount are BOTH credited against the balance, but only cash counts as money received.
+  const finalBalance = Math.max(dbBalance - amountAdd - enteredDiscount, 0);
+  const liveSessionPaid = sessionCashPaid + amountAdd;
 
   const calculatedHistory = history.map((t) => {
     return {
@@ -201,6 +206,9 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   async function handleSubmit(e) {
     if (e) e.preventDefault();
     if (submitting || !selectedStudent) return;
+
+    if (amountAdd < 0 || enteredDiscount < 0) { setError("Amount and discount cannot be negative."); return; }
+    if (amountAdd + enteredDiscount <= 0) { setError("Enter a cash amount or a discount."); return; }
 
     setSubmitting(true);
     setError(null);
@@ -229,8 +237,9 @@ export default function FeeCollection({ session, month, role, initialStudentId }
       const enrichedReceipt = {
         ...receipt,
         particulars: actualParticulars,
-        totalDue: totalBilled,
-        remainingDue: finalBalance,
+        // totalDue = balance before this payment; remainingDue = balance after cash + discount
+        totalDue: receipt.totalDue ?? dbBalance,
+        remainingDue: receipt.remainingDue,
       };
 
       showFlash("✅ Payment Successful");
@@ -481,13 +490,14 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                   </div>
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
-                    <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Amount Entered</span>
+                    <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Cash Entered</span>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#2563eb", marginTop: 4 }}>₹{amountAdd}</div>
                   </div>
 
                   <div style={{ background: "#fef2f2", padding: 12, borderRadius: 6, border: "1px solid #fecaca", gridColumn: "1 / -1" }}>
-                    <span style={{ fontSize: 10, color: "#991b1b", fontWeight: 600, textTransform: "uppercase" }}>Current Balance</span>
+                    <span style={{ fontSize: 10, color: "#991b1b", fontWeight: 600, textTransform: "uppercase" }}>Balance {amountAdd + enteredDiscount > 0 ? "After This Entry" : "Due"}</span>
                     <div style={{ fontSize: 20, fontWeight: 700, color: "#dc2626", marginTop: 4 }}>₹{finalBalance}</div>
+                    {enteredDiscount > 0 && <div style={{ fontSize: 11, color: "#059669", marginTop: 4 }}>Includes ₹{enteredDiscount} discount (not cash received)</div>}
                   </div>
                   
                 </div>
@@ -503,8 +513,8 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                 </select>
               </label>
 
-              <label>Amount Received (₹) *
-                <input type="number" required min="0" value={form.amountReceived} onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
+              <label>Cash Received (₹)
+                <input type="number" min="0" value={form.amountReceived} onChange={(e) => setForm({ ...form, amountReceived: e.target.value })} />
               </label>
 
               <label>Payment Date
