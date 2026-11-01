@@ -626,20 +626,16 @@ export async function getPaymentHistory(studentId) {
     const billSnap = await getDocs(query(collection(db, COL.monthlyBills), where("studentId", "==", studentId)));
     const bills = billSnap.docs.map((d) => d.data());
 
-    const timeline = [];
+// REPLACE the timeline building and loop inside getPaymentHistory with this:
 
+    const timeline = [];
     const ADDON_TYPES = ["books", "kit", "previousYear", "transport"];
 
     bills.forEach(bill => {
-      // Everything billed THIS month (previousDue excluded: it is the earlier months' balance,
-      // which the ledger already carries).
       const fieldCharges =
         (bill.tuitionBilled || 0) + (bill.devFeeBilled || 0) + (bill.transportBilled || 0) +
         (bill.booksBilled || 0) + (bill.previousYearBilled || 0) + (bill.kitFeeBilled || 0);
 
-      // Add-ons that were recorded as their own transaction are added at their own date below,
-      // so remove them here to avoid double counting. Anything left over (e.g. a Books fee set
-      // through "Edit bill field" with no transaction) is charged at the bill date.
       const loggedAddOns = transactions
         .filter(t => t.session === bill.session && t.month === bill.month && ADDON_TYPES.includes(t.componentType))
         .reduce((sum, t) => sum + Number(t.addOnAmount || 0), 0);
@@ -656,15 +652,9 @@ export async function getPaymentHistory(studentId) {
       else if (txn.paymentDate?.seconds) txnDate = new Date(txn.paymentDate.seconds * 1000);
       else txnDate = new Date(txn.paymentDate || txn.createdAt?.toDate?.() || Date.now());
       
-      if (txnDate.getHours() === 0 && txnDate.getMinutes() === 0) {
-         txnDate.setHours(12); 
-      }
+      if (txnDate.getHours() === 0 && txnDate.getMinutes() === 0) txnDate.setHours(12); 
 
-      timeline.push({
-        type: 'PAYMENT',
-        date: txnDate,
-        txnData: txn
-      });
+      timeline.push({ type: 'PAYMENT', date: txnDate, txnData: txn });
     });
 
     timeline.sort((a, b) => {
