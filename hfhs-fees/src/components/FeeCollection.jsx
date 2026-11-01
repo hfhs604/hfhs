@@ -1,14 +1,3 @@
-Here is the complete, corrected `FeeCollection.jsx` file. 
-
-I have fixed the layout to properly show the **Discount Availed till date** and **Last Payment Date** subscripts, and updated the internal math so it correctly reflects the database balance.
-
-### Steps to implement:
-1. Open your project in your code editor.
-2. Navigate to `src/components/FeeCollection.jsx`.
-3. Delete all existing code in that file.
-4. Copy and paste the code below.
-
-```javascript
 import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { doc, getDoc } from "firebase/firestore";
