@@ -316,12 +316,15 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
 export async function addLineItem({ studentId, session, month, amount, field, componentType, feeType, remarks, paymentMethod = "Cash", paymentDate, idempotencyKey }) {
   const user = currentUser();
   const safeId = String(studentId).replace(/[\/\\.\*\[\]:;]/g, "-");
+  
+  // Use the exact month provided (e.g., "2026-04")
   const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId}`);
   const idemRef = doc(db, "paymentIdempotency", idempotencyKey);
 
   const result = await runTransaction(db, async (tx) => {
     const billSnap = await tx.get(billRef);
-    if (!billSnap.exists()) throw new Error("No bill found.");
+    if (!billSnap.exists()) throw new Error(`No bill found for ${month}. Please generate the bill for this month first.`);
+    
     const bill = billSnap.data();
 
     const amt = Number(amount);
@@ -369,7 +372,6 @@ export async function addLineItem({ studentId, session, month, amount, field, co
   await writeAuditLog({ action: `ADD_${componentType.toUpperCase()}`, studentId, newValue: { amount: result.amt, receiptNumber }, transactionRef: result.txnRef.id });
   return { receiptId: result.receiptRef.id, receipt: receiptData, duplicateBlocked: false };
 }
-
 export async function addTransportFee(a) { return addLineItem({ ...a, amount: Number(a.amount), field: "transportBilled", componentType: "transport", feeType: "Transport", remarks: "Transport fee" }); }
 export async function addBooksFee(a) { return addLineItem({ ...a, field: "booksBilled", componentType: "books", feeType: "Books", remarks: "Books fee" }); }
 export async function addPreviousYearBalance(a) { return addLineItem({ ...a, field: "previousYearBilled", componentType: "previousYear", feeType: "Previous Year Balance", remarks: "Previous year dues" }); }
