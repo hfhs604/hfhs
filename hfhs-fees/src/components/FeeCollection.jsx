@@ -1,3 +1,14 @@
+Here is the complete, corrected `FeeCollection.jsx` file. 
+
+I have fixed the layout to properly show the **Discount Availed till date** and **Last Payment Date** subscripts, and updated the internal math so it correctly reflects the database balance.
+
+### Steps to implement:
+1. Open your project in your code editor.
+2. Navigate to `src/components/FeeCollection.jsx`.
+3. Delete all existing code in that file.
+4. Copy and paste the code below.
+
+```javascript
 import React, { useState, useEffect } from "react";
 import { v4 as uuidv4 } from "uuid";
 import { doc, getDoc } from "firebase/firestore";
@@ -180,6 +191,7 @@ export default function FeeCollection({ session, month, role, initialStudentId }
   let totalDiscountGiven = 0;
   // Session cash (all months) - discount is NOT cash, so it is never counted here
   let sessionCashPaid = 0;
+  
   history.forEach(t => {
     if (t.voided === true || (t.componentType && t.componentType !== "monthly")) return;
     if (t.session === session) sessionCashPaid += Number(t.amountReceived || t.netAmount || 0);
@@ -384,6 +396,9 @@ export default function FeeCollection({ session, month, role, initialStudentId }
     } catch (e) { setPromptConfirming(false); }
   }
 
+  // Find the most recent transaction for the subscript
+  const lastTxn = history.find(t => !t.voided && t.componentType === "monthly");
+
   return (
     <div className="fm-card fm-collect-compact" style={{ paddingBottom: 40 }}>
       <div className="fm-collect-header">
@@ -501,11 +516,19 @@ export default function FeeCollection({ session, month, role, initialStudentId }
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Paid (This Month)</span>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#16a34a", marginTop: 4 }}>₹{totalCashPaid}</div>
+                    {lastTxn && (
+                      <div style={{ fontSize: 10, color: "#64748b", marginTop: 6 }}>
+                        Last paid: {formatDate(lastTxn)}
+                      </div>
+                    )}
                   </div>
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
                     <span style={{ fontSize: 10, color: "#64748b", fontWeight: 600, textTransform: "uppercase" }}>Discount Given</span>
                     <div style={{ fontSize: 18, fontWeight: 700, color: "#059669", marginTop: 4 }}>₹{totalDiscountGiven + enteredDiscount}</div>
+                    <div style={{ fontSize: 10, color: "#64748b", marginTop: 6 }}>
+                      Availed till date: ₹{totalDiscountGiven}
+                    </div>
                   </div>
 
                   <div style={{ background: "#fff", padding: 12, borderRadius: 6, border: "1px solid #e2e8f0" }}>
