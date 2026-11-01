@@ -1,5 +1,6 @@
 import React, { useState } from "react";
 import { startNewMonth } from "../firebase/feeService";
+import { startNewMonth, fixBrokenBills } from "../firebase/feeService";
 import "../styles/feeManagement.css";
 
 export default function Settings({ session }) {
