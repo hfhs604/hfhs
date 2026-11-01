@@ -854,15 +854,22 @@ export async function setStudentTransport(studentId, amount) {
 export async function deleteTransaction(transactionId, reason = "") {
   const user = currentUser(); const userDoc = await getDoc(doc(db, "users", user.uid));
   if (userDoc.data()?.role !== "superAdmin") throw new Error("Only Super Admin can delete a transaction.");
+  
   const txnRef = doc(db, COL.transactions, transactionId); const txnSnap = await getDoc(txnRef);
-  if (!txnSnap.exists()) throw new Error("Transaction not found."); const txn = txnSnap.data();
+  if (!txnSnap.exists()) throw new Error("Transaction not found."); 
+  const txn = txnSnap.data();
 
   if (txn.studentId && txn.session && txn.month) {
-    const safeId = String(txn.studentId).replace(/[\/\\.\*\[\]:;]/g, "-"); const billRef = doc(db, COL.monthlyBills, `${txn.session}_${txn.month}_${safeId}`);
+    const safeId = String(txn.studentId).replace(/[\/\\.\*\[\]:;]/g, "-"); 
+    const billRef = doc(db, COL.monthlyBills, `${txn.session}_${txn.month}_${safeId}`);
     const billSnap = await getDoc(billRef);
+    
     if (billSnap.exists()) {
-      const bill = billSnap.data(); const amt = Number(txn.netAmount || 0); const disc = Number(txn.discount || 0);
+      const bill = billSnap.data(); 
+      const amt = Number(txn.netAmount || 0); 
+      const disc = Number(txn.discount || 0);
       
+      // Recalculate the carry based on the transaction we are deleting
       const carry = bill.carriedForward !== undefined ? bill.carriedForward : (bill.totalDue || 0) - (bill.totalPaid || 0);
 
       if (!txn.componentType || txn.componentType === "monthly") {
@@ -875,8 +882,10 @@ export async function deleteTransaction(transactionId, reason = "") {
         const newCarry = carry - Math.abs(amt);
         await updateDoc(billRef, { carriedForward: newCarry, status: newCarry <= 0 ? "PAID" : "PARTIAL" });
       } else {
+        // It's an add-on (Books, Kit, etc). Remove it from the bill fields AND the total.
         const field = { books: "booksBilled", kit: "kitFeeBilled", previousYear: "previousYearBilled", transport: "transportBilled" }[txn.componentType];
         const addOn = Number(txn.addOnAmount || 0);
+        
         if (field) {
           const newFieldValue = Math.max((bill[field] || 0) - addOn, 0);
           const newDue = Math.max((bill.totalDue || 0) - addOn, 0);
@@ -886,11 +895,13 @@ export async function deleteTransaction(transactionId, reason = "") {
       }
     }
   }
-  await deleteDoc(txnRef); if (txn.receiptRef) { try { await deleteDoc(doc(db, COL.receipts, txn.receiptRef)); } catch (err) {} }
+  
+  await deleteDoc(txnRef); 
+  if (txn.receiptRef) { try { await deleteDoc(doc(db, COL.receipts, txn.receiptRef)); } catch (err) {} }
   await writeAuditLog({ action: "TRANSACTION_DELETED", studentId: txn.studentId || null, previousValue: txn, newValue: { deletedBy: user.email || user.uid, reason: reason || "Not specified" } });
+  
   return { success: true };
 }
-
 export async function getAttendance(date, className) {
   try { const snap = await getDoc(doc(db, COL.attendance, `${date}_${className || "all"}`)); return snap.exists() ? snap.data() : { date, className, records: {} }; } catch (err) { return { date, className, records: {} }; }
 }
