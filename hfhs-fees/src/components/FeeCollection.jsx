@@ -688,17 +688,20 @@ export default function FeeCollection({ session, month, role, initialStudentId }
             <p style={{ margin: "12px 0 4px", fontSize: 14, color: "#4b5563" }}>Enter the amount in ₹</p>
             <input type="number" min="1" autoFocus value={promptValue} onChange={(e) => setPromptValue(e.target.value)} disabled={promptConfirming} style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15, marginBottom: 12 }} />
             
-            <p style={{ margin: "0 0 4px", fontSize: 14, color: "#4b5563" }}>Date billed</p>
+            {/* NEW MONTH INPUT */}
+            <p style={{ margin: "0 0 4px", fontSize: 14, color: "#4b5563" }}>Which month is this for?</p>
+            <input type="month" required value={promptMonth} onChange={(e) => setPromptMonth(e.target.value)} disabled={promptConfirming} style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15, marginBottom: 12 }} />
+
+            <p style={{ margin: "0 0 4px", fontSize: 14, color: "#4b5563" }}>Date billed (for receipt)</p>
             <input type="date" required value={promptDate} onChange={(e) => setPromptDate(e.target.value)} disabled={promptConfirming} style={{ width: "100%", padding: 10, border: "1px solid #ccc", borderRadius: 6, fontSize: 15 }} />
 
             <div style={{ display: "flex", gap: 10, marginTop: 20, justifyContent: "flex-end" }}>
               <button type="button" className="fm-secondary-btn" onClick={cancelPrompt} disabled={promptConfirming}>Cancel</button>
-              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0 || !promptDate}>{promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}</button>
+              <button type="button" className="fm-primary-btn" onClick={confirmPrompt} disabled={promptConfirming || !promptValue || Number(promptValue) <= 0 || !promptDate || !promptMonth}>{promptConfirming ? "Adding…" : `Add ₹${promptValue || 0}`}</button>
             </div>
           </div>
         </div>
       )}
-
       {editingBillField && (
         <div className="fm-modal-overlay">
           <div className="fm-modal" style={{ maxWidth: 380 }}>
