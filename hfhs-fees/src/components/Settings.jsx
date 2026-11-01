@@ -1,5 +1,4 @@
 import React, { useState } from "react";
-//import { startNewMonth } from "../firebase/feeService";
 import { startNewMonth, fixBrokenBills } from "../firebase/feeService";
 import "../styles/feeManagement.css";
 
@@ -43,6 +42,27 @@ export default function Settings({ session }) {
     }
   }
 
+  async function handleRepair() {
+    const confirmed = window.confirm(
+      "Are you sure you want to run the repair script?\n\nThis will fix broken balances caused by deleting add-on transactions."
+    );
+    if (!confirmed) return;
+
+    setBusy(true);
+    setStatus(null);
+    try {
+      const res = await fixBrokenBills(session);
+      setStatus({
+        ok: true,
+        message: `✅ Successfully fixed ${res.fixedCount} bills. Please refresh the page.`,
+      });
+    } catch (err) {
+      setStatus({ ok: false, message: `❌ ${err.message}` });
+    } finally {
+      setBusy(false);
+    }
+  }
+
   return (
     <div className="fm-card">
       <h2>Monthly Billing Engine</h2>
@@ -72,15 +92,26 @@ export default function Settings({ session }) {
           This is the first month of the session (bills Development Fee ₹3150)
         </label>
 
-        <button
-          type="button"
-          className="fm-primary-btn"
-          onClick={handleStartMonth}
-          disabled={busy || !month}
-          style={{ marginTop: 8 }}
-        >
-          {busy ? "Generating bills…" : "🚀 Start New Month"}
-        </button>
+        <div style={{ display: "flex", gap: 12, marginTop: 8 }}>
+          <button
+            type="button"
+            className="fm-primary-btn"
+            onClick={handleStartMonth}
+            disabled={busy || !month}
+          >
+            {busy ? "Generating bills…" : "🚀 Start New Month"}
+          </button>
+
+          <button
+            type="button"
+            className="fm-primary-btn"
+            onClick={handleRepair}
+            disabled={busy}
+            style={{ backgroundColor: "#ef4444", borderColor: "#ef4444" }}
+          >
+            {busy ? "Repairing…" : "🛠️ Run Repair Script"}
+          </button>
+        </div>
       </div>
 
       {status && (
