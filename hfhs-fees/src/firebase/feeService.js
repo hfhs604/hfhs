@@ -909,3 +909,58 @@ export async function getExamMarks(examId) {
 export async function saveStudentMarks({ examId, studentId, marks, remarks = "" }) {
   const user = currentUser(); await setDoc(doc(db, COL.exams, examId, "marks", studentId), { marks, remarks, updatedBy: user.uid, updatedAt: serverTimestamp() }); return { success: true };
 }
+export async function fixBrokenBills(session) {
+  try {
+    const billsSnap = await getDocs(query(collection(db, COL.monthlyBills), where("session", "==", session)));
+    const txnSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session)));
+    
+    const sums = {};
+    txnSnap.forEach((d) => {
+      const t = d.data();
+      if (t.voided === true) return;
+      const k = `${t.studentId}__${t.month}`;
+      if (!sums[k]) sums[k] = { paid: 0, disc: 0, refund: 0, addons: 0 };
+      
+      if (t.componentType === "refund") sums[k].refund += Math.abs(Number(t.amountReceived || t.netAmount || 0));
+      else if (!t.componentType || t.componentType === "monthly") {
+        sums[k].paid += Number(t.amountReceived || t.netAmount || 0);
+        sums[k].disc += Number(t.discount || 0);
+      } else {
+        sums[k].addons += Number(t.addOnAmount || 0);
+      }
+    });
+
+    let fixedCount = 0;
+    for (const d of billsSnap.docs) {
+      const b = d.data();
+      const x = sums[`${b.studentId}__${b.month}`] || { paid: 0, disc: 0, refund: 0, addons: 0 };
+      
+      const currentAddons = (b.booksBilled || 0) + (b.kitFeeBilled || 0) + (b.previousYearBilled || 0) + (b.transportBilled || 0);
+      
+      // If the bill has more add-ons than actual transactions, it means a transaction was deleted but the bill wasn't updated
+      let newBooks = b.booksBilled || 0;
+      if (currentAddons > x.addons) {
+        const diff = currentAddons - x.addons;
+        newBooks = Math.max(0, newBooks - diff);
+      }
+
+      const baseCharges = (b.previousDue || 0) + (b.tuitionBilled || 0) + (b.devFeeBilled || 0);
+      const newTotalDue = baseCharges + newBooks + (b.kitFeeBilled || 0) + (b.previousYearBilled || 0) + (b.transportBilled || 0);
+      const newCarry = newTotalDue - x.paid - x.disc + x.refund;
+
+      await updateDoc(d.ref, {
+        booksBilled: newBooks,
+        totalDue: newTotalDue,
+        totalPaid: x.paid,
+        carriedForward: newCarry,
+        status: newCarry <= 0 ? "PAID" : "PARTIAL"
+      });
+      fixedCount++;
+    }
+    console.log(`Successfully fixed ${fixedCount} bills. Please refresh the page.`);
+    return { success: true, fixedCount };
+  } catch (err) {
+    console.error("Repair failed:", err);
+    alert(`Repair failed: ${err.message}`);
+  }
+}
