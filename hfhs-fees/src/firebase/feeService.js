@@ -10,8 +10,7 @@ const COL = {
   students: "students", feeStructures: "feeStructures", transactions: "feeTransactions",
   receipts: "receipts", discounts: "discounts", sessions: "academicSessions",
   auditLogs: "auditLogs", counters: "counters", monthlyBills: "monthlyBills",
-  attendance: "attendance", exams: "exams",
-  dashboardStats: "dashboardStats", // NEW: pre-aggregated stats
+  attendance: "attendance", exams: "exams", dashboardStats: "dashboardStats",
 };
 
 export const MONTHLY_TUITION = {
@@ -48,10 +47,6 @@ async function writeAuditLog({ action, studentId, previousValue, newValue, trans
   } catch (err) { console.warn("writeAuditLog failed:", err.message); }
 }
 
-// ---------- NEW: Dashboard stats summary helpers ----------
-// These keep a single summary doc per session, updated on every payment,
-// so getDashboardStats becomes a 1-read operation instead of thousands.
-
 async function bumpSessionStats(session, { collectionAmt = 0, monthAmt = 0, month = null, discountAmt = 0, refundAmt = 0 } = {}) {
   if (!session) return;
   const ref = doc(db, COL.dashboardStats, `session_${session}`);
@@ -67,8 +62,6 @@ async function bumpSessionStats(session, { collectionAmt = 0, monthAmt = 0, mont
   }
   await setDoc(ref, patch, { merge: true });
 }
-
-// ---------- End summary helpers ----------
 
 async function generateReceiptNumber(session) {
   const year = session?.split("-")[0] || new Date().getFullYear().toString();
@@ -104,10 +97,8 @@ export async function getStudentFeeProfile(studentId) {
 }
 
 /**
- * searchStudents — FIXED:
- * - Removed the 500-doc fallback scan.
- * - Max 20 docs per variant, max ~60 reads worst case.
- * - Caller should debounce input (see note at bottom of file).
+ * searchStudents — Safely optimized: No massive fallback scan.
+ * Returns exact same Array shape.
  */
 export async function searchStudents(term) {
   const raw = (term || "").trim();
@@ -133,16 +124,9 @@ export async function searchStudents(term) {
     }
   }
 
-  // NO more fallback scan. Return what we have (max ~60 reads).
   return Array.from(results.values());
 }
 
-/**
- * startNewMonth — OPTIMIZED:
- * - Fetches previous month's bills in ONE query for the whole session/month,
- *   instead of one query per student (N+1 fix).
- * - Uses writeBatch to write all bills in chunks of 500.
- */
 export async function startNewMonth(session, month, { isFirstMonth = false } = {}) {
   let students = [];
   try {
@@ -152,7 +136,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     throw new Error(`Could not read students: ${err.message}`);
   }
 
-  // Fetch ALL previous-month bills for the session in one query (N+1 fix)
   let prevBillByStudent = {};
   try {
     const prevBillsSnap = await getDocs(query(
@@ -161,7 +144,7 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     ));
     prevBillsSnap.forEach(d => {
       const b = d.data();
-      if (b.month >= month) return; // only months before target
+      if (b.month >= month) return; 
       if (!prevBillByStudent[b.studentId] || b.month > prevBillByStudent[b.studentId].month) {
         prevBillByStudent[b.studentId] = b;
       }
@@ -171,7 +154,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
   const currentMonthNum = parseInt(month.split("-")[1]);
   let created = 0;
 
-  // Batch writes (500 per batch is Firestore's limit)
   const writes = [];
   for (const student of students) {
     const tuition = MONTHLY_TUITION[student.className] || 0;
@@ -197,7 +179,6 @@ export async function startNewMonth(session, month, { isFirstMonth = false } = {
     created++;
   }
 
-  // Write in batches of 500
   for (let i = 0; i < writes.length; i += 500) {
     const batch = writeBatch(db);
     writes.slice(i, i + 500).forEach(({ ref, data }) => batch.set(ref, data, { merge: true }));
@@ -214,9 +195,9 @@ export async function getMonthlyBill(session, month, studentId) {
 }
 
 /**
- * listBillsForMonth — FIXED: added pagination (default 200 per page).
+ * listBillsForMonth — Returns exact Array shape. Defaults to 500 max to match UI expectations.
  */
-export async function listBillsForMonth(session, month, { pageSize = 200, lastDoc = null } = {}) {
+export async function listBillsForMonth(session, month, { pageSize = 500, lastDoc = null } = {}) {
   try {
     let q = query(
       collection(db, COL.monthlyBills),
@@ -227,15 +208,14 @@ export async function listBillsForMonth(session, month, { pageSize = 200, lastDo
     );
     if (lastDoc) q = query(q, startAfter(lastDoc));
     const snap = await getDocs(q);
-    return {
-      bills: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
-      lastDoc: snap.docs[snap.docs.length - 1] || null,
-      hasMore: snap.docs.length === pageSize,
-    };
-  } catch (err) { throw new Error("Index required."); }
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) { 
+    // Fallback if index missing
+    const snap = await getDocs(query(collection(db, COL.monthlyBills), where("session", "==", session), where("month", "==", month)));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  }
 }
 
-// Itemised receipt lines for a monthly bill (only non-zero items).
 export function billToParticulars(bill, balanceBefore) {
   if (!bill) return [];
   const items = [
@@ -252,9 +232,6 @@ export function billToParticulars(bill, balanceBefore) {
   return lines;
 }
 
-/**
- * recalculateBillBalances — one-off repair, paginated to avoid giant reads.
- */
 export async function recalculateBillBalances(session) {
   const billsSnap = await getDocs(query(collection(db, COL.monthlyBills), where("session", "==", session)));
   const txnSnap = await getDocs(query(collection(db, COL.transactions), where("session", "==", session)));
@@ -292,9 +269,6 @@ export async function recalculateBillBalances(session) {
 
 if (typeof window !== "undefined") window.__repairBills = recalculateBillBalances;
 
-/**
- * collectPayment — now bumps the summary stats so the dashboard is 1-read.
- */
 export async function collectPayment({ studentId, amountReceived, paymentDate, paymentMethod, referenceNumber, feeType, discount = 0, lateFee = 0, remarks = "", session, month, idempotencyKey }) {
   const user = currentUser();
   const billRef = doc(db, COL.monthlyBills, `${session}_${month}_${safeId(studentId)}`);
@@ -358,7 +332,6 @@ export async function collectPayment({ studentId, amountReceived, paymentDate, p
   await setDoc(doc(db, COL.receipts, result.receiptRef.id), receiptData);
   await updateDoc(result.txnRef, { receiptNumber });
 
-  // NEW: bump summary stats (1 extra write, saves thousands of reads later)
   try {
     await bumpSessionStats(session, {
       collectionAmt: Number(amountReceived),
@@ -524,56 +497,46 @@ export async function refundAdvance({ studentId, amount, session, month, reason 
 }
 
 /**
- * getDueList — FIXED: filters in Firestore, paginated (default 200).
+ * getDueList — Returns exact Array shape. Default limit 500.
  */
-export async function getDueList({ session, month, pageSize = 200, lastDoc = null } = {}) {
+export async function getDueList({ session, month, pageSize = 500 } = {}) {
   try {
     const clauses = [where("carriedForward", ">", 0)];
     if (session) clauses.push(where("session", "==", session));
     if (month) clauses.push(where("month", "==", month));
-    let q = query(collection(db, COL.monthlyBills), ...clauses, orderBy("carriedForward", "desc"), fsLimit(pageSize));
-    if (lastDoc) q = query(q, startAfter(lastDoc));
+    const q = query(collection(db, COL.monthlyBills), ...clauses, orderBy("carriedForward", "desc"), fsLimit(pageSize));
     const snap = await getDocs(q);
-    return {
-      bills: snap.docs.map((d) => ({ id: d.id, ...d.data() })),
-      lastDoc: snap.docs[snap.docs.length - 1] || null,
-      hasMore: snap.docs.length === pageSize,
-    };
-  } catch (err) { throw new Error("Index required on carriedForward."); }
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  } catch (err) { 
+    const clauses = [];
+    if (session) clauses.push(where("session", "==", session)); 
+    if (month) clauses.push(where("month", "==", month));
+    const snap = await getDocs(query(collection(db, COL.monthlyBills), ...clauses));
+    return snap.docs.map((d) => ({ id: d.id, ...d.data() })).filter((b) => (b.carriedForward || 0) > 0).sort((a, b) => (b.carriedForward || 0) - (a.carriedForward || 0));
+  }
 }
 
-export async function getStudentsWithDue({ session, month, className, pageSize = 200, lastDoc = null } = {}) {
-  const result = await getDueList({ session, month: month || monthKey(), pageSize, lastDoc });
-  if (!className) return result;
-  return { ...result, bills: result.bills.filter((b) => b.className === className) };
+export async function getStudentsWithDue({ session, month, className } = {}) {
+  const bills = await getDueList({ session, month: month || monthKey() });
+  if (!className) return bills; return bills.filter((b) => b.className === className);
 }
 
-/**
- * getDashboardStats — COMPLETELY REWRITTEN:
- * - Reads 1 summary doc (dashboardStats/session_<session>).
- * - Reads today's transactions only (where createdAt >= start of day).
- * - Uses getCountFromServer for student count.
- * Result: ~1-2 reads per dashboard load instead of thousands.
- */
 export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
   const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
 
-  // 1. Summary doc (1 read)
   let summary = {};
   try {
     const sSnap = await getDoc(doc(db, COL.dashboardStats, `session_${session}`));
     if (sSnap.exists()) summary = sSnap.data();
   } catch (err) {}
 
-  // 2. Student count (1 read from aggregate, cheap)
   let studentCount = 0;
   try {
     const c = await getCountFromServer(query(collection(db, COL.students), where("session", "==", session)));
     studentCount = c.data().count;
   } catch (err) {}
 
-  // 3. Today's transactions only (limited read)
   let todayCollection = 0, todayCash = 0, todayBank = 0, todayEntered = 0;
   let paymentMethodBreakdown = {};
   try {
@@ -597,7 +560,6 @@ export async function getDashboardStats(session, month) {
     });
   } catch (err) {}
 
-  // 4. Outstanding due — sum of carriedForward via aggregate (cheap)
   let totalOutstandingDue = 0;
   let studentsWithDue = 0;
   try {
@@ -642,9 +604,10 @@ export async function getFeeStructure(session, className) {
 }
 
 /**
- * getPaymentHistory — FIXED: paginated (default 100 transactions per page).
+ * getPaymentHistory — Returns exact Array shape (UI expects this).
+ * Internally capped at 200 recent transactions to save reads.
  */
-export async function getPaymentHistory(studentId, { pageSize = 100, lastDoc = null } = {}) {
+export async function getPaymentHistory(studentId, { pageSize = 200 } = {}) {
   try {
     let q = query(
       collection(db, COL.transactions),
@@ -652,16 +615,11 @@ export async function getPaymentHistory(studentId, { pageSize = 100, lastDoc = n
       orderBy("paymentDate", "desc"),
       fsLimit(pageSize)
     );
-    if (lastDoc) q = query(q, startAfter(lastDoc));
     const txnSnap = await getDocs(q);
     const transactions = txnSnap.docs.map((d) => ({ id: d.id, ...d.data() })).filter(t => !t.voided);
 
-    // Fetch bills only if we're on first page (they're small and few per student)
-    let bills = [];
-    if (!lastDoc) {
-      const billSnap = await getDocs(query(collection(db, COL.monthlyBills), where("studentId", "==", studentId)));
-      bills = billSnap.docs.map((d) => d.data());
-    }
+    const billSnap = await getDocs(query(collection(db, COL.monthlyBills), where("studentId", "==", studentId)));
+    const bills = billSnap.docs.map((d) => d.data());
 
     const timeline = [];
     const ADDON_TYPES = ["books", "kit", "previousYear", "transport"];
@@ -718,10 +676,10 @@ export async function getPaymentHistory(studentId, { pageSize = 100, lastDoc = n
       }
     });
 
-    return { ledger: ledger.reverse(), lastDoc: txnSnap.docs[txnSnap.docs.length - 1] || null, hasMore: txnSnap.docs.length === pageSize };
+    return ledger.reverse(); // Returns Array exactly as before
   } catch (err) {
     console.error("Error fetching history:", err);
-    return { ledger: [], lastDoc: null, hasMore: false };
+    return []; // Returns Array exactly as before
   }
 }
 
