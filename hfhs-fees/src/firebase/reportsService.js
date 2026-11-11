@@ -1,7 +1,7 @@
 import { db } from "../firebase/config";
 import {
   collection, getDocs, query, where, Timestamp,
-  orderBy, limit as fsLimit, startAfter,
+  orderBy, limit as fsLimit,
 } from "firebase/firestore";
 
 const COL = {
@@ -11,30 +11,28 @@ const COL = {
 };
 
 /**
- * getAllStudentsWithBills — FIXED: paginated (default 100 students per page).
- * Still reads bills + transactions for the page, but limited.
- * Do NOT call this on page load — only on explicit user action (button click).
+ * getAllStudentsWithBills — Returns exact Array shape.
+ * Internally limits to 500 students to prevent massive reads.
  */
-export async function getAllStudentsWithBills({
-  session, className, month, pageSize = 100, lastDoc = null,
-} = {}) {
+export async function getAllStudentsWithBills({ session, className, month, pageSize = 500 } = {}) {
   const targetMonth = month || new Date().toISOString().slice(0, 7);
   let students = [], bills = [], txns = [];
 
-  // 1. Paginated student fetch
   try {
     const sClauses = [];
     if (session) sClauses.push(where("session", "==", session));
     if (className) sClauses.push(where("className", "==", className));
-    let q = query(collection(db, COL.students), ...sClauses, orderBy("name"), fsLimit(pageSize));
-    if (lastDoc) q = query(q, startAfter(lastDoc));
-    const sSnap = await getDocs(q);
+    const sSnap = await getDocs(query(collection(db, COL.students), ...sClauses, orderBy("name"), fsLimit(pageSize)));
     students = sSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
-    var newLastDoc = sSnap.docs[sSnap.docs.length - 1] || null;
-    var hasMore = sSnap.docs.length === pageSize;
-  } catch (err) { return { students: [], lastDoc: null, hasMore: false }; }
+  } catch (err) { 
+    // Fallback if no index
+    const sClauses = [];
+    if (session) sClauses.push(where("session", "==", session));
+    if (className) sClauses.push(where("className", "==", className));
+    const sSnap = await getDocs(query(collection(db, COL.students), ...sClauses, fsLimit(pageSize)));
+    students = sSnap.docs.map((d) => ({ id: d.id, ...d.data() }));
+  }
 
-  // 2. Only fetch bills for THESE students (whereIn chunks of 10)
   if (students.length > 0) {
     const ids = students.map((s) => s.id);
     for (let i = 0; i < ids.length; i += 10) {
@@ -72,7 +70,7 @@ export async function getAllStudentsWithBills({
     }
   });
 
-  const result = students.map((s) => {
+  return students.map((s) => {
     const bill = billByStudent[s.id];
     const txn = txnsByStudent[s.id] || { paid: 0, discount: 0 };
     const totalFee = bill?.totalDue || 0;
@@ -83,8 +81,6 @@ export async function getAllStudentsWithBills({
     if (actualDue === 0 && totalPaid > 0) accountStatus = "PAID";
     return { ...s, month: targetMonth, totalDue: actualDue, totalPaid, totalFee, accountStatus };
   });
-
-  return { students: result, lastDoc: newLastDoc, hasMore };
 }
 
 export async function getAllStudents(opts = {}) {
@@ -92,37 +88,28 @@ export async function getAllStudents(opts = {}) {
 }
 
 /**
- * getTransactionHistoryReport — FIXED: paginated (default 100 rows).
+ * getTransactionHistoryReport — Returns exact Array shape.
+ * Internally limits to 500 recent transactions by default.
  */
-export async function getTransactionHistoryReport({
-  session, fromDate, toDate, className, pageSize = 100, lastDoc = null,
-} = {}) {
+export async function getTransactionHistoryReport({ session, fromDate, toDate, className, pageSize = 500 } = {}) {
   try {
     let clauses = [where("session", "==", session), where("voided", "==", false)];
     if (fromDate) clauses.push(where("createdAt", ">=", Timestamp.fromDate(new Date(fromDate))));
     if (toDate) clauses.push(where("createdAt", "<=", Timestamp.fromDate(new Date(toDate + "T23:59:59"))));
 
     let q = query(collection(db, COL.transactions), ...clauses, orderBy("createdAt", "desc"), fsLimit(pageSize));
-    if (lastDoc) q = query(q, startAfter(lastDoc));
 
     const snap = await getDocs(q);
     let rows = snap.docs.map((d) => ({ id: d.id, ...d.data() }));
     if (className) rows = rows.filter(r => String(r.className || "").toUpperCase() === String(className).toUpperCase());
 
-    return {
-      rows,
-      lastDoc: snap.docs[snap.docs.length - 1] || null,
-      hasMore: snap.docs.length === pageSize,
-    };
+    return rows; // Returns Array exactly as before
   } catch (err) {
     console.error(err);
-    return { rows: [], lastDoc: null, hasMore: false };
+    return []; // Returns Array exactly as before
   }
 }
 
-/**
- * getMonthlyCollectionTrend — FIXED: only fetches last N months, no full scan.
- */
 export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}) {
   try {
     const now = new Date();
@@ -153,11 +140,6 @@ export async function getMonthlyCollectionTrend({ session, monthsBack = 6 } = {}
   } catch (err) { return []; }
 }
 
-/**
- * getClassWiseCollectionReport — FIXED:
- * - Reads bills for the target month only (already scoped).
- * - Uses bills for fee/paid/due (no need to read all students).
- */
 export async function getClassWiseCollectionReport({ session, month } = {}) {
   try {
     const targetMonth = month || new Date().toISOString().slice(0, 7);
@@ -180,7 +162,6 @@ export async function getClassWiseCollectionReport({ session, month } = {}) {
   } catch (err) { return []; }
 }
 
-// 4. Family Lookup — FIXED: paginated, no full collection scan.
 function normalizeName(s) {
   return String(s || "").trim().replace(/\s+/g, " ").toLowerCase().replace(/[.,'"]/g, "");
 }
@@ -192,7 +173,6 @@ export async function findStudentsByParentName({ session, searchTerm } = {}) {
   const needle = normalizeName(term);
   if (needle.length < 3) return { direct: [], groups: [] };
 
-  // Search by name variants (max ~60 reads), same pattern as searchStudents.
   const variants = Array.from(new Set([term, term.toUpperCase(), term.toLowerCase()]));
   const map = new Map();
   for (const v of variants) {
@@ -207,7 +187,6 @@ export async function findStudentsByParentName({ session, searchTerm } = {}) {
       snap.forEach((d) => map.set(d.id, { id: d.id, ...d.data() }));
     } catch (err) {}
   }
-  // Also try fatherName / motherName / guardianName exact-prefix (best-effort)
   for (const field of ["fatherName", "motherName", "guardianName"]) {
     try {
       const snap = await getDocs(query(
@@ -233,7 +212,6 @@ export async function findStudentsByParentName({ session, searchTerm } = {}) {
     if (s.guardianName && s.guardianName !== s.fatherName) parentKeys.add(normalizeName(s.guardianName));
   });
 
-  // To find siblings, query students with matching father/mother names
   const siblings = new Map();
   for (const pk of parentKeys) {
     for (const field of ["fatherName", "motherName", "guardianName"]) {
@@ -267,7 +245,6 @@ export async function findStudentsByParentName({ session, searchTerm } = {}) {
   return { direct, groups };
 }
 
-// 5. CSV Export (unchanged)
 export function exportToCSV(rows, filename) {
   if (!rows || rows.length === 0) return;
   const headers = Object.keys(rows[0]).filter((k) => typeof rows[0][k] !== "object");
