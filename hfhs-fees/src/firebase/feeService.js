@@ -525,18 +525,21 @@ export async function getDashboardStats(session, month) {
   const targetMonth = month || monthKey();
   const startOfDay = new Date(); startOfDay.setHours(0, 0, 0, 0);
 
+  // 1. Summary doc (1 read)
   let summary = {};
   try {
     const sSnap = await getDoc(doc(db, COL.dashboardStats, `session_${session}`));
     if (sSnap.exists()) summary = sSnap.data();
-  } catch (err) {}
+  } catch (err) { console.warn("Stats summary read failed:", err.message); }
 
+  // 2. Student count (1 read from aggregate, cheap)
   let studentCount = 0;
   try {
     const c = await getCountFromServer(query(collection(db, COL.students), where("session", "==", session)));
     studentCount = c.data().count;
-  } catch (err) {}
+  } catch (err) { console.warn("Student count failed:", err.message); }
 
+  // 3. Today's transactions only (limited read)
   let todayCollection = 0, todayCash = 0, todayBank = 0, todayEntered = 0;
   let paymentMethodBreakdown = {};
   try {
@@ -558,8 +561,9 @@ export async function getDashboardStats(session, month) {
       }
       todayEntered += amt;
     });
-  } catch (err) {}
+  } catch (err) { console.warn("Today's txns failed:", err.message); }
 
+  // 4. Outstanding due — wrapped in try/catch so a missing index doesn't break the whole dashboard
   let totalOutstandingDue = 0;
   let studentsWithDue = 0;
   try {
@@ -568,11 +572,15 @@ export async function getDashboardStats(session, month) {
       { total: sum("carriedForward") }
     );
     totalOutstandingDue = dueAgg.data().total || 0;
+    
     const dueCount = await getCountFromServer(
       query(collection(db, COL.monthlyBills), where("session", "==", session), where("carriedForward", ">", 0))
     );
     studentsWithDue = dueCount.data().count;
-  } catch (err) {}
+  } catch (err) {
+    console.warn("Outstanding due aggregation failed (Index missing?):", err.message);
+    // Fallback: we leave it as 0 so the rest of the dashboard still loads
+  }
 
   const monthlyMap = summary.monthly || {};
 
@@ -592,7 +600,6 @@ export async function getDashboardStats(session, month) {
     month: targetMonth,
   };
 }
-
 export async function setFeeStructure({ session, className, categories, lateFeeRule }) {
   await setDoc(doc(db, COL.feeStructures, `${session}_${className}`), { session, className, categories, lateFeeRule, updatedAt: serverTimestamp() }, { merge: true });
   await writeAuditLog({ action: "FEE_STRUCTURE_UPDATED", newValue: { session, className, categories } });
